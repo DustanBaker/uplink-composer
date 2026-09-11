@@ -47,13 +47,20 @@ also catches counterfeit flash).
 ## Quick start
 
 ```
-composer init acme-workspace --org "Acme IT"
+composer init --org "Acme IT" acme-workspace
 cd acme-workspace
 composer sources import example-win11-iso D:\Downloads\Win11_24H2.iso
 composer build example-win11
 composer devices
 composer flash example-win11 <device-id>
 ```
+
+`composer serve` opens the same workflow as a local web page (loopback-only,
+token-protected): recipes, devices, one-click builds, an arm-then-flash
+dialog with the typed-size interlock enforced server-side, and live progress
+over SSE. `composer capture <device>` reads a working stick (through its
+last partition) into the library as a master image — the generalized
+"capture the golden stick" workflow.
 
 `composer doctor` checks the host: on Windows and macOS the ISO/WIM tooling
 is built into the OS (Mount-DiskImage/hdiutil, DISM); Linux needs `7zz` and
@@ -63,11 +70,13 @@ is built into the OS (Mount-DiskImage/hdiutil, DISM); Linux needs `7zz` and
 
 Early but real: the FAT32 composer passes a native acid test (Windows mounts
 a composed image, `chkdsk` reports zero problems, 400+ files hash-identical
-through the Windows FAT driver, byte-reproducible builds), and the full
-Windows pipeline — captured-master trees, ISO extraction, overlays, driver
-packs, generated first-boot scripts — is integration-tested. Elevated
-flashing works on Windows (UAC worker); macOS/Linux flash paths are written
-but not yet hardware-tested. Web UI (`composer serve`) is not built yet.
+through the Windows FAT driver, byte-reproducible builds), the full Windows
+pipeline — captured-master trees, ISO extraction, overlays, driver packs,
+generated first-boot scripts — is integration-tested, and the first physical
+stick flashed on Windows verified 413/413 files through the OS FAT driver.
+The web UI is live. macOS/Linux flash paths are written but not yet
+hardware-tested; the Windows-ISO end-to-end and a physical unattended
+install are the next acceptance milestones.
 
 ## Development
 

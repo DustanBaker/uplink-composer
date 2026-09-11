@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -14,21 +13,8 @@ import (
 	"github.com/DustanBaker/the-composer/internal/compose"
 	"github.com/DustanBaker/the-composer/internal/device"
 	"github.com/DustanBaker/the-composer/internal/elevate"
-	"github.com/DustanBaker/the-composer/internal/flash"
+	"github.com/DustanBaker/the-composer/internal/flashrun"
 )
-
-// workerJob is handed to the elevated flash worker via a temp file.
-type workerJob struct {
-	Artifact compose.Artifact `json:"artifact"`
-	Device   device.Device    `json:"device"`
-}
-
-type workerEvent struct {
-	Stage string `json:"stage"`
-	Done  int64  `json:"done"`
-	Total int64  `json:"total"`
-	Error string `json:"error,omitempty"`
-}
 
 func cmdFlash(ctx context.Context, env *Env, args []string) error {
 	fs := flag.NewFlagSet("flash", flag.ContinueOnError)
@@ -85,64 +71,92 @@ func cmdFlash(ctx context.Context, env *Env, args []string) error {
 		fmt.Println("  currently mounted at:", strings.Join(dev.Mounts, ", "))
 	}
 	fmt.Printf("  writing: %s (%d MiB, verify %s)\n", filepath.Base(art.Path), art.Size>>20, art.Verify)
-	if !*yes {
-		want := dev.SizeConfirmation()
-		fmt.Printf("Type the device size (%s) to confirm: ", want)
-		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("confirmation aborted: %w", err)
-		}
-		if strings.TrimSpace(line) != want {
-			return fmt.Errorf("confirmation mismatch — aborting, nothing written")
-		}
+	if err := confirmSize(dev, *yes); err != nil {
+		return err
 	}
 
-	// Elevated already (or root): flash in-process.
-	if elevate.IsElevated() {
-		prog := &stageProgress{}
-		err := flash.Flash(ctx, art, dev, prog.report)
-		prog.finish()
+	if !elevate.IsElevated() {
+		fmt.Println("elevating flash worker —", elevate.Hint())
+	}
+	prog := &stageProgress{}
+	err = flashrun.RunFlash(ctx, art, dev, prog.report)
+	prog.finish()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Done. %s is written and verified — safe to remove.\n", dev.ID)
+	return nil
+}
+
+func cmdCapture(ctx context.Context, env *Env, args []string) error {
+	fs := flag.NewFlagSet("capture", flag.ContinueOnError)
+	out := fs.String("out", "", "output image path (default: library artifacts dir)")
+	yes := fs.Bool("yes", false, "skip the typed size confirmation")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("capture <device> [--out file.img]")
+	}
+	devs, err := device.List(ctx)
+	if err != nil {
+		return err
+	}
+	dev, err := matchDevice(devs, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if dev.System {
+		return fmt.Errorf("refusing to capture the system disk")
+	}
+	outPath := *out
+	if outPath == "" {
+		lib, err := env.library()
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Done. %s is written and verified — safe to remove.\n", dev.ID)
+		name := strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' {
+				return r
+			}
+			return '-'
+		}, dev.Model)
+		outPath = filepath.Join(lib.ArtifactsDir(), fmt.Sprintf("capture-%s-%s.img", name, time.Now().Format("20060102-150405")))
+	}
+
+	fmt.Println("About to CAPTURE this device (read-only, through its last partition):")
+	fmt.Println(" ", dev.String())
+	fmt.Println("  to:", outPath)
+	if err := confirmSize(dev, *yes); err != nil {
+		return err
+	}
+	if !elevate.IsElevated() {
+		fmt.Println("elevating capture worker —", elevate.Hint())
+	}
+	prog := &stageProgress{}
+	result, err := flashrun.RunCapture(ctx, dev, outPath, prog.report)
+	prog.finish()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Captured to %s (%s)\n", outPath, result)
+	return nil
+}
+
+// confirmSize is the typed-size interlock ported from make-nuc-usb.sh.
+func confirmSize(dev device.Device, skip bool) error {
+	if skip {
 		return nil
 	}
-
-	// Otherwise hand off to the elevated worker and tail its progress.
-	jobDir := os.TempDir()
-	jobFile, err := os.CreateTemp(jobDir, "composer-job-*.json")
+	want := dev.SizeConfirmation()
+	fmt.Printf("Type the device size (%s) to confirm: ", want)
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil {
-		return err
+		return fmt.Errorf("confirmation aborted: %w", err)
 	}
-	jobPath := jobFile.Name()
-	progPath := jobPath + ".progress"
-	defer os.Remove(jobPath)
-	defer os.Remove(progPath)
-	if err := json.NewEncoder(jobFile).Encode(workerJob{Artifact: *art, Device: dev}); err != nil {
-		jobFile.Close()
-		return err
+	if strings.TrimSpace(line) != want {
+		return fmt.Errorf("confirmation mismatch — aborting, nothing written")
 	}
-	if err := jobFile.Close(); err != nil {
-		return err
-	}
-
-	fmt.Println("elevating flash worker —", elevate.Hint())
-	done := make(chan struct{})
-	go tailProgress(progPath, done)
-	code, err := elevate.RunElevated([]string{"flash-worker", "--job", jobPath, "--progress", progPath})
-	close(done)
-	time.Sleep(150 * time.Millisecond) // let the tailer print the final event
-	if err != nil {
-		return err
-	}
-	if code != 0 {
-		if msg := lastWorkerError(progPath); msg != "" {
-			return fmt.Errorf("%s", msg)
-		}
-		return fmt.Errorf("flash worker exited with code %d", code)
-	}
-	fmt.Printf("\nDone. %s is written and verified — safe to remove.\n", dev.ID)
 	return nil
 }
 
@@ -154,90 +168,7 @@ func cmdFlashWorker(ctx context.Context, args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	b, err := os.ReadFile(*jobPath)
-	if err != nil {
-		return 2
-	}
-	var job workerJob
-	if err := json.Unmarshal(b, &job); err != nil {
-		return 2
-	}
-	prog, err := os.OpenFile(*progPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return 2
-	}
-	defer prog.Close()
-	enc := json.NewEncoder(prog)
-	last := time.Now()
-	emit := func(ev workerEvent) {
-		enc.Encode(ev)
-	}
-	err = flash.Flash(ctx, &job.Artifact, job.Device, func(stage string, done, total int64) {
-		if stage == "done" || time.Since(last) > 300*time.Millisecond {
-			emit(workerEvent{Stage: stage, Done: done, Total: total})
-			last = time.Now()
-		}
-	})
-	if err != nil {
-		emit(workerEvent{Stage: "error", Error: err.Error()})
-		return 1
-	}
-	emit(workerEvent{Stage: "done"})
-	return 0
-}
-
-// tailProgress renders worker events until done closes.
-func tailProgress(path string, done <-chan struct{}) {
-	var offset int64
-	prog := &stageProgress{}
-	tick := time.NewTicker(300 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		select {
-		case <-done:
-			prog.finish()
-			return
-		case <-tick.C:
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			continue
-		}
-		if _, err := f.Seek(offset, 0); err != nil {
-			f.Close()
-			continue
-		}
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			offset += int64(len(sc.Bytes())) + 1
-			var ev workerEvent
-			if json.Unmarshal(sc.Bytes(), &ev) != nil {
-				continue
-			}
-			if ev.Error != "" {
-				prog.finish()
-				fmt.Fprintln(os.Stderr, "worker:", ev.Error)
-				continue
-			}
-			prog.report(ev.Stage, ev.Done, ev.Total)
-		}
-		f.Close()
-	}
-}
-
-func lastWorkerError(path string) string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	msg := ""
-	for _, line := range strings.Split(string(b), "\n") {
-		var ev workerEvent
-		if json.Unmarshal([]byte(line), &ev) == nil && ev.Error != "" {
-			msg = ev.Error
-		}
-	}
-	return msg
+	return flashrun.Worker(ctx, *jobPath, *progPath)
 }
 
 // matchDevice resolves a user-typed device argument: the exact ID, or the

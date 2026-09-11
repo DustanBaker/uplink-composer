@@ -18,7 +18,7 @@ const usage = `The Composer — build bootable installation USB media from recip
 Usage: composer <command> [args]
 
 Workspace
-  init <dir> --org <name>   scaffold a new org workspace
+  init --org <name> [dir]   scaffold a new org workspace
   recipes list              recipes in the workspace
   recipes lint              production-lesson checks + repo hygiene
 
@@ -32,8 +32,10 @@ Building and flashing
   build <recipe>            compose a bootable artifact into the library
   devices                   list candidate USB targets
   flash <recipe|.img> <device>  write and verify a stick (asks for typed size confirm)
+  capture <device>          read a working stick into the library as a master image
 
 Other
+  serve [--port 8931]       local web UI (recipes, devices, build, flash, live progress)
   doctor                    check this host's tooling and configuration
   version                   print version
 
@@ -130,12 +132,14 @@ func Main(args []string) int {
 		err = cmdBuild(ctx, env, cmdArgs)
 	case "flash":
 		err = cmdFlash(ctx, env, cmdArgs)
+	case "capture":
+		err = cmdCapture(ctx, env, cmdArgs)
 	case "flash-worker":
 		return cmdFlashWorker(ctx, cmdArgs)
 	case "gc":
 		err = cmdGC(env)
 	case "serve":
-		err = fmt.Errorf("the local web UI is not built yet — CLI only for now")
+		err = cmdServe(ctx, env, cmdArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		return 2

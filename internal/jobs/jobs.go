@@ -1,0 +1,113 @@
+// Package jobs is the shared progress bus: builds and flashes publish stage
+// events; the web UI's SSE stream and any other listener subscribe.
+package jobs
+
+import (
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+// Event is one progress update. Terminal events have Final set (Err empty on
+// success).
+type Event struct {
+	JobID string `json:"job_id"`
+	Kind  string `json:"kind"` // "build" | "flash" | "capture"
+	Title string `json:"title"`
+	Stage string `json:"stage"`
+	Done  int64  `json:"done"`
+	Total int64  `json:"total"` // -1 while unknown
+	Err   string `json:"error,omitempty"`
+	Final bool   `json:"final,omitempty"`
+	// Result carries a small payload on success (e.g. artifact path).
+	Result string `json:"result,omitempty"`
+	At     int64  `json:"at"` // unix millis
+}
+
+// Registry fans events out to subscribers and remembers each job's latest
+// state so a page that connects late still renders current jobs.
+type Registry struct {
+	mu     sync.Mutex
+	nextID atomic.Int64
+	subs   map[chan Event]struct{}
+	latest map[string]Event
+}
+
+func NewRegistry() *Registry {
+	return &Registry{
+		subs:   map[chan Event]struct{}{},
+		latest: map[string]Event{},
+	}
+}
+
+// Subscribe returns a buffered event channel and a cancel func. The current
+// state of every known job is replayed first.
+func (r *Registry) Subscribe() (<-chan Event, func()) {
+	ch := make(chan Event, 256)
+	r.mu.Lock()
+	r.subs[ch] = struct{}{}
+	for _, ev := range r.latest {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+	r.mu.Unlock()
+	return ch, func() {
+		r.mu.Lock()
+		if _, ok := r.subs[ch]; ok {
+			delete(r.subs, ch)
+			close(ch)
+		}
+		r.mu.Unlock()
+	}
+}
+
+func (r *Registry) publish(ev Event) {
+	ev.At = time.Now().UnixMilli()
+	r.mu.Lock()
+	r.latest[ev.JobID] = ev
+	for ch := range r.subs {
+		select {
+		case ch <- ev:
+		default: // slow subscriber: drop rather than block progress
+		}
+	}
+	r.mu.Unlock()
+}
+
+// Job is one tracked operation.
+type Job struct {
+	ID    string
+	Kind  string
+	Title string
+	reg   *Registry
+}
+
+// New starts tracking a job and emits its initial event.
+func (r *Registry) New(kind, title string) *Job {
+	j := &Job{
+		ID:    fmt.Sprintf("%s-%d", kind, r.nextID.Add(1)),
+		Kind:  kind,
+		Title: title,
+		reg:   r,
+	}
+	j.Progress("queued", 0, -1)
+	return j
+}
+
+// Progress publishes a non-terminal update.
+func (j *Job) Progress(stage string, done, total int64) {
+	j.reg.publish(Event{JobID: j.ID, Kind: j.Kind, Title: j.Title, Stage: stage, Done: done, Total: total})
+}
+
+// Finish publishes the terminal success event.
+func (j *Job) Finish(result string) {
+	j.reg.publish(Event{JobID: j.ID, Kind: j.Kind, Title: j.Title, Stage: "done", Final: true, Result: result})
+}
+
+// Fail publishes the terminal failure event.
+func (j *Job) Fail(err error) {
+	j.reg.publish(Event{JobID: j.ID, Kind: j.Kind, Title: j.Title, Stage: "error", Final: true, Err: err.Error()})
+}
