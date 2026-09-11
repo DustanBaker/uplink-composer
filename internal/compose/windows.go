@@ -33,10 +33,22 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		treePath = filepath.Join(ws.Dir, filepath.FromSlash(treePath))
 	}
 	if mode == recipe.SourceAuto {
+		// Prefer the captured master when it is present on THIS machine;
+		// fall back to the ISO source otherwise (recipes are shared across
+		// machines and the master usually lives on just one).
+		treeExists := false
 		if treePath != "" {
+			if st, err := os.Stat(treePath); err == nil && st.IsDir() {
+				treeExists = true
+			}
+		}
+		switch {
+		case treeExists:
 			mode = recipe.SourceTree
-		} else {
+		case r.OS.Source != "":
 			mode = recipe.SourceISO
+		default:
+			return nil, fmt.Errorf("compose: os.tree_path %s does not exist on this machine and no os.source is set", treePath)
 		}
 	}
 
