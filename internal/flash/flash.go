@@ -101,14 +101,21 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 		return err
 	}
 	defer t.Close()
-	// The enumerator's size is authoritative (raw nodes on macOS don't
-	// seek); the target's own report cross-checks where available.
+	// The open device's own size report is authoritative where available
+	// (Windows WMI enumeration under-reports by CHS-geometry rounding, up
+	// to a few MiB). The enumerator's size still cross-checks that the
+	// same physical device is attached: a swapped stick differs by far
+	// more than one cylinder.
+	const enumTolerance = 64 << 20
 	devSize := dev.SizeBytes
 	if tSize, err := t.Size(); err == nil && tSize > 0 {
-		if devSize == 0 {
+		switch {
+		case devSize == 0:
 			devSize = tSize
-		} else if tSize != devSize {
-			return fmt.Errorf("flash: %s size mismatch: enumeration says %d, device reports %d — replug and re-run `composer devices`", dev.ID, devSize, tSize)
+		case tSize < devSize || tSize-devSize > enumTolerance:
+			return fmt.Errorf("flash: %s size mismatch: enumeration saw %d, device reports %d — device changed since listing; replug and re-run `composer devices`", dev.ID, devSize, tSize)
+		default:
+			devSize = tSize
 		}
 	} else if devSize == 0 {
 		return fmt.Errorf("flash: cannot determine size of %s", dev.ID)
