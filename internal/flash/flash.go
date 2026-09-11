@@ -127,6 +127,18 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 		return fmt.Errorf("flash: artifact is %d MiB but %s holds only %d MiB", total>>20, dev.ID, devSize>>20)
 	}
 
+	// ── Tail wipe (stale GPT backup headers) ─────────────────────────────
+	// Done BEFORE the image write: once the new partition table lands,
+	// Windows re-enumerates the disk and blocks late raw writes near the
+	// end ("Incorrect function" — found on the first physical stick). At
+	// this point the old table is still in place and every old volume is
+	// locked, so end-of-disk writes are permitted. The image write may
+	// later overlap this region harmlessly.
+	zeros := make([]byte, tailWipe)
+	if _, err := t.WriteAt(zeros, devSize-tailWipe); err != nil {
+		return fmt.Errorf("flash: wiping stale partition data at end of device: %w", err)
+	}
+
 	// ── Write ────────────────────────────────────────────────────────────
 	hash := sha256.New()
 	buf := make([]byte, chunkSize)
@@ -165,24 +177,6 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 		return fmt.Errorf("flash: artifact was empty")
 	}
 	wantHash := hex.EncodeToString(hash.Sum(nil))
-
-	// ── Tail wipe (stale GPT backup headers) ─────────────────────────────
-	wipeStart := devSize - tailWipe
-	if wipeStart < written {
-		wipeStart = written
-	}
-	if wipeStart < devSize {
-		zeros := make([]byte, chunkSize)
-		for off := wipeStart; off < devSize; off += int64(len(zeros)) {
-			n := int64(len(zeros))
-			if off+n > devSize {
-				n = devSize - off
-			}
-			if _, err := t.WriteAt(zeros[:n], off); err != nil {
-				return fmt.Errorf("flash: wiping stale partition data at end of device: %w", err)
-			}
-		}
-	}
 
 	if err := t.Sync(); err != nil {
 		return fmt.Errorf("flash: flushing device: %w", err)
