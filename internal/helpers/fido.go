@@ -2,12 +2,14 @@ package helpers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/DustanBaker/the-composer/internal/fetch"
 	"github.com/DustanBaker/the-composer/internal/manifest"
@@ -88,6 +90,15 @@ func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoS
 			s.Arch = spec.Arch
 		}
 	}
+	// Microsoft URLs stay valid ~24h and their rate limiter ("Sentinel")
+	// blocks an IP after only a few link requests — so never ask twice for
+	// the same thing while a resolved URL is still fresh.
+	cacheKey := fmt.Sprintf("%s|%s|%s|%s|%s", s.Win, s.Release, s.Edition, s.Language, s.Arch)
+	cachePath := filepath.Join(helpersDir, "fido", "urlcache.json")
+	if url := cachedURL(cachePath, cacheKey); url != "" {
+		return url, nil
+	}
+
 	cmd := exec.CommandContext(ctx, ps,
 		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
 		"-File", script,
@@ -95,15 +106,52 @@ func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoS
 		"-Lang", s.Language, "-Arch", s.Arch, "-GetUrl")
 	out, err := cmd.Output()
 	if err != nil {
-		detail := ""
+		detail := strings.TrimSpace(string(out))
 		if ee, ok := err.(*exec.ExitError); ok {
-			detail = "\n" + strings.TrimSpace(string(ee.Stderr))
+			detail = strings.TrimSpace(detail + "\n" + strings.TrimSpace(string(ee.Stderr)))
 		}
-		return "", fmt.Errorf("Fido could not resolve a download URL (Microsoft throttles by IP for ~24h after repeated requests): %w%s", err, detail)
+		if strings.Contains(detail, "Sentinel") {
+			return "", fmt.Errorf("Microsoft's rate limiter rejected this IP for roughly 24 hours (\"%s\").\nOptions: retry tomorrow; use another network/VPN; or download the ISO in a browser from microsoft.com/software-download/windows11 and run `composer sources import <id> <path-to.iso>`", detail)
+		}
+		return "", fmt.Errorf("Fido could not resolve a download URL: %w\n%s", err, detail)
 	}
 	url := strings.TrimSpace(string(out))
 	if !strings.HasPrefix(url, "https://") {
 		return "", fmt.Errorf("Fido returned no URL: %s", url)
 	}
+	saveCachedURL(cachePath, cacheKey, url)
 	return url, nil
+}
+
+type fidoCacheEntry struct {
+	URL       string    `json:"url"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// cachedURL returns a still-fresh previously resolved URL for key, if any.
+func cachedURL(path, key string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var m map[string]fidoCacheEntry
+	if json.Unmarshal(b, &m) != nil {
+		return ""
+	}
+	e, ok := m[key]
+	if !ok || time.Since(e.FetchedAt) > 20*time.Hour {
+		return ""
+	}
+	return e.URL
+}
+
+func saveCachedURL(path, key, url string) {
+	m := map[string]fidoCacheEntry{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	m[key] = fidoCacheEntry{URL: url, FetchedAt: time.Now().UTC()}
+	if b, err := json.MarshalIndent(m, "", "  "); err == nil {
+		_ = os.WriteFile(path, b, 0o644)
+	}
 }
