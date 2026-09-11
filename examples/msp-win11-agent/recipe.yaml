@@ -1,0 +1,65 @@
+version: 1
+id: sff-win11-agent
+name: "Small-form-factor PC — Win11 Pro, drivers, debloat, RMM agent at first boot"
+
+os:
+  type: windows
+  # Official ISO fetched by `composer sources pull win11-iso` (provider: fido).
+  # If a captured golden stick exists on this machine, tree mode is used
+  # automatically; otherwise the ISO.
+  source: win11-iso
+  source_mode: auto
+  # tree_path: /path/to/captured-master
+
+target:
+  scheme: mbr
+  filesystem: fat32
+  volume_label: ESD-USB
+  size: auto
+  min_stick: 8GiB
+  boot: uefi-only
+
+windows:
+  # Pro enforced twice: ei.cfg pins the media edition, and the generic key
+  # in the unattend overrides firmware OEM Home keys.
+  ei_cfg: { edition: Professional, channel: Retail, vl: false }
+
+  unattend:
+    template: templates/autounattend.xml.tmpl
+    vars:
+      # Generic Win11 Pro key — selects the edition only; activation needs
+      # a real license.
+      edition_key: VK7JG-NPHTM-C97JM-9MPGT-3V66T
+
+  driver_packs:
+    # INF packs for every model this stick serves; pnputil installs only
+    # what matches the hardware it boots on.
+    - { path: Drivers/vendor-lan, install: pnputil-sweep }
+    # A vendor .cab (expanded at first boot, then swept).
+    - { ref: audio-cab, install: expand-then-sweep }
+    # A vendor silent installer.
+    - { ref: wifi-exe, install: exe, args: ["-q", "-s", "-l", "{log}"], log: wifi-install.log }
+
+  payload:
+    - { ref: rmm-agent-msi }
+
+  # Consumer apps, Copilot, widgets, ads, and telemetry stripped at first
+  # boot; the installed media stays official and updatable.
+  debloat:
+    preset: standard
+
+  firstboot:
+    mode: generate
+    steps:
+      - drivers
+      - debloat
+      - wait: 10s          # let a freshly-driver'd NIC come up first
+      - msi: { ref: rmm-agent-msi, args: ["/qn"], log: rmm-agent-msi.log }
+
+firmware_notes: >-
+  Boot from the stick once via the firmware boot menu; disk 0 is wiped
+  without prompting. Wired ethernet preferred so the agent can check in
+  on first boot.
+
+flash:
+  verify: readback-sha256

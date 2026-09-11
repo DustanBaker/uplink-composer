@@ -23,8 +23,7 @@ import (
 )
 
 // defaultSourceDateEpoch fixes FAT timestamps for reproducible images when
-// the caller has not set SOURCE_DATE_EPOCH (2025-09-02, the first NUC
-// stick's completion date).
+// the caller has not set SOURCE_DATE_EPOCH (an arbitrary fixed date).
 const defaultSourceDateEpoch = "1756800000"
 
 // Request is one build.

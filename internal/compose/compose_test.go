@@ -58,8 +58,8 @@ func TestComposeWindowsTreeMode(t *testing.T) {
 
 	// ── Recipe ───────────────────────────────────────────────────────────
 	recipeYAML := `version: 1
-id: nuc-test
-name: "Test NUC stick"
+id: sff-test
+name: "Test SFF PC stick"
 os:
   type: windows
   source_mode: tree
@@ -88,13 +88,13 @@ windows:
       - wait: 10s
       - msi: { ref: test-agent-msi, args: ["/qn"] }
 `
-	writeFile(t, filepath.Join(wsDir, "recipes", "nuc-test.yaml"), []byte(recipeYAML))
+	writeFile(t, filepath.Join(wsDir, "recipes", "sff-test.yaml"), []byte(recipeYAML))
 
 	ws, err := workspace.Load(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := ws.Recipe("nuc-test")
+	r, err := ws.Recipe("sff-test")
 	if err != nil {
 		t.Fatal(err)
 	}

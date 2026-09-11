@@ -1,7 +1,7 @@
 // Package manifest defines pinned-source files: small YAML documents, kept in
 // an org workspace's git repo, that let any machine re-fetch multi-gigabyte
-// binaries (ISOs, driver cabs, agent MSIs) by URL + SHA-256. The generalized
-// form of nuc-deployment-usb's fetch-sst.sh.
+// binaries (ISOs, driver cabs, agent MSIs) by URL + SHA-256 — what a pinned
+// fetch script does, declaratively.
 package manifest
 
 import (

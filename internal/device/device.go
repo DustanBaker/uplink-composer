@@ -48,8 +48,8 @@ func List(ctx context.Context) ([]Device, error) {
 }
 
 // SizeConfirmation is the typed string a caller must supply to arm a flash
-// — the exact size in GiB with one decimal, e.g. "14.9". Ported from
-// make-nuc-usb.sh's "type the SIZE exactly as shown" interlock.
+// — the exact size in GiB with one decimal, e.g. "14.9": "type the SIZE
+// exactly as shown".
 func (d Device) SizeConfirmation() string {
 	return fmt.Sprintf("%.1f", float64(d.SizeBytes)/(1<<30))
 }

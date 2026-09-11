@@ -56,8 +56,8 @@ type OSSpec struct {
 	Source     string     `yaml:"source"` // manifest/library id (iso mode)
 	Type       OSType     `yaml:"type"`
 	SourceMode SourceMode `yaml:"source_mode,omitempty"`
-	// TreePath points at a captured-master directory (tree mode), e.g. the
-	// nuc-usb-master rsync target. Absolute, or relative to the workspace.
+	// TreePath points at a captured-master directory (tree mode): a working
+	// stick copied to disk. Absolute, or relative to the workspace.
 	TreePath string `yaml:"tree_path,omitempty"`
 }
 
@@ -119,8 +119,8 @@ const (
 )
 
 // DriverPack references driver material by library/manifest Ref or by a
-// workspace-relative Path (a directory of INFs kept in the workspace repo,
-// like nuc-deployment-usb's Drivers/). Exactly one is set.
+// workspace-relative Path (a directory of INFs kept in the workspace repo).
+// Exactly one is set.
 type DriverPack struct {
 	Ref     string        `yaml:"ref,omitempty"`
 	Path    string        `yaml:"path,omitempty"`

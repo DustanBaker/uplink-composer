@@ -12,8 +12,8 @@ import (
 )
 
 // Capture reads a device into outPath, from sector 0 through the end of its
-// last partition (the generalized make-nuc-usb.sh "capture the master
-// stick"). Returns "sha256:<hex>:<bytes>" of the written image.
+// last partition (the "capture the golden master stick" workflow).
+// Returns "sha256:<hex>:<bytes>" of the written image.
 //
 // GPT note: the on-disk backup GPT at the very end of the device is not
 // captured; writing the image to another stick leaves it absent until a

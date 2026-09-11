@@ -89,7 +89,7 @@ Multi-gigabyte binaries never live in this repo: manifests pin url + sha256
 so any machine can re-fetch them.
 `
 
-// scaffoldUnattend generalizes the proven NUC autounattend.xml: wipes disk 0,
+// scaffoldUnattend is a production-proven unattended install: wipes disk 0,
 // forces the edition via a generic key, creates a local admin, auto-logs-on
 // once, and runs the generated first-boot script via FirstLogonCommands
 // (SetupComplete.cmd is skipped under firmware OEM keys — do not use it).

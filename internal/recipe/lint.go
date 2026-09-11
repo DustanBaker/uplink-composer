@@ -15,7 +15,7 @@ func (f Finding) String() string { return f.Severity + ": " + f.Message }
 
 // agentMarkers identify RMM/remote-access installers by name. Baking one
 // into an image (instead of first boot) clones its identity across machines
-// — the hard rule from the NUC stick's production history.
+// — a hard-won production rule.
 var agentMarkers = []string{
 	"screenconnect", "connectwise", "teamviewer", "anydesk", "datto",
 	"ninjaone", "ninjarmm", "atera", "kaseya", "syncro", "splashtop",

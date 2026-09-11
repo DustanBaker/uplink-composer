@@ -143,7 +143,8 @@ func cmdCapture(ctx context.Context, env *Env, args []string) error {
 	return nil
 }
 
-// confirmSize is the typed-size interlock ported from make-nuc-usb.sh.
+// confirmSize is the typed-size interlock: the operator must type the
+// target's exact size to arm a destructive write.
 func confirmSize(dev device.Device, skip bool) error {
 	if skip {
 		return nil
