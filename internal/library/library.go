@@ -186,25 +186,41 @@ func (e *ErrUnpinned) Error() string {
 		e.ID, e.SHA256, e.SHA256)
 }
 
+// URLResolver resolves a provider-based source (e.g. fido) to a concrete
+// download URL at pull time.
+type URLResolver func(ctx context.Context, src *manifest.Source) (string, error)
+
 // Pull downloads a manifest source into the store. Unpinned sources download
 // but return *ErrUnpinned unless pinTOFU is set; either way the computed hash
 // is preserved (the blob stays cached), so pinning then re-pulling is free.
-func (l *Library) Pull(ctx context.Context, src *manifest.Source, pinTOFU bool, progress fetch.Progress) (Entry, error) {
-	if src.URL == "" {
-		return Entry{}, fmt.Errorf("library: source %s has no url; use `composer sources import %s <file>`", src.ID, src.ID)
-	}
+// resolve is consulted for provider-based sources; nil restricts Pull to
+// plain-URL manifests.
+func (l *Library) Pull(ctx context.Context, src *manifest.Source, pinTOFU bool, resolve URLResolver, progress fetch.Progress) (Entry, error) {
 	if e, err := l.Resolve(src.ID); err == nil && src.SHA256 != "" && e.SHA256 == src.SHA256 {
 		return e, nil // already present and matching
 	}
+	url := src.URL
+	if src.Provider != "" {
+		if resolve == nil {
+			return Entry{}, fmt.Errorf("library: source %s uses provider %s, which this caller cannot resolve", src.ID, src.Provider)
+		}
+		var err error
+		if url, err = resolve(ctx, src); err != nil {
+			return Entry{}, err
+		}
+	}
+	if url == "" {
+		return Entry{}, fmt.Errorf("library: source %s has no url; use `composer sources import %s <file>`", src.ID, src.ID)
+	}
 	dest := filepath.Join(l.TmpDir(), src.ID+"-"+src.DownloadFilename())
-	sum, err := fetch.Download(ctx, src.URL, dest, progress)
+	sum, err := fetch.Download(ctx, url, dest, progress)
 	if err != nil {
 		return Entry{}, err
 	}
 	if src.SHA256 != "" && sum != src.SHA256 {
 		os.Remove(dest)
 		return Entry{}, fmt.Errorf("library: %s downloaded from %s hashes to %s, manifest pins %s — refusing (upstream changed or download corrupted)",
-			src.ID, src.URL, sum, src.SHA256)
+			src.ID, url, sum, src.SHA256)
 	}
 	st, _ := os.Stat(dest)
 	var size int64
@@ -214,10 +230,18 @@ func (l *Library) Pull(ctx context.Context, src *manifest.Source, pinTOFU bool, 
 	if err := l.storeBlob(dest, sum); err != nil {
 		return Entry{}, err
 	}
+	filename := src.DownloadFilename()
+	if src.Filename == "" && src.Provider != "" {
+		// Providers resolve the real name at pull time (e.g. the ISO name
+		// Microsoft serves); prefer it over the manifest id.
+		if base := urlBasename(url); base != "" {
+			filename = base
+		}
+	}
 	e := Entry{
-		ID: src.ID, SHA256: sum, Filename: src.DownloadFilename(),
+		ID: src.ID, SHA256: sum, Filename: filename,
 		Kind: src.Kind, Format: src.Format, Size: size,
-		SourceURL: src.URL, ImportedAt: time.Now().UTC(),
+		SourceURL: url, ImportedAt: time.Now().UTC(),
 	}
 	if src.SHA256 == "" && !pinTOFU {
 		// Blob is stored (cache) but not cataloged as trusted.
@@ -304,6 +328,15 @@ func (l *Library) GC() (int64, error) {
 		os.RemoveAll(p)
 	}
 	return freed, nil
+}
+
+// urlBasename extracts the final path segment of a URL, without query.
+func urlBasename(u string) string {
+	base := u[strings.LastIndex(u, "/")+1:]
+	if i := strings.IndexAny(base, "?#"); i >= 0 {
+		base = base[:i]
+	}
+	return base
 }
 
 func copyFile(src, dst string) error {

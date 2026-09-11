@@ -245,6 +245,16 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 	}
 	stage.AddFile(fbPath, path.Join(scriptsImg, "firstboot.cmd"))
 
+	// Debloat pass (invoked from firstboot; also available to template-mode
+	// scripts that call it themselves).
+	if w.Debloat.Enabled() {
+		dbPath := filepath.Join(buildTmp, "debloat.ps1")
+		if err := os.WriteFile(dbPath, []byte(recipe.GenerateDebloatPS(r)), 0o644); err != nil {
+			return nil, err
+		}
+		stage.AddFile(dbPath, path.Join(scriptsImg, "debloat.ps1"))
+	}
+
 	// ── Size and build ───────────────────────────────────────────────────
 	contentBytes, entries, err := stage.Stats()
 	if err != nil {

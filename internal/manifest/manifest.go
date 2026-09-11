@@ -49,12 +49,27 @@ var (
 	sha1Re   = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
+// FidoSpec selects an official Microsoft consumer ISO via the Fido helper
+// (Microsoft's direct links are ephemeral, so the URL is resolved at pull
+// time). Zero values default to Win 11 / Latest / Pro / English / x64.
+type FidoSpec struct {
+	Win      string `yaml:"win,omitempty"`      // "11" | "10"
+	Release  string `yaml:"release,omitempty"`  // "Latest" | "24H2" | ...
+	Edition  string `yaml:"edition,omitempty"`  // "Pro" | "Home" | ...
+	Language string `yaml:"language,omitempty"` // "English" | ...
+	Arch     string `yaml:"arch,omitempty"`     // "x64" | "arm64"
+}
+
 // Source is one pinned download.
 type Source struct {
 	ID     string `yaml:"id"`
 	Kind   Kind   `yaml:"kind"`
 	Format Format `yaml:"format"`
 	URL    string `yaml:"url,omitempty"`
+	// Provider "fido" resolves the download URL at pull time via the Fido
+	// helper instead of URL. sha256 pinning works the same way.
+	Provider string    `yaml:"provider,omitempty"`
+	Fido     *FidoSpec `yaml:"fido,omitempty"`
 	// SHA256 pins the content. Empty means unpinned: `sources pull` then
 	// requires --pin-tofu and prints the hash to commit into this file.
 	SHA256 string `yaml:"sha256,omitempty"`
@@ -81,6 +96,12 @@ func (s *Source) Validate(path string) error {
 		return fail("unknown format %q", s.Format)
 	case s.URL != "" && !strings.HasPrefix(s.URL, "https://") && !strings.HasPrefix(s.URL, "http://"):
 		return fail("url must be http(s), got %q", s.URL)
+	case s.Provider != "" && s.Provider != "fido":
+		return fail("unknown provider %q (supported: fido)", s.Provider)
+	case s.Provider == "fido" && s.URL != "":
+		return fail("provider fido resolves the URL itself; remove url")
+	case s.Provider == "fido" && s.Format != FormatISO:
+		return fail("provider fido only produces ISOs")
 	case s.SHA256 != "" && !sha256Re.MatchString(strings.ToLower(s.SHA256)):
 		return fail("sha256 must be 64 hex characters")
 	case s.SHA1 != "" && !sha1Re.MatchString(strings.ToLower(s.SHA1)):

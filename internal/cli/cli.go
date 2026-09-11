@@ -24,9 +24,15 @@ Workspace
 
 Library (machine-local, multi-GB safe)
   sources list              manifests and their library status
-  sources pull <id>         download a pinned source (--pin-tofu to trust-on-first-use)
+  sources pull <id>         download a pinned source (--pin-tofu to trust-on-first-use;
+                            provider: fido manifests fetch official Windows ISOs directly)
   sources import <id> <file>  add a manually-downloaded file (e.g. Windows ISO)
   gc                        drop unreferenced blobs and tmp files
+
+Drivers
+  drivers inspect <pack>    what a dir/.zip/.cab/.inf covers (class, versions, hardware IDs)
+  drivers add --id <n> <pack>  stage a pack (workspace or library+manifest) + recipe snippet
+  drivers scan              list this machine's devices that still need drivers (Windows)
 
 Building and flashing
   build <recipe>            compose a bootable artifact into the library
@@ -128,6 +134,8 @@ func Main(args []string) int {
 		err = cmdSources(ctx, env, cmdArgs)
 	case "recipes":
 		err = cmdRecipes(env, cmdArgs)
+	case "drivers":
+		err = cmdDrivers(ctx, env, cmdArgs)
 	case "build":
 		err = cmdBuild(ctx, env, cmdArgs)
 	case "flash":

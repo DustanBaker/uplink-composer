@@ -13,6 +13,7 @@ import (
 	"github.com/DustanBaker/the-composer/internal/device"
 	"github.com/DustanBaker/the-composer/internal/helpers"
 	"github.com/DustanBaker/the-composer/internal/library"
+	"github.com/DustanBaker/the-composer/internal/manifest"
 	"github.com/DustanBaker/the-composer/internal/workspace"
 )
 
@@ -159,7 +160,11 @@ func cmdSources(ctx context.Context, env *Env, args []string) error {
 			return err
 		}
 		prog := &stageProgress{}
-		entry, err := lib.Pull(ctx, src, *tofu, func(done, total int64) {
+		resolver := func(ctx context.Context, s *manifest.Source) (string, error) {
+			prog.report("resolving Microsoft download URL (Fido)", 0, -1)
+			return helpers.ResolveFidoURL(ctx, lib.HelpersDir(), s.Fido)
+		}
+		entry, err := lib.Pull(ctx, src, *tofu, resolver, func(done, total int64) {
 			prog.report("download", done, total)
 		})
 		prog.finish()

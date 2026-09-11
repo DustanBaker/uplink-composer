@@ -76,7 +76,24 @@ type WindowsSpec struct {
 	WinPEDrivers []string      `yaml:"winpe_drivers,omitempty"` // source refs → $WinpeDriver$/
 	DriverPacks  []DriverPack  `yaml:"driver_packs,omitempty"`
 	Payload      []PayloadItem `yaml:"payload,omitempty"`
+	Debloat      *DebloatSpec  `yaml:"debloat,omitempty"`
 	Firstboot    FirstbootSpec `yaml:"firstboot,omitempty"`
+}
+
+// DebloatSpec strips consumer junk at first boot while keeping the media
+// itself official (update- and activation-safe): provisioned-app removal
+// plus ad/telemetry/Copilot/widgets policies. Preset "standard" removes
+// promo and gaming apps; "aggressive" also drops Outlook (new), Phone Link,
+// Maps, People, and Get Help.
+type DebloatSpec struct {
+	Preset     string   `yaml:"preset"`                // off | standard | aggressive
+	RemoveApps []string `yaml:"remove_apps,omitempty"` // extra Appx family-name prefixes
+	KeepApps   []string `yaml:"keep_apps,omitempty"`   // exceptions to the preset lists
+}
+
+// Enabled reports whether the spec actually does anything.
+func (d *DebloatSpec) Enabled() bool {
+	return d != nil && d.Preset != "" && d.Preset != "off"
 }
 
 // EICfg pins the edition Windows Setup installs (sources/ei.cfg).
@@ -139,12 +156,14 @@ type FirstbootSpec struct {
 // Step is one ordered first-boot action. YAML forms:
 //
 //	- drivers                      # expand cabs, pnputil sweep, run driver exes
+//	- debloat                      # run the generated debloat pass (requires windows.debloat)
 //	- wait: 10s
 //	- msi: { ref: x, args: ["/qn"], log: x.log }
 //	- exe: { ref: x, args: ["-s"], log: x.log }
 //	- cmd: "raw command line"
 type Step struct {
 	Drivers bool
+	Debloat bool
 	Wait    time.Duration
 	MSI     *RunItem
 	Exe     *RunItem
@@ -159,11 +178,15 @@ type RunItem struct {
 
 func (s *Step) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
-		if node.Value == "drivers" {
+		switch node.Value {
+		case "drivers":
 			s.Drivers = true
 			return nil
+		case "debloat":
+			s.Debloat = true
+			return nil
 		}
-		return fmt.Errorf("line %d: unknown firstboot step %q (scalar steps: drivers)", node.Line, node.Value)
+		return fmt.Errorf("line %d: unknown firstboot step %q (scalar steps: drivers, debloat)", node.Line, node.Value)
 	}
 	if node.Kind != yaml.MappingNode || len(node.Content) != 2 {
 		return fmt.Errorf("line %d: a firstboot step is either a scalar or a single-key map", node.Line)
@@ -283,9 +306,21 @@ func (r *Recipe) Validate() error {
 		if r.OS.Source == "" && r.OS.TreePath == "" {
 			return fail("os.source (manifest id) or os.tree_path is required")
 		}
+		if d := r.Windows.Debloat; d != nil {
+			switch d.Preset {
+			case "off", "standard", "aggressive":
+			default:
+				return fail("windows.debloat.preset must be off, standard, or aggressive")
+			}
+		}
 		fb := r.Windows.Firstboot
 		if fb.Mode != "generate" && fb.Mode != "template" {
 			return fail("windows.firstboot.mode must be generate or template")
+		}
+		for i, s := range fb.Steps {
+			if s.Debloat && !r.Windows.Debloat.Enabled() {
+				return fail("windows.firstboot.steps[%d] is `debloat` but windows.debloat is off/absent", i)
+			}
 		}
 		if fb.Mode == "template" && fb.Template == "" {
 			return fail("windows.firstboot.mode template requires windows.firstboot.template")

@@ -108,6 +108,25 @@ func GenerateFirstboot(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref s
 	if len(steps) == 0 {
 		steps = []Step{{Drivers: true}}
 	}
+	// A debloat spec without an explicit step runs right after drivers
+	// (before agents, so their installs land on the cleaned system).
+	if w.Debloat.Enabled() {
+		has := false
+		for _, s := range steps {
+			if s.Debloat {
+				has = true
+			}
+		}
+		if !has {
+			at := 0
+			for i, s := range steps {
+				if s.Drivers {
+					at = i + 1
+				}
+			}
+			steps = append(steps[:at:at], append([]Step{{Debloat: true}}, steps[at:]...)...)
+		}
+	}
 	for _, s := range steps {
 		line("")
 		switch {
@@ -139,6 +158,10 @@ func GenerateFirstboot(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref s
 				line(`  echo [%%date%% %%time%%] %s exited with %%errorlevel%% >> "%%LOG%%"`, exe.File)
 				line(`)`)
 			}
+		case s.Debloat:
+			line(`rem --- debloat: strip consumer apps, ads, Copilot, widgets (preset %s) ---`, w.Debloat.Preset)
+			line(`powershell -NoProfile -ExecutionPolicy Bypass -File "%%SCRIPTS%%\debloat.ps1" >> "%%LOG%%" 2>&1`)
+			logNote("debloat")
 		case s.Wait > 0:
 			secs := int(s.Wait.Seconds())
 			line(`rem --- settle for %ds (freshly-driver'd NICs need a moment before agents) ---`, secs)

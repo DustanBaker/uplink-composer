@@ -33,10 +33,29 @@ reproducible byte-for-byte (`SOURCE_DATE_EPOCH`), cacheable, and safe to
 archive as masters.
 
 Multi-gigabyte binaries never live in git. Workspace **manifests** pin
-`url` + `sha256` (`composer sources pull`); files with rotating links, like
-consumer Windows ISOs, are added by hand once per machine
-(`composer sources import`). Everything lands in a machine-local
-content-addressed **library**.
+`url` + `sha256` (`composer sources pull`); everything lands in a
+machine-local content-addressed **library**. Official Windows ISOs need no
+browser dance: a manifest with `provider: fido` resolves Microsoft's
+rotating download links at pull time through the hash-pinned
+[Fido](https://github.com/pbatard/Fido) helper, so
+`composer sources pull win11-iso` goes straight from nothing to the current
+official Pro ISO.
+
+**Bloat-free by recipe, not by modified media.** `windows.debloat` (presets
+`standard`/`aggressive`, plus `remove_apps`/`keep_apps` overrides) generates
+a first-boot pass that strips consumer apps (Xbox, Bing, Clipchamp, consumer
+Teams, Solitaire, …), turns off Copilot, widgets, advertising ID, consumer
+promotions and Start suggestions, and sets telemetry to the Pro floor — while
+the installed media itself stays official, fully updatable, and
+activation-safe.
+
+**Driver assistance.** `composer drivers inspect <pack>` reads INFs (ANSI or
+UTF-16) out of a directory, zip, or cab and reports device class, provider,
+versions, resolved device names, and hardware IDs; `drivers add` stages the
+pack correctly for its type (INF dir → workspace, zip/cab/exe → library +
+pinned manifest) and prints the recipe snippet; `drivers scan` lists the
+local machine's devices that still need drivers, with the hardware IDs to
+hunt for.
 
 Safety, inherited from the shell script this tool generalizes: only
 removable USB devices are ever flashable, the disk hosting the OS is

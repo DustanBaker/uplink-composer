@@ -77,6 +77,10 @@ windows:
   driver_packs:
     - { path: drivers/intel-lan, install: pnputil-sweep }
     - { ref: intel-sst-cab, install: expand-then-sweep }
+  debloat:
+    preset: standard
+    remove_apps: [Contoso.Bloatware]
+    keep_apps: [Microsoft.BingWeather]
   firstboot:
     mode: generate
     steps:
@@ -153,6 +157,7 @@ windows:
 	checksInOrder := []string{
 		`expand "%SCRIPTS%\intel-sst.cab" -F:* "%SCRIPTS%\Drivers\intel-sst-cab"`,
 		`pnputil /add-driver "%SCRIPTS%\Drivers\*.inf" /subdirs /install`,
+		`powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPTS%\debloat.ps1"`,
 		`ping -n 11 127.0.0.1 > nul`,
 		`msiexec /i "%SCRIPTS%\Agent.ClientSetup.msi" /qn /l*v`,
 	}
@@ -170,6 +175,31 @@ windows:
 	}
 	if !strings.Contains(fb, "\r\n") {
 		t.Error("firstboot.cmd is not CRLF")
+	}
+
+	// The debloat pass is staged, honors keep/remove overrides, and sets
+	// the policy keys.
+	if _, ok := sizes[scripts+"/debloat.ps1"]; !ok {
+		t.Fatal("debloat.ps1 missing from image")
+	}
+	db := readImageFile(t, art.Path, scripts+"/debloat.ps1")
+	for _, want := range []string{
+		"'Microsoft.BingNews',",
+		"'Contoso.Bloatware',", // remove_apps extension
+		"Remove-AppxProvisionedPackage",
+		"TurnOffWindowsCopilot",
+		"DisableWindowsConsumerFeatures",
+		"AllowNewsAndInterests",
+	} {
+		if !strings.Contains(db, want) {
+			t.Errorf("debloat.ps1 missing %q", want)
+		}
+	}
+	if strings.Contains(db, "Microsoft.BingWeather") {
+		t.Error("keep_apps exception ignored — BingWeather still in the removal list")
+	}
+	if !strings.Contains(db, "\r\n") {
+		t.Error("debloat.ps1 is not CRLF")
 	}
 
 	// The stale master files must have been replaced by overlays.
