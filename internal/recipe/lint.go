@@ -1,0 +1,107 @@
+package recipe
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Finding is one lint result.
+type Finding struct {
+	Severity string // "error" | "warning"
+	Message  string
+}
+
+func (f Finding) String() string { return f.Severity + ": " + f.Message }
+
+// agentMarkers identify RMM/remote-access installers by name. Baking one
+// into an image (instead of first boot) clones its identity across machines
+// — the hard rule from the NUC stick's production history.
+var agentMarkers = []string{
+	"screenconnect", "connectwise", "teamviewer", "anydesk", "datto",
+	"ninjaone", "ninjarmm", "atera", "kaseya", "syncro", "splashtop",
+	"level.io", "tacticalrmm",
+}
+
+// Lint applies the production-lesson rules that Validate (structural) does
+// not cover. Errors block builds; warnings print.
+func (r *Recipe) Lint() []Finding {
+	var out []Finding
+	errf := func(format string, args ...any) {
+		out = append(out, Finding{"error", fmt.Sprintf(format, args...)})
+	}
+	warnf := func(format string, args ...any) {
+		out = append(out, Finding{"warning", fmt.Sprintf(format, args...)})
+	}
+
+	if r.Windows == nil {
+		return out
+	}
+	w := r.Windows
+
+	// SetupComplete.cmd is skipped when Setup runs under a firmware OEM key;
+	// FirstLogonCommands is the reliable hook. Nothing may stage it.
+	for _, p := range w.Payload {
+		name := strings.ToLower(p.Path)
+		if p.Ref != "" {
+			name = strings.ToLower(p.Ref)
+		}
+		if strings.HasSuffix(name, "setupcomplete.cmd") {
+			errf("payload stages SetupComplete.cmd — Windows skips it under firmware OEM keys; use firstboot steps (FirstLogonCommands) instead")
+		}
+	}
+
+	// Agents run at first boot, never baked into media outside a firstboot
+	// step (identity collisions in the RMM when cloned).
+	firstbootRefs := map[string]bool{}
+	for _, s := range w.Firstboot.Steps {
+		if s.MSI != nil {
+			firstbootRefs[strings.ToLower(s.MSI.Ref)] = true
+		}
+		if s.Exe != nil {
+			firstbootRefs[strings.ToLower(s.Exe.Ref)] = true
+		}
+	}
+	checkAgent := func(ref, where string) {
+		low := strings.ToLower(ref)
+		for _, marker := range agentMarkers {
+			if strings.Contains(low, marker) && !firstbootRefs[low] {
+				warnf("%s %q looks like an RMM/agent installer but no firstboot msi/exe step runs it — agents must install at first boot, never be pre-installed in media", where, ref)
+			}
+		}
+	}
+	for _, p := range w.Payload {
+		if p.Ref != "" {
+			checkAgent(p.Ref, "payload ref")
+		}
+		if p.Path != "" {
+			checkAgent(p.Path, "payload path")
+		}
+	}
+	for _, d := range w.DriverPacks {
+		checkAgent(d.Ref, "driver_packs ref")
+	}
+
+	// Plaintext secrets in git-tracked YAML.
+	if w.Unattend != nil {
+		for k, v := range w.Unattend.Vars {
+			if strings.Contains(strings.ToLower(k), "password") && v != "" && !strings.Contains(v, "${var:") {
+				warnf("unattend var %q holds a literal password — use \"${var:%s}\" and put the value in vars.local.yaml (gitignored)", k, k)
+			}
+		}
+	}
+
+	// A generate-mode firstboot that never installs drivers but stages
+	// driver packs is almost certainly a mistake.
+	if w.Firstboot.Mode == "generate" && len(w.DriverPacks) > 0 {
+		hasDrivers := false
+		for _, s := range w.Firstboot.Steps {
+			if s.Drivers {
+				hasDrivers = true
+			}
+		}
+		if !hasDrivers {
+			warnf("driver_packs are staged but firstboot.steps has no `drivers` step — they would never install")
+		}
+	}
+	return out
+}

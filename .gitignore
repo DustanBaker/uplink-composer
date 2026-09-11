@@ -1,0 +1,9 @@
+# Build outputs
+/composer
+/composer.exe
+/dist/
+
+# Test artifacts (S1 media images are multi-hundred-MB)
+*.img
+*.vhd
+s1-result.txt

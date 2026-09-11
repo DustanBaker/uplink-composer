@@ -1,0 +1,415 @@
+package compose
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"github.com/DustanBaker/the-composer/internal/fsimg"
+	"github.com/DustanBaker/the-composer/internal/helpers"
+	"github.com/DustanBaker/the-composer/internal/recipe"
+)
+
+// scriptsImg is where $OEM$ payload lands on the stick; Windows Setup copies
+// it to C:\Windows\Setup\Scripts during install.
+const scriptsImg = "/sources/$OEM$/$$/Setup/Scripts"
+
+// buildWindows composes Windows install media: base (extracted ISO or
+// captured master tree) + overlays (unattend, ei.cfg, drivers, payload,
+// generated firstboot) → FAT32 image.
+func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
+	r := req.Recipe
+	w := r.Windows
+	ws := req.Workspace
+	lib := req.Library
+
+	// ── Resolve the base media ───────────────────────────────────────────
+	mode := r.OS.SourceMode
+	treePath := r.OS.TreePath
+	if treePath != "" && !filepath.IsAbs(treePath) {
+		treePath = filepath.Join(ws.Dir, filepath.FromSlash(treePath))
+	}
+	if mode == recipe.SourceAuto {
+		if treePath != "" {
+			mode = recipe.SourceTree
+		} else {
+			mode = recipe.SourceISO
+		}
+	}
+
+	stage := fsimg.StageMap{}
+	var sourceFingerprint string
+	switch mode {
+	case recipe.SourceTree:
+		if st, err := os.Stat(treePath); err != nil || !st.IsDir() {
+			return nil, fmt.Errorf("compose: os.tree_path %s is not a directory", treePath)
+		}
+		req.progress("stage base tree", 0, -1)
+		if err := stage.AddTree(treePath, "/"); err != nil {
+			return nil, err
+		}
+		// Trees are mutable directories; fingerprint cheaply by path+mtime.
+		sourceFingerprint = "tree:" + treePath
+	case recipe.SourceISO:
+		src, err := ws.Source(r.OS.Source)
+		if err != nil {
+			return nil, err
+		}
+		entry, err := lib.Resolve(src.ID)
+		if err != nil {
+			return nil, err
+		}
+		extractDir, err := extractISOCached(ctx, req, lib.BlobPath(entry.SHA256), entry.SHA256)
+		if err != nil {
+			return nil, err
+		}
+		if err := stage.AddTree(extractDir, "/"); err != nil {
+			return nil, err
+		}
+		sourceFingerprint = "iso:" + entry.SHA256
+	default:
+		return nil, fmt.Errorf("compose: unsupported source_mode %q", mode)
+	}
+
+	// ── Split oversized WIMs (FAT32 4 GiB limit) ─────────────────────────
+	if err := splitOversizeWIM(ctx, req, stage); err != nil {
+		return nil, err
+	}
+
+	// ── Cache check ──────────────────────────────────────────────────────
+	key, err := inputsKey(req, sourceFingerprint)
+	if err != nil {
+		return nil, err
+	}
+	imgPath := filepath.Join(lib.ArtifactsDir(), fmt.Sprintf("%s-%s.img", r.ID, key))
+	if !req.Rebuild && mode != recipe.SourceTree { // tree contents aren't fingerprinted; always rebuild
+		if a, err := LoadArtifact(MetaPath(imgPath)); err == nil {
+			if _, err := os.Stat(a.Path); err == nil {
+				req.progress("cached", 1, 1)
+				return a, nil
+			}
+		}
+	}
+
+	// ── Overlays ─────────────────────────────────────────────────────────
+	buildTmp, err := os.MkdirTemp(lib.TmpDir(), "build-"+r.ID+"-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(buildTmp)
+
+	vars := ws.MergedVars(r, req.CLIVars)
+	refFiles := map[string]string{} // source ref -> staged filename under Scripts/
+
+	// Unattend.
+	if w.Unattend != nil {
+		uvars, err := overlayVars(vars, w.Unattend.Vars)
+		if err != nil {
+			return nil, fmt.Errorf("compose: unattend vars: %w", err)
+		}
+		rendered, err := recipe.RenderTemplate(
+			filepath.Join(ws.Dir, filepath.FromSlash(w.Unattend.Template)),
+			recipe.Context{Org: ws.Org(), Vars: uvars, Recipe: r})
+		if err != nil {
+			return nil, err
+		}
+		p := filepath.Join(buildTmp, "autounattend.xml")
+		if err := os.WriteFile(p, []byte(rendered), 0o644); err != nil {
+			return nil, err
+		}
+		stage.AddFile(p, "/autounattend.xml")
+	}
+
+	// ei.cfg.
+	if w.EICfg != nil {
+		p := filepath.Join(buildTmp, "ei.cfg")
+		if err := os.WriteFile(p, []byte(recipe.GenerateEICfg(w.EICfg)), 0o644); err != nil {
+			return nil, err
+		}
+		stage.AddFile(p, "/sources/ei.cfg")
+	}
+
+	// Driver packs.
+	var drivers recipe.ResolvedDrivers
+	for _, pack := range w.DriverPacks {
+		switch pack.Install {
+		case recipe.InstallSweep:
+			dir, err := materializeDir(ctx, req, buildTmp, pack)
+			if err != nil {
+				return nil, err
+			}
+			if err := stage.AddTree(dir, path.Join(scriptsImg, "Drivers", pack.Name())); err != nil {
+				return nil, err
+			}
+			drivers.HasSweepable = true
+		case recipe.InstallExpandSweep:
+			file, err := materializeFile(req, pack.Ref)
+			if err != nil {
+				return nil, err
+			}
+			stage.AddFile(file.host, path.Join(scriptsImg, file.name))
+			refFiles[pack.Ref] = file.name
+			drivers.Cabs = append(drivers.Cabs, struct {
+				File string
+				Dir  string
+			}{File: file.name, Dir: pack.Name()})
+			drivers.HasSweepable = true
+		case recipe.InstallExe:
+			file, err := materializeFile(req, pack.Ref)
+			if err != nil {
+				return nil, err
+			}
+			stage.AddFile(file.host, path.Join(scriptsImg, file.name))
+			refFiles[pack.Ref] = file.name
+			drivers.Exes = append(drivers.Exes, struct {
+				File string
+				Args []string
+				Log  string
+			}{File: file.name, Args: pack.Args, Log: pack.Log})
+		}
+	}
+
+	// Boot-critical WinPE drivers: Setup loads $WinpeDriver$ from removable
+	// media root during windowsPE (VMD/RST storage, NICs).
+	for _, ref := range w.WinPEDrivers {
+		dir, err := materializeDir(ctx, req, buildTmp, recipe.DriverPack{Ref: ref, Install: recipe.InstallSweep})
+		if err != nil {
+			return nil, err
+		}
+		if err := stage.AddTree(dir, path.Join("/$WinpeDriver$", ref)); err != nil {
+			return nil, err
+		}
+	}
+
+	// Payload.
+	for _, item := range w.Payload {
+		if item.Ref != "" {
+			file, err := materializeFile(req, item.Ref)
+			if err != nil {
+				return nil, err
+			}
+			stage.AddFile(file.host, path.Join(scriptsImg, file.name))
+			refFiles[item.Ref] = file.name
+			continue
+		}
+		host := filepath.Join(ws.Dir, filepath.FromSlash(item.Path))
+		if _, err := os.Stat(host); err != nil {
+			return nil, fmt.Errorf("compose: payload path %s: %w", item.Path, err)
+		}
+		stage.AddFile(host, path.Join(scriptsImg, filepath.Base(host)))
+	}
+
+	// First-boot script.
+	resolveRef := func(ref string) (string, error) {
+		if name, ok := refFiles[ref]; ok {
+			return name, nil
+		}
+		file, err := materializeFile(req, ref)
+		if err != nil {
+			return "", fmt.Errorf("compose: firstboot step references %q: %w", ref, err)
+		}
+		stage.AddFile(file.host, path.Join(scriptsImg, file.name))
+		refFiles[ref] = file.name
+		return file.name, nil
+	}
+	var firstboot string
+	switch w.Firstboot.Mode {
+	case "generate":
+		firstboot, err = recipe.GenerateFirstboot(r, drivers, resolveRef)
+	case "template":
+		firstboot, err = recipe.RenderTemplate(
+			filepath.Join(ws.Dir, filepath.FromSlash(w.Firstboot.Template)),
+			recipe.Context{Org: ws.Org(), Vars: vars, Recipe: r})
+	}
+	if err != nil {
+		return nil, err
+	}
+	fbPath := filepath.Join(buildTmp, "firstboot.cmd")
+	if err := os.WriteFile(fbPath, []byte(firstboot), 0o644); err != nil {
+		return nil, err
+	}
+	stage.AddFile(fbPath, path.Join(scriptsImg, "firstboot.cmd"))
+
+	// ── Size and build ───────────────────────────────────────────────────
+	contentBytes, entries, err := stage.Stats()
+	if err != nil {
+		return nil, err
+	}
+	var sizeBytes int64
+	if r.Target.Size == "auto" {
+		sizeBytes = fsimg.SizeForContent(contentBytes, entries)
+	} else {
+		sizeBytes, _ = recipe.ParseSize(r.Target.Size)
+		if need := fsimg.SizeForContent(contentBytes, entries); sizeBytes < need {
+			return nil, fmt.Errorf("compose: target.size %s is too small for %d MiB of content (need about %d MiB)",
+				r.Target.Size, contentBytes>>20, need>>20)
+		}
+	}
+
+	if os.Getenv("SOURCE_DATE_EPOCH") == "" {
+		os.Setenv("SOURCE_DATE_EPOCH", defaultSourceDateEpoch)
+	}
+	req.progress("image", 0, contentBytes)
+	err = fsimg.BuildImage(imgPath, fsimg.Options{
+		Scheme:       fsimg.Scheme(r.Target.Scheme),
+		Label:        r.Target.VolumeLabel,
+		SizeBytes:    sizeBytes,
+		Reproducible: true,
+	}, func(fsys fsimg.FS) error {
+		return fsimg.Populate(fsys, stage, func(done, total int64) {
+			req.progress("image", done, total)
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	req.progress("hash", 0, sizeBytes)
+	sum, size, err := hashFileWithProgress(imgPath, func(done, total int64) {
+		req.progress("hash", done, total)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	a := &Artifact{
+		RecipeID: r.ID, Kind: "image", Path: imgPath, Size: size, SHA256: sum,
+		InputsKey: key, Verify: r.Flash.Verify, MinStick: minStickBytes(r),
+		CreatedAt: nowUTC(), Tool: toolVersion(),
+	}
+	return a, a.save()
+}
+
+// overlayVars expands ${var:...} in overlay values against base, then merges
+// overlay over base.
+func overlayVars(base, overlay map[string]string) (map[string]string, error) {
+	out := map[string]string{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		expanded, err := recipe.ExpandVars(v, base)
+		if err != nil {
+			return nil, fmt.Errorf("var %s: %w", k, err)
+		}
+		out[k] = expanded
+	}
+	return out, nil
+}
+
+type materialized struct {
+	host string // host path of the file
+	name string // filename to stage as
+}
+
+// materializeFile resolves a source ref to its library blob.
+func materializeFile(req Request, ref string) (materialized, error) {
+	entry, err := req.Library.Resolve(ref)
+	if err != nil {
+		return materialized{}, err
+	}
+	return materialized{host: req.Library.BlobPath(entry.SHA256), name: entry.Filename}, nil
+}
+
+// materializeDir turns an INF driver pack (workspace dir, or zip blob) into
+// a directory of files.
+func materializeDir(ctx context.Context, req Request, buildTmp string, pack recipe.DriverPack) (string, error) {
+	if pack.Path != "" {
+		dir := filepath.Join(req.Workspace.Dir, filepath.FromSlash(pack.Path))
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			return "", fmt.Errorf("compose: driver pack path %s is not a directory", pack.Path)
+		}
+		return dir, nil
+	}
+	entry, err := req.Library.Resolve(pack.Ref)
+	if err != nil {
+		return "", err
+	}
+	blob := req.Library.BlobPath(entry.SHA256)
+	if !strings.EqualFold(filepath.Ext(entry.Filename), ".zip") {
+		return "", fmt.Errorf("compose: driver pack %s (install: %s) must be a .zip of INFs or a workspace path; got %s",
+			pack.Ref, pack.Install, entry.Filename)
+	}
+	dest := filepath.Join(buildTmp, "packs", pack.Ref)
+	if err := helpers.ExpandZip(blob, dest); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+// extractISOCached extracts a Windows ISO once per content hash, reusing the
+// extraction across builds (a .done marker gates reuse).
+func extractISOCached(ctx context.Context, req Request, isoPath, sha string) (string, error) {
+	dir := filepath.Join(req.Library.TmpDir(), "extract", sha[:16])
+	marker := filepath.Join(dir, ".composer-extracted")
+	if _, err := os.Stat(marker); err == nil {
+		return dir, nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return "", err
+	}
+	req.progress("extract iso", 0, -1)
+	if err := helpers.ExtractISO(ctx, req.Library.HelpersDir(), isoPath, dir); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(marker, []byte(sha), 0o644); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// splitOversizeWIM replaces sources/install.wim in the stage with split .swm
+// parts when it exceeds the FAT32 file limit. install.esd cannot be split
+// (solid archive) — that's a hard error pointing at the fix.
+func splitOversizeWIM(ctx context.Context, req Request, stage fsimg.StageMap) error {
+	const wimImg = "/sources/install.wim"
+	const esdImg = "/sources/install.esd"
+	if host, ok := stage[esdImg]; ok {
+		st, err := os.Stat(host)
+		if err != nil {
+			return err
+		}
+		if st.Size() > fsimg.MaxFileSize {
+			return fmt.Errorf("compose: %s is %d MiB — install.esd cannot be split for FAT32; use media with install.wim (ISO download) instead", esdImg, st.Size()>>20)
+		}
+	}
+	host, ok := stage[wimImg]
+	if !ok {
+		return nil
+	}
+	st, err := os.Stat(host)
+	if err != nil {
+		return err
+	}
+	if st.Size() <= fsimg.MaxFileSize {
+		return nil
+	}
+	// Split lives next to the extraction so it caches with it.
+	outDir := filepath.Join(filepath.Dir(host), "..", "composer-swm")
+	outDir, err = filepath.Abs(outDir)
+	if err != nil {
+		return err
+	}
+	swm := filepath.Join(outDir, "install.swm")
+	if _, err := os.Stat(swm); err != nil {
+		req.progress("split wim", 0, -1)
+		if err := os.MkdirAll(outDir, 0o755); err != nil {
+			return err
+		}
+		if err := helpers.SplitWIM(ctx, req.Library.HelpersDir(), host, swm, 3800); err != nil {
+			return err
+		}
+	}
+	delete(stage, wimImg)
+	matches, err := filepath.Glob(filepath.Join(outDir, "install*.swm"))
+	if err != nil || len(matches) == 0 {
+		return fmt.Errorf("compose: WIM split produced no .swm files in %s", outDir)
+	}
+	for _, m := range matches {
+		stage.AddFile(m, "/sources/"+filepath.Base(m))
+	}
+	return nil
+}
