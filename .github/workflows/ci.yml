@@ -1,0 +1,44 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Build (host OS)
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./... -short -count=1
+      - name: Cross-compile all targets
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/composer
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o /dev/null ./cmd/composer
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -o /dev/null ./cmd/composer
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o /dev/null ./cmd/composer
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o /dev/null ./cmd/composer
+          CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -o /dev/null ./cmd/composer
+      - name: Image build + native fsck (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q dosfstools
+          go run ./test/s1gen /tmp/s1
+          # Verify with the native FAT tooling: fsck must be clean.
+          IMG=/tmp/s1/s1.img
+          # Partition 1 starts at sector 2048.
+          LOOP=$(sudo losetup --find --show --offset $((2048*512)) "$IMG")
+          sudo fsck.vfat -n "$LOOP"
+          sudo losetup -d "$LOOP"

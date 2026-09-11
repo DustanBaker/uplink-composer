@@ -1,0 +1,62 @@
+version: 1
+id: nuc-win11
+name: "ASUS NUC — Win11 Pro + ScreenConnect at first boot"
+
+os:
+  type: windows
+  # Tree mode reuses the proven captured master (already-split .swm, so no
+  # WIM splitting needed). Switch to a manifest id + source_mode: iso to
+  # build from a Win11 ISO instead.
+  source_mode: tree
+  tree_path: /mnt/data/nuc-usb-master
+
+target:
+  scheme: mbr
+  filesystem: fat32
+  volume_label: ESD-USB
+  size: auto
+  min_stick: 8GiB
+  boot: uefi-only
+
+windows:
+  ei_cfg: { edition: Professional, channel: Retail, vl: false }
+
+  unattend:
+    template: templates/autounattend.xml.tmpl
+    vars:
+      # Generic Win11 Pro key: selects the edition even over a firmware
+      # Home OEM key. Selection only — activation needs a real Pro license.
+      edition_key: VK7JG-NPHTM-C97JM-9MPGT-3V66T
+      locale: en-US
+      admin_user: user
+      admin_display_name: User
+      admin_password: ""        # clients set their own at handoff
+      computer_name: "*"        # random name, per Macula convention
+
+  driver_packs:
+    # Both NUC models' LAN packs ride one stick; pnputil installs only what
+    # matches the hardware it boots on.
+    - { path: Drivers/intel-lan-i219-W11, install: pnputil-sweep }
+    - { path: Drivers/intel-lan-i225-i226-W11, install: pnputil-sweep }
+    # Intel SST audio cab (the "Multimedia Audio Controller" yellow-bang
+    # fix): expanded at first boot, then swept.
+    - { ref: intel-sst-cab, install: expand-then-sweep }
+    # Intel Wi-Fi covers AX2xx/BE2xx across current NUCs.
+    - { ref: intel-wifi-exe, install: exe, args: ["-q", "-s", "-l", "{log}"], log: wifi-install.log }
+
+  payload:
+    - { ref: macula-screenconnect-msi }
+
+  firstboot:
+    mode: generate
+    steps:
+      - drivers
+      - wait: 10s          # let a freshly-driver'd NIC come up
+      - msi: { ref: macula-screenconnect-msi, args: ["/qn"], log: screenconnect-msi.log }
+
+firmware_notes: >-
+  Boot via F10 menu. Disk 0 is wiped without prompting. Machines with a
+  firmware Home license install Pro but need a real Pro key to activate.
+
+flash:
+  verify: readback-sha256
