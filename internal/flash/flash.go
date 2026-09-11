@@ -5,19 +5,15 @@
 package flash
 
 import (
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
-	"os"
-
-	"github.com/klauspost/compress/zstd"
-	"github.com/ulikunitz/xz"
 
 	"github.com/DustanBaker/the-composer/internal/compose"
 	"github.com/DustanBaker/the-composer/internal/device"
+	"github.com/DustanBaker/the-composer/internal/stream"
 )
 
 // SectorSize is the only supported logical sector size; Target opens verify
@@ -62,37 +58,14 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 		return fmt.Errorf("flash: %s is %d MiB, recipe requires at least %d MiB", dev.ID, dev.SizeBytes>>20, art.MinStick>>20)
 	}
 
-	src, err := os.Open(art.Path)
+	reader, err := stream.Open(art.Path, art.Compress)
 	if err != nil {
-		return err
+		return fmt.Errorf("flash: %w", err)
 	}
-	defer src.Close()
-	var reader io.Reader = src
+	defer reader.Close()
 	total := art.Size
-	switch art.Compress {
-	case "", "none":
-	case "xz":
-		xr, err := xz.NewReader(src)
-		if err != nil {
-			return fmt.Errorf("flash: opening xz stream: %w", err)
-		}
-		reader, total = xr, -1
-	case "zstd":
-		zr, err := zstd.NewReader(src)
-		if err != nil {
-			return fmt.Errorf("flash: opening zstd stream: %w", err)
-		}
-		defer zr.Close()
-		reader, total = zr.IOReadCloser(), -1
-	case "gz":
-		gr, err := gzip.NewReader(src)
-		if err != nil {
-			return fmt.Errorf("flash: opening gzip stream: %w", err)
-		}
-		defer gr.Close()
-		reader, total = gr, -1
-	default:
-		return fmt.Errorf("flash: unknown compression %q", art.Compress)
+	if art.Compress != "" && art.Compress != "none" {
+		total = -1
 	}
 
 	progress("open", 0, total)

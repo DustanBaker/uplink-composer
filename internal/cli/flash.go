@@ -20,7 +20,7 @@ func cmdFlash(ctx context.Context, env *Env, args []string) error {
 	fs := flag.NewFlagSet("flash", flag.ContinueOnError)
 	yes := fs.Bool("yes", false, "skip the typed size confirmation (scripted use)")
 	rebuild := fs.Bool("rebuild", false, "ignore the artifact cache")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 {
@@ -29,19 +29,11 @@ func cmdFlash(ctx context.Context, env *Env, args []string) error {
 	what, devArg := fs.Arg(0), fs.Arg(1)
 
 	// Resolve the device first — no point composing for a bad target.
-	devs, err := device.List(ctx)
+	dev, err := pickDevice(ctx, devArg)
 	if err != nil {
 		return err
-	}
-	dev, err := matchDevice(devs, devArg)
-	if err != nil {
-		return err
-	}
-	if !dev.Flashable() {
-		return fmt.Errorf("%s is not flashable (bus=%s, system=%v) — `composer devices` shows valid targets", dev.ID, dev.Bus, dev.System)
 	}
 
-	// Resolve the artifact.
 	var art *compose.Artifact
 	if strings.HasSuffix(strings.ToLower(what), ".img") {
 		art, err = compose.LoadArtifact(compose.MetaPath(what))
@@ -62,37 +54,14 @@ func cmdFlash(ctx context.Context, env *Env, args []string) error {
 			return err
 		}
 	}
-
-	// Arm: show exactly what will be destroyed and require the typed size.
-	fmt.Println()
-	fmt.Println("About to WIPE this device:")
-	fmt.Println(" ", dev.String())
-	if len(dev.Mounts) > 0 {
-		fmt.Println("  currently mounted at:", strings.Join(dev.Mounts, ", "))
-	}
-	fmt.Printf("  writing: %s (%d MiB, verify %s)\n", filepath.Base(art.Path), art.Size>>20, art.Verify)
-	if err := confirmSize(dev, *yes); err != nil {
-		return err
-	}
-
-	if !elevate.IsElevated() {
-		fmt.Println("elevating flash worker —", elevate.Hint())
-	}
-	prog := &stageProgress{}
-	err = flashrun.RunFlash(ctx, art, dev, prog.report)
-	prog.finish()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Done. %s is written and verified — safe to remove.\n", dev.ID)
-	return nil
+	return armAndFlash(ctx, art, dev, *yes)
 }
 
 func cmdCapture(ctx context.Context, env *Env, args []string) error {
 	fs := flag.NewFlagSet("capture", flag.ContinueOnError)
 	out := fs.String("out", "", "output image path (default: library artifacts dir)")
 	yes := fs.Bool("yes", false, "skip the typed size confirmation")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {

@@ -15,7 +15,12 @@ import (
 
 const usage = `The Composer — build bootable installation USB media from recipes.
 
-Usage: composer <command> [args]
+Usage: composer <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
+       composer                     same, in a workspace with a single recipe
+       composer <command> [args]
+
+One-shot
+  go <recipe|.img> [device]  pull missing sources, build, flash, verify (--yes, --build-only)
 
 Workspace
   init --org <name> [dir]   scaffold a new org workspace
@@ -109,13 +114,18 @@ func Main(args []string) int {
 			rest = append(rest, a)
 		}
 	}
-	if len(rest) == 0 {
-		fmt.Print(usage)
-		return 2
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
+	// "compose this": no arguments in a one-recipe workspace runs it.
+	if len(rest) == 0 {
+		if id := soleRecipe(env); id != "" {
+			rest = []string{id}
+		} else {
+			fmt.Print(usage)
+			return 2
+		}
+	}
 
 	cmd, cmdArgs := rest[0], rest[1:]
 	var err error
@@ -124,6 +134,8 @@ func Main(args []string) int {
 		fmt.Println("composer", buildinfo.Version)
 	case "help", "--help", "-h":
 		fmt.Print(usage)
+	case "go":
+		err = cmdGo(ctx, env, cmdArgs)
 	case "init":
 		err = cmdInit(cmdArgs)
 	case "doctor":
@@ -149,6 +161,12 @@ func Main(args []string) int {
 	case "serve":
 		err = cmdServe(ctx, env, cmdArgs)
 	default:
+		// A recipe id (or artifact path) as the first word is the one-shot
+		// pipeline: `compose nuc-win11`.
+		if isRecipeOrArtifact(env, cmd) {
+			err = cmdGo(ctx, env, rest)
+			break
+		}
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		return 2
 	}
@@ -157,6 +175,31 @@ func Main(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// soleRecipe returns the id of the workspace's only recipe, or "".
+func soleRecipe(env *Env) string {
+	ws, err := env.workspace()
+	if err != nil {
+		return ""
+	}
+	rs, err := ws.Recipes()
+	if err != nil || len(rs) != 1 {
+		return ""
+	}
+	return rs[0].ID
+}
+
+func isRecipeOrArtifact(env *Env, word string) bool {
+	if strings.HasSuffix(strings.ToLower(word), ".img") {
+		return true
+	}
+	ws, err := env.workspace()
+	if err != nil {
+		return false
+	}
+	_, err = ws.Recipe(word)
+	return err == nil
 }
 
 // stageProgress renders coarse progress on one console line.

@@ -20,7 +20,7 @@ import (
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	org := fs.String("org", "", "organization name (required)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	dir := "."
@@ -50,6 +50,18 @@ func cmdDoctor(ctx context.Context, env *Env) error {
 	fmt.Printf("library root:  %s\n", lib.Root)
 	if strings.Contains(strings.ToLower(lib.Root), "onedrive") {
 		fmt.Println("  WARNING: library sits under a OneDrive-synced path; multi-GB blobs will sync — set COMPOSER_LIBRARY elsewhere")
+	}
+	if entries, err := lib.List(); err == nil {
+		var total int64
+		for _, e := range entries {
+			total += e.Size
+		}
+		fmt.Printf("library:       %d source(s), %d MiB (catalog %s)\n", len(entries), total>>20, filepath.Join(lib.Root, "catalog.json"))
+	} else {
+		fmt.Printf("library:       ERROR reading catalog: %v\n", err)
+	}
+	if metas, err := filepath.Glob(filepath.Join(lib.ArtifactsDir(), "*.img.json")); err == nil {
+		fmt.Printf("artifacts:     %d built image(s)\n", len(metas))
 	}
 	fmt.Println()
 	fmt.Println("required tools on this host:")
@@ -145,7 +157,7 @@ func cmdSources(ctx context.Context, env *Env, args []string) error {
 	case "pull":
 		fs := flag.NewFlagSet("pull", flag.ContinueOnError)
 		tofu := fs.Bool("pin-tofu", false, "trust-on-first-use: catalog an unpinned source and print the hash to pin")
-		if err := fs.Parse(args[1:]); err != nil {
+		if err := parseFlags(fs, args[1:]); err != nil {
 			return err
 		}
 		if fs.NArg() != 1 {
@@ -261,7 +273,7 @@ func cmdRecipes(env *Env, args []string) error {
 func cmdBuild(ctx context.Context, env *Env, args []string) error {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	rebuild := fs.Bool("rebuild", false, "ignore the artifact cache")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {

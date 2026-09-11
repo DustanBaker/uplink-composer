@@ -43,6 +43,7 @@ type Recipe struct {
 	Target TargetSpec `yaml:"target"`
 
 	Windows *WindowsSpec `yaml:"windows,omitempty"`
+	Linux   *LinuxSpec   `yaml:"linux,omitempty"`
 
 	Flash         FlashSpec         `yaml:"flash,omitempty"`
 	FirmwareNotes string            `yaml:"firmware_notes,omitempty"`
@@ -217,6 +218,64 @@ type FlashSpec struct {
 	Verify string `yaml:"verify,omitempty"` // readback-sha256 (default) | none
 }
 
+// LinuxSpec configures linux-iso recipes.
+type LinuxSpec struct {
+	Autoinstall *AutoinstallSpec `yaml:"autoinstall,omitempty"`
+}
+
+// AutoinstallSpec makes an Ubuntu (subiquity) live-server ISO install
+// itself with nobody at the keyboard: a cloud-init NoCloud "CIDATA"
+// partition carrying user-data/meta-data is appended to the raw ISO, and
+// the ISO's GRUB menu is rewritten in place (same byte length, no ISO
+// rebuild) to boot with the `autoinstall` kernel parameter so the installer
+// skips its confirmation prompt.
+type AutoinstallSpec struct {
+	UserData string            `yaml:"user_data"`           // template: #cloud-config with autoinstall:
+	MetaData string            `yaml:"meta_data,omitempty"` // template; default sets instance-id
+	Vars     map[string]string `yaml:"vars,omitempty"`
+	// KernelPatch (default true) rewrites /boot/grub/grub.cfg for
+	// zero-touch boot. Off = the installer asks "Continue with autoinstall?".
+	KernelPatch *bool `yaml:"kernel_patch,omitempty"`
+}
+
+// PatchKernel reports whether the GRUB rewrite is enabled.
+func (a *AutoinstallSpec) PatchKernel() bool { return a.KernelPatch == nil || *a.KernelPatch }
+
+// SourceRefs lists every library/manifest id the recipe consumes, so a
+// one-shot run can pull what is missing. For Windows tree-mode builds the
+// caller may skip os.Source when the tree is present.
+func (r *Recipe) SourceRefs() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(ref string) {
+		if ref != "" && !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	add(r.OS.Source)
+	if w := r.Windows; w != nil {
+		for _, ref := range w.WinPEDrivers {
+			add(ref)
+		}
+		for _, d := range w.DriverPacks {
+			add(d.Ref)
+		}
+		for _, p := range w.Payload {
+			add(p.Ref)
+		}
+		for _, s := range w.Firstboot.Steps {
+			if s.MSI != nil {
+				add(s.MSI.Ref)
+			}
+			if s.Exe != nil {
+				add(s.Exe.Ref)
+			}
+		}
+	}
+	return out
+}
+
 var idRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
 // Load reads and validates a recipe file.
@@ -346,6 +405,14 @@ func (r *Recipe) Validate() error {
 		}
 		if r.OS.Source == "" {
 			return fail("os.source is required")
+		}
+	}
+	if r.Linux != nil {
+		if r.OS.Type != OSLinuxISO {
+			return fail("linux: section is only valid with os.type linux-iso")
+		}
+		if a := r.Linux.Autoinstall; a != nil && a.UserData == "" {
+			return fail("linux.autoinstall.user_data (template path) is required")
 		}
 	}
 	if r.Target.Size != "auto" {

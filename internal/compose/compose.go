@@ -126,6 +126,19 @@ func inputsKey(req Request, sourceHashes ...string) (string, error) {
 			h.Write([]byte{0})
 		}
 	}
+	if l := req.Recipe.Linux; l != nil && l.Autoinstall != nil {
+		for _, t := range []string{l.Autoinstall.UserData, l.Autoinstall.MetaData} {
+			if t == "" {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(req.Workspace.Dir, filepath.FromSlash(t)))
+			if err != nil {
+				return "", err
+			}
+			h.Write(b)
+			h.Write([]byte{0})
+		}
+	}
 	for _, s := range sourceHashes {
 		h.Write([]byte(s))
 		h.Write([]byte{0})

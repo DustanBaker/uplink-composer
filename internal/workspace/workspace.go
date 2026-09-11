@@ -151,6 +151,15 @@ func (w *Workspace) Recipe(id string) (*recipe.Recipe, error) {
 // vars.local.yaml < CLI --var. Unattend vars overlay on top at render time.
 func (w *Workspace) MergedVars(r *recipe.Recipe, cli map[string]string) map[string]string {
 	out := map[string]string{}
+	// workspace.yaml defaults seed the lowest-precedence layer so templates
+	// can rely on {{.Vars.locale}} / {{.Vars.timezone}} without every
+	// recipe repeating them.
+	if w.Config.Defaults.Locale != "" {
+		out["locale"] = w.Config.Defaults.Locale
+	}
+	if w.Config.Defaults.Timezone != "" {
+		out["timezone"] = w.Config.Defaults.Timezone
+	}
 	for k, v := range w.Config.Vars {
 		out[k] = v
 	}

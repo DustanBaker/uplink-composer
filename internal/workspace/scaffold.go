@@ -20,10 +20,12 @@ func Scaffold(dir, orgName string) error {
 		".gitignore":                      scaffoldGitignore,
 		"README.md":                       fmt.Sprintf(scaffoldReadme, orgName),
 		"vars.local.yaml":                 scaffoldVarsLocal,
-		"templates/autounattend.xml.tmpl": scaffoldUnattend,
-		"recipes/example-win11.yaml":      scaffoldWinRecipe,
-		"manifests/ubuntu-24.04-iso.yaml": scaffoldUbuntuManifest,
-		"payload/.gitkeep":                "",
+		"templates/autounattend.xml.tmpl":         scaffoldUnattend,
+		"templates/autoinstall.yaml.tmpl":         scaffoldAutoinstall,
+		"recipes/example-win11.yaml":              scaffoldWinRecipe,
+		"recipes/example-ubuntu-autoinstall.yaml": scaffoldUbuntuRecipe,
+		"manifests/ubuntu-24.04-iso.yaml":         scaffoldUbuntuManifest,
+		"payload/.gitkeep":                        "",
 	}
 	for rel := range files {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
@@ -72,6 +74,9 @@ vars.local.yaml
 const scaffoldVarsLocal = `# Machine-local values referenced as ${var:name} in recipes.
 # This file is gitignored; put secrets here.
 # admin_password: "hunter2"
+# Ubuntu autoinstall password (SHA-512 crypt; openssl passwd -6 '...').
+# This default is the hash of "changeme" — replace it before real use.
+admin_password_hash: "$6$composer$5S/Z2ILVSvNrtVKzqEEs6y6XvT9KctshEw9erjQirY7oY.lT94jPlSUC.iapQs1.ENfJAnoaqHX4iXAqWN2l81"
 `
 
 const scaffoldReadme = `# %s — Composer workspace
@@ -262,11 +267,66 @@ flash:
 const scaffoldUbuntuManifest = `id: ubuntu-24.04-iso
 kind: os-image
 format: iso
-url: https://releases.ubuntu.com/24.04/ubuntu-24.04.3-live-server-amd64.iso
-# No sha256 pin yet: `+ "`composer sources pull ubuntu-24.04-iso`" + ` downloads,
-# prints the hash, and refuses to catalog until you either verify it against
-# https://releases.ubuntu.com/24.04/SHA256SUMS and pin it here, or re-run
-# with --pin-tofu.
-sha256: ""
-notes: "Ubuntu 24.04 LTS live server; raw-write hybrid ISO"
+url: https://releases.ubuntu.com/24.04/ubuntu-24.04.5-live-server-amd64.iso
+# Pinned from https://releases.ubuntu.com/24.04/SHA256SUMS. When a new point
+# release replaces the file, update url + sha256 together from that list.
+sha256: 97f3d7ffb032c3eb3b23d2c8be9cc76e60c2c1f2c0146ba5ba9fe01cafae0fd8
+notes: "Ubuntu 24.04 LTS live server; hybrid ISO"
+`
+
+// scaffoldAutoinstall is a subiquity autoinstall (cloud-config) that
+// installs unattended: hostname/user from vars, SSH server, whole-disk
+// direct layout, then reboots. The password is a SHA-512 crypt hash.
+const scaffoldAutoinstall = `#cloud-config
+# Ubuntu autoinstall (subiquity). Rendered by The Composer into the CIDATA
+# partition; the GRUB menu is patched so this runs with nobody present.
+autoinstall:
+  version: 1
+  locale: {{.Vars.locale}}
+  keyboard:
+    layout: us
+  identity:
+    hostname: {{.Vars.hostname}}
+    username: {{.Vars.admin_user}}
+    # SHA-512 crypt hash. Generate: openssl passwd -6 'yourpassword'
+    password: "{{.Vars.admin_password_hash}}"
+  ssh:
+    install-server: true
+    allow-pw: true
+  storage:
+    layout:
+      name: direct
+  packages:
+    - openssh-server
+  late-commands:
+    - echo "provisioned by The Composer ({{.Org.Name}})" > /target/etc/composer-provisioned
+  shutdown: reboot
+`
+
+const scaffoldUbuntuRecipe = `version: 1
+id: example-ubuntu-autoinstall
+name: "Ubuntu 24.04 server — zero-touch autoinstall"
+
+os:
+  type: linux-iso
+  source: ubuntu-24.04-iso
+
+target:
+  min_stick: 8GiB
+  boot: uefi-only
+
+linux:
+  autoinstall:
+    user_data: templates/autoinstall.yaml.tmpl
+    vars:
+      hostname: appliance
+      # Default hash is for the password "changeme" — override in
+      # vars.local.yaml (gitignored) with: openssl passwd -6 'yourpassword'
+      admin_password_hash: "${var:admin_password_hash}"
+
+firmware_notes: >-
+  Boots UEFI. DANGER: the autoinstall wipes the first disk without asking.
+
+flash:
+  verify: readback-sha256
 `
