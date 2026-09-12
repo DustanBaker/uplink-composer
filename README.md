@@ -97,10 +97,9 @@ directories. (Private fork? Set `GITHUB_TOKEN` first.)
 ## Quick Install — pick an OS, no setup
 
 Launch the app (Start-menu icon or `uplink serve --open`) and the home screen
-has an **Install an OS** list: Windows 11/10 (fetched from Microsoft on demand
-via Fido) and Linux distros (Ubuntu Server, Linux Mint, more coming). Pick
-one, choose a couple of options — for Windows: edition, **local account vs.
-normal OOBE**, how much bloatware to strip, **drivers for this computer**,
+has an **Install an OS** list, grouped into desktop, server, and single-board.
+Pick one, choose a couple of options — for Windows: edition, **local account
+vs. normal OOBE**, how much bloatware to strip, **drivers for this computer**,
 **programs to install**, and an optional skip of the TPM/Secure-Boot/RAM
 checks — plug in a stick, confirm its size, and it builds and flashes. No
 workspace, no recipes. From the CLI:
@@ -109,6 +108,29 @@ workspace, no recipes. From the CLI:
 uplink catalog
 uplink install windows-11 --edition Pro --account local --debloat standard
 ```
+
+Sixteen operating systems ship in the list today: Windows 11 and 10 (fetched
+from Microsoft on demand via Fido); Ubuntu 26.04 LTS desktop and server plus
+24.04 LTS server; Fedora 44 Workstation and Server; Debian 13; Arch; Omarchy;
+CachyOS desktop and handheld; Linux Mint; NixOS 26.05; Raspberry Pi OS; and
+Valve's Steam Deck recovery image.
+
+Nothing is bundled. Each entry is a pinned pointer — URL plus SHA-256, or a
+vendor checksum file for images whose URL always means "newest" — so the bytes
+come from Microsoft, Canonical, Fedora or Valve directly and are verified on
+arrival. They land in a machine-local library and are reused by later builds.
+
+### When the download is refused
+
+Microsoft rate-limits its ISO service to roughly one request per address per
+day. Download the ISO yourself and hand it over once:
+
+```
+uplink install windows-11 --iso "C:\Users\you\Downloads\Win11.iso"
+```
+
+It is filed under that OS, so later builds skip the fetch. The wizard asks for
+a path when it needs one, and the portal has a field for it.
 
 ### Drivers for the machine in front of you
 
@@ -128,6 +150,16 @@ resolves per device through the Microsoft Update Catalog. Devices the catalogs
 do not carry are reported and skipped rather than failing the build — Windows
 Update covers most of them. GPU packages are large (easily a gigabyte each),
 so driver media wants a 16 GB stick.
+
+Building media for a machine you are *not* sitting at — the bench case, where
+the target is a customer's fleet — names the model instead:
+
+```
+uplink install windows-11 --drivers-for "dell:OptiPlex 7010"
+```
+
+It is repeatable and combines with `--drivers`: pnputil installs only what
+matches the hardware it finds, so one stick can carry packs for several models.
 
 ### Programs
 
@@ -149,6 +181,35 @@ The same Quick Install path is driven by the CLI above, by `uplink tui`
 (a full-screen terminal wizard — no flags to remember, works over SSH), and
 by the web portal (`uplink serve`, or the Start-menu icon). A fix in the
 pipeline shows up in all three.
+
+### Twenty sticks at once
+
+```
+uplink flash media.img --all              # every stick attached
+uplink clone <device> --to all            # read a master, write it to blanks
+```
+
+Targets are written in parallel under a **single** elevation — one prompt for
+the batch, because twenty prompts would only teach people to script around
+them. Each stick is independent, with its own handle and readback verify, so a
+dead one fails alone and the error names it.
+
+The interlock scales rather than repeating: one stick still asks for its exact
+size; several list every target and ask you to type how many.
+
+`uplink clone <device>` on its own reads a working stick into the library as a
+master image — the generalized "capture the golden stick" workflow the original
+NUC kit was built on. (`capture` still works as the old name.)
+
+### Keeping it current
+
+```
+uplink update --check
+uplink update
+```
+
+Replaces this binary with the newest published release, verified against the
+checksums published beside it. The portal shows a banner when one is available.
 
 This is the "distro-hop / image a machine in two clicks" path. For repeatable,
 branded, fleet imaging with agents and per-model drivers, use a **workspace**:
@@ -186,9 +247,8 @@ else runs as a normal user.
 `uplink serve` opens the same workflow as a local web page (loopback-only,
 token-protected): recipes, devices, one-click builds, an arm-then-flash
 dialog with the typed-size interlock enforced server-side, and live progress
-over SSE. `uplink capture <device>` reads a working stick (through its
-last partition) into the library as a master image — the generalized
-"capture the golden stick" workflow.
+over SSE. **Browse…** opens the host's own folder chooser to pick a workspace,
+since a browser cannot hand a server an absolute path.
 
 `uplink doctor` checks the host: on Windows and macOS the ISO/WIM tooling
 is built into the OS (Mount-DiskImage/hdiutil, DISM); Linux needs `7zz` and
@@ -202,9 +262,25 @@ through the Windows FAT driver, byte-reproducible builds), the full Windows
 pipeline — captured-master trees, ISO extraction, overlays, driver packs,
 generated first-boot scripts — is integration-tested, and the first physical
 stick flashed on Windows verified 413/413 files through the OS FAT driver.
-The web UI is live. macOS/Linux flash paths are written but not yet
-hardware-tested; the Windows-ISO end-to-end and a physical unattended
-install are the next acceptance milestones.
+An Ubuntu stick has been flashed and verified on real hardware. Driver
+auto-resolve is verified live against all four catalogs. The web UI, the
+terminal wizard, and self-update are working.
+
+Known gaps, stated plainly:
+
+- **No physical Windows install has been done end to end yet** with drivers
+  and programs staged. That is the next acceptance milestone, and until it
+  passes, the first-boot driver and winget paths are reviewed but unproven.
+- **Parallel multi-stick writing has not been run on more than one stick.**
+  The engine is there and its guards are tested; the concurrency is not
+  hardware-proven.
+- **macOS and Linux flash paths** are written but not hardware-tested.
+- **Windows Server** is not in the catalog. Fido cannot fetch it and its
+  edition selection needs WIM image names read from a real ISO rather than
+  guessed.
+- **Binaries are unsigned**, so SmartScreen and Smart App Control will object,
+  and self-update verifies integrity rather than authorship. Code signing is
+  the fix for both.
 
 ## Development
 
