@@ -34,19 +34,42 @@ func PickFolder(ctx context.Context, title string) (string, error) {
 	return pickFolder(ctx, title)
 }
 
-// ImageExts are the extensions the image chooser offers to filter on. The
+// ImageExts and InstallerExts are what the choosers offer to filter on. The
 // filter is a convenience only: every chooser here also allows any file,
-// because an image with an unusual name is still writable and refusing to
-// show it would be worse than showing too much.
-var ImageExts = []string{"iso", "img", "raw", "bin", "wic", "xz", "zst", "gz", "bz2"}
+// because refusing to show a file with an unusual name would be worse than
+// showing too much.
+var (
+	ImageExts     = []string{"iso", "img", "raw", "bin", "wic", "xz", "zst", "gz", "bz2"}
+	InstallerExts = []string{"msi", "exe"}
+)
 
-// PickImage opens a native file chooser for a disk image and returns the
-// absolute path chosen. Same blocking contract as PickFolder.
+// PickFile opens a native file chooser and returns the absolute path chosen.
+// label names the filter in the dialog; exts is what it matches. Same blocking
+// contract as PickFolder.
+func PickFile(ctx context.Context, title, label string, exts []string) (string, error) {
+	if title == "" {
+		title = "Select a file"
+	}
+	if label == "" {
+		label = "Files"
+	}
+	return pickFile(ctx, title, label, exts)
+}
+
+// PickImage opens a chooser for a disk image.
 func PickImage(ctx context.Context, title string) (string, error) {
 	if title == "" {
 		title = "Select a disk image"
 	}
-	return pickImage(ctx, title)
+	return PickFile(ctx, title, "Disk images", ImageExts)
+}
+
+// PickInstaller opens a chooser for a Windows installer.
+func PickInstaller(ctx context.Context, title string) (string, error) {
+	if title == "" {
+		title = "Select an installer"
+	}
+	return PickFile(ctx, title, "Installers", InstallerExts)
 }
 
 // run executes a chooser and tidies its output. An empty result is a

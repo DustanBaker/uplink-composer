@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
 )
 
 // freshStore points the package at an empty store and restores the previous
@@ -159,6 +162,85 @@ func TestCustomAppearsInPickers(t *testing.T) {
 	}
 	if !found {
 		t.Error("the custom category is missing, so the grouped pickers would drop it")
+	}
+}
+
+// fakeStore stands in for the library: AddInstaller only needs somewhere to
+// put the file, and a real library would mean copying bytes for no reason.
+type fakeStore struct{ sum string }
+
+func (f fakeStore) Import(src *manifest.Source, path string) (library.Entry, error) {
+	return library.Entry{ID: src.ID, SHA256: f.sum, Filename: src.Filename, Size: 2048}, nil
+}
+
+// TestAddInstallerReturnsWhatWasStored: AddCustom stamps AddedAt on the stored
+// record, so returning the copy that went in would hand the caller a record
+// with a zero date it never had — which the portal then displays.
+func TestAddInstallerReturnsWhatWasStored(t *testing.T) {
+	root := freshStore(t)
+	dir := t.TempDir()
+	msi := filepath.Join(dir, "MaculaAgent.msi")
+	if err := os.WriteFile(msi, []byte("installer"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := fakeStore{sum: strings.Repeat("e", 64)}
+
+	got, err := AddInstaller(root, store, Installer{Path: msi, ID: "macula", Args: `/qn "C:\a b"`}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AddedAt.IsZero() {
+		t.Error("the returned record has no AddedAt — a caller echoing it shows 0001-01-01")
+	}
+	if got.Name != "MaculaAgent.msi" {
+		t.Errorf("name should default to the filename, got %q", got.Name)
+	}
+	if got.Format != "msi" || got.SHA256 != store.sum {
+		t.Errorf("record did not pick up the import: %+v", got)
+	}
+	// A quoted switch carrying a path with a space must survive as one arg.
+	if len(got.Args) != 2 || got.Args[1] != `C:\a b` {
+		t.Errorf("args split wrongly: %q", got.Args)
+	}
+	if got.RunLine() != `msiexec /i "MaculaAgent.msi" /qn C:\a b` {
+		t.Errorf("run line = %q", got.RunLine())
+	}
+}
+
+// TestAddInstallerRefusesBeforeCopying: the copy is the expensive part, so
+// everything knowable is checked first.
+func TestAddInstallerRefusesBeforeCopying(t *testing.T) {
+	root := freshStore(t)
+	dir := t.TempDir()
+	msi := filepath.Join(dir, "Thing.msi")
+	os.WriteFile(msi, []byte("x"), 0o644)
+	txt := filepath.Join(dir, "Thing.txt")
+	os.WriteFile(txt, []byte("x"), 0o644)
+
+	copied := false
+	watch := func(string) { copied = true }
+
+	if _, err := AddInstaller(root, fakeStore{}, Installer{Path: txt}, watch); err == nil {
+		t.Error("a .txt was accepted as an installer")
+	}
+	if _, err := AddInstaller(root, fakeStore{}, Installer{Path: msi, ID: "chrome"}, watch); err == nil {
+		t.Error("an id colliding with a built-in was accepted")
+	}
+	if copied {
+		t.Error("the installer was copied before the record was found invalid")
+	}
+
+	// And a duplicate must also refuse before copying.
+	if _, err := AddInstaller(root, fakeStore{sum: strings.Repeat("f", 64)},
+		Installer{Path: msi, ID: "thing"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	copied = false
+	if _, err := AddInstaller(root, fakeStore{}, Installer{Path: msi, ID: "thing"}, watch); err == nil {
+		t.Error("a duplicate id was accepted without replace")
+	}
+	if copied {
+		t.Error("a duplicate add copied the installer before refusing")
 	}
 }
 

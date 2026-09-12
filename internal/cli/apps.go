@@ -4,13 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/manifest"
 )
 
 const appsUsage = `Manage the programs Quick Install can add.
@@ -105,66 +101,23 @@ func appsAdd(env *Env, args []string) error {
 	if fs.NArg() != 1 {
 		return fmt.Errorf("apps add <installer.msi|.exe> [--id x] [--name \"X\"] [--args \"/qn\"]")
 	}
-	path := fs.Arg(0)
-	format, err := installerFormat(path)
-	if err != nil {
-		return err
-	}
 	lib, err := env.library()
 	if err != nil {
 		return err
 	}
-
-	c := appcatalog.Custom{
-		ID:       firstNonEmpty(*id, deriveAppID(path)),
-		Name:     firstNonEmpty(*name, filepath.Base(path)),
-		Category: *category,
-		Format:   format,
-		Filename: filepath.Base(path),
-		Args:     splitArgs(*argsFlag),
-	}
-	// Everything knowable is checked before the file is copied, so a rejected
-	// add costs nothing rather than a few hundred megabytes of pointless
-	// copying — the duplicate-id case included, which is the one people hit.
-	if err := appcatalog.CheckCustomID(c.ID, c.Name, c.Format); err != nil {
-		return err
-	}
-	if existing, ok := appcatalog.GetCustom(c.ID); ok && !*replace {
-		return fmt.Errorf("%q already exists (%s) — pass --replace to update it",
-			c.ID, existing.Filename)
-	}
-
-	entry, err := importInstaller(lib, c, path)
+	c, err := appcatalog.AddInstaller(env.libraryRoot(), lib, appcatalog.Installer{
+		Path: fs.Arg(0), ID: *id, Name: *name,
+		Args: *argsFlag, Category: *category, Replace: *replace,
+	}, func(name string) {
+		fmt.Printf("Filing %s in the library...\n", name)
+	})
 	if err != nil {
-		return err
-	}
-	c.SHA256, c.Size = entry.SHA256, entry.Size
-	if err := appcatalog.AddCustom(env.libraryRoot(), c, *replace); err != nil {
 		return err
 	}
 	fmt.Printf("Added %s (%s) — %d MiB, sha256 %s\n", c.ID, c.Name, c.Size>>20, c.SHA256[:16])
-	fmt.Printf("  runs as: %s\n", runLine(c))
+	fmt.Printf("  runs as: %s\n", c.RunLine())
 	fmt.Printf("\nUse it:  uplink install windows-11 --apps %s\n", c.ID)
 	return nil
-}
-
-// importInstaller files the installer in the library under the app's source
-// id, so the generated recipe can refer to it by ref like any other payload.
-func importInstaller(lib *library.Library, c appcatalog.Custom, path string) (library.Entry, error) {
-	st, err := os.Stat(path)
-	if err != nil {
-		return library.Entry{}, err
-	}
-	if st.IsDir() {
-		return library.Entry{}, fmt.Errorf("%s is a directory — point at the installer file", path)
-	}
-	fmt.Printf("Filing %s in the library...\n", filepath.Base(path))
-	return lib.Import(&manifest.Source{
-		ID:       c.SourceID(),
-		Kind:     manifest.KindPayload,
-		Format:   manifest.Format(c.Format),
-		Filename: filepath.Base(path),
-	}, path)
 }
 
 func appsSet(env *Env, args []string) error {
@@ -193,13 +146,13 @@ func appsSet(env *Env, args []string) error {
 			c.Category = *category
 		}
 		if changed["args"] {
-			c.Args = splitArgs(*argsFlag)
+			c.Args = appcatalog.SplitArgs(*argsFlag)
 		}
 	})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Updated %s (%s)\n  runs as: %s\n", c.ID, c.Name, runLine(c))
+	fmt.Printf("Updated %s (%s)\n  runs as: %s\n", c.ID, c.Name, c.RunLine())
 	return nil
 }
 
@@ -240,91 +193,6 @@ func appsShow(args []string) error {
 	fmt.Printf("  yours, added %s\n", c.AddedAt.Format("2006-01-02"))
 	fmt.Printf("  file:     %s (%d MiB)\n", c.Filename, c.Size>>20)
 	fmt.Printf("  sha256:   %s\n", c.SHA256)
-	fmt.Printf("  runs as:  %s\n", runLine(*c))
+	fmt.Printf("  runs as:  %s\n", c.RunLine())
 	return nil
-}
-
-// runLine shows the command the first-boot script will run, because a silent
-// switch that is wrong produces a machine that sits on an installer dialog
-// forever and nobody finds out until they look at it.
-func runLine(c appcatalog.Custom) string {
-	if c.Format == "msi" {
-		args := strings.Join(c.Args, " ")
-		if args == "" {
-			args = "/qn"
-		}
-		return fmt.Sprintf(`msiexec /i "%s" %s`, c.Filename, args)
-	}
-	return strings.TrimSpace(fmt.Sprintf(`"%s" %s`, c.Filename, strings.Join(c.Args, " ")))
-}
-
-func installerFormat(path string) (string, error) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".msi":
-		return "msi", nil
-	case ".exe":
-		return "exe", nil
-	}
-	return "", fmt.Errorf("%s is not a .msi or .exe — those are what the first-boot script can run",
-		filepath.Base(path))
-}
-
-// deriveAppID makes a usable picker id from a filename, so the common case
-// needs no --id at all.
-func deriveAppID(path string) string {
-	base := filepath.Base(path)
-	base = strings.TrimSuffix(base, filepath.Ext(base))
-	var b strings.Builder
-	for _, r := range strings.ToLower(base) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_' || r == '.':
-			b.WriteRune(r)
-		case r == ' ':
-			b.WriteRune('-')
-		}
-	}
-	return strings.Trim(b.String(), "-._")
-}
-
-// splitArgs turns a switch string into arguments. Quoted runs are kept whole,
-// since installer switches routinely carry paths and keys with spaces.
-func splitArgs(s string) []string {
-	var out []string
-	var cur strings.Builder
-	quote := rune(0)
-	flush := func() {
-		if cur.Len() > 0 {
-			out = append(out, cur.String())
-			cur.Reset()
-		}
-	}
-	for _, r := range s {
-		switch {
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			} else {
-				cur.WriteRune(r)
-			}
-		case r == '"' || r == '\'':
-			quote = r
-		case r == ' ' || r == '\t':
-			flush()
-		default:
-			cur.WriteRune(r)
-		}
-	}
-	flush()
-	return out
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

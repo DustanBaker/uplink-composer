@@ -31,18 +31,18 @@ $owner.Dispose()
 	return run(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
 }
 
-// pickImage drives the Windows shell's file browser. Same -STA requirement as
+// pickFile drives the Windows shell's file browser. Same -STA requirement as
 // the folder chooser, and the same always-on-top owner so the dialog cannot
 // open behind the browser.
-func pickImage(ctx context.Context, title string) (string, error) {
+func pickFile(ctx context.Context, title, label string, exts []string) (string, error) {
 	if os.Getenv("SESSIONNAME") == "" && os.Getenv("USERNAME") == "" {
 		return "", ErrUnavailable
 	}
-	pats := make([]string, 0, len(ImageExts))
-	for _, e := range ImageExts {
+	pats := make([]string, 0, len(exts))
+	for _, e := range exts {
 		pats = append(pats, "*."+e)
 	}
-	filter := "Disk images|" + strings.Join(pats, ";") + "|All files|*.*"
+	filter := label + "|" + strings.Join(pats, ";") + "|All files|*.*"
 	script := `
 Add-Type -AssemblyName System.Windows.Forms
 $dlg = New-Object System.Windows.Forms.OpenFileDialog

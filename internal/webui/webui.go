@@ -132,6 +132,11 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
 	mux.HandleFunc("POST /api/browse", s.auth(s.handleBrowse))
 	mux.HandleFunc("POST /api/browse/image", s.auth(s.handleBrowseImage))
+	mux.HandleFunc("POST /api/browse/installer", s.auth(s.handleBrowseInstaller))
+	mux.HandleFunc("GET /api/apps", s.auth(s.handleApps))
+	mux.HandleFunc("POST /api/apps/add", s.auth(s.handleAppAdd))
+	mux.HandleFunc("POST /api/apps/set", s.auth(s.handleAppSet))
+	mux.HandleFunc("POST /api/apps/remove", s.auth(s.handleAppRemove))
 	mux.HandleFunc("GET /api/workspace/defaults", s.auth(s.handleWorkspaceDefaults))
 	mux.HandleFunc("POST /api/workspace/new", s.auth(s.handleNewWorkspace))
 	mux.HandleFunc("GET /api/disks", s.auth(s.handleDisks))
@@ -731,6 +736,144 @@ func (s *Server) handleBrowseImage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"path": path, "size_mb": art.Size >> 20,
 		"compress": art.Compress, "composed": composed,
+	})
+}
+
+// customApp is one operator-supplied installer as the page shows it.
+type customApp struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category,omitempty"`
+	Filename string `json:"filename"`
+	Format   string `json:"format"`
+	Args     string `json:"args"`
+	SizeMB   int64  `json:"size_mb"`
+	SHA256   string `json:"sha256"`
+	Added    string `json:"added"`
+	// RunLine is the command the first-boot script will run. Shown because a
+	// silent switch that is wrong leaves a machine sitting on an installer
+	// dialog, and nobody finds out until they walk up to it.
+	RunLine string `json:"run_line"`
+}
+
+func customAppOf(c appcatalog.Custom) customApp {
+	return customApp{
+		ID: c.ID, Name: c.Name, Category: c.Category,
+		Filename: c.Filename, Format: c.Format,
+		Args: strings.Join(c.Args, " "), SizeMB: c.Size >> 20,
+		SHA256: c.SHA256, Added: c.AddedAt.Format("2006-01-02"),
+		RunLine: c.RunLine(),
+	}
+}
+
+func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
+	out := []customApp{}
+	for _, c := range appcatalog.CustomApps() {
+		out = append(out, customAppOf(c))
+	}
+	writeJSON(w, 200, map[string]any{"apps": out})
+}
+
+// handleAppAdd takes an installer from a path on this machine. The path comes
+// from the desktop's own chooser (or is typed), never an upload: the server is
+// on the same machine, and pushing an installer through the browser to reach
+// it would be pure waste.
+func (s *Server) handleAppAdd(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path     string `json:"path"`
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Args     string `json:"args"`
+		Category string `json:"category"`
+		Replace  bool   `json:"replace"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Path) == "" {
+		httpErr(w, 400, "body must include the path to a .msi or .exe")
+		return
+	}
+	c, err := appcatalog.AddInstaller(s.Lib.Root, s.Lib, appcatalog.Installer{
+		Path:    strings.Trim(strings.TrimSpace(req.Path), `"'`),
+		ID:      strings.TrimSpace(req.ID),
+		Name:    strings.TrimSpace(req.Name),
+		Args:    req.Args,
+		Replace: req.Replace,
+	}, nil)
+	if err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	writeJSON(w, 200, customAppOf(c))
+}
+
+func (s *Server) handleAppSet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID   string  `json:"id"`
+		Name *string `json:"name,omitempty"`
+		Args *string `json:"args,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
+		httpErr(w, 400, "body must include id")
+		return
+	}
+	// Pointers, so a field the page did not send is left alone — and "" stays
+	// a legitimate value for args, meaning "no switches".
+	c, err := appcatalog.UpdateCustom(s.Lib.Root, req.ID, func(c *appcatalog.Custom) {
+		if req.Name != nil {
+			c.Name = strings.TrimSpace(*req.Name)
+		}
+		if req.Args != nil {
+			c.Args = appcatalog.SplitArgs(*req.Args)
+		}
+	})
+	if err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	writeJSON(w, 200, customAppOf(c))
+}
+
+func (s *Server) handleAppRemove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
+		httpErr(w, 400, "body must include id")
+		return
+	}
+	c, err := appcatalog.RemoveCustom(s.Lib.Root, req.ID)
+	if err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"id": c.ID, "name": c.Name, "filename": c.Filename})
+}
+
+// handleBrowseInstaller asks the desktop for a .msi or .exe and offers back
+// the defaults the add form should start from, so the common case is one
+// click and a confirm.
+func (s *Server) handleBrowseInstaller(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	path, err := filepicker.PickInstaller(ctx, "Select an installer (.msi or .exe)")
+	switch {
+	case errors.Is(err, filepicker.ErrCancelled):
+		writeJSON(w, 200, map[string]string{"path": ""})
+		return
+	case errors.Is(err, filepicker.ErrUnavailable):
+		httpErr(w, 501, "no file chooser on this host — type the path instead")
+		return
+	case err != nil:
+		httpErr(w, 500, "%v", err)
+		return
+	}
+	format, ferr := appcatalog.FormatForFile(path)
+	if ferr != nil {
+		httpErr(w, 400, "%v", ferr)
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"path": path, "id": appcatalog.DeriveID(path),
+		"name": filepath.Base(path), "format": format,
 	})
 }
 

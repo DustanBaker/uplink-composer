@@ -131,9 +131,39 @@
   <div style="display:flex;flex-direction:column;gap:16px">
     <section><h2>Devices <span class="spacer"></span><button onclick="loadState()">Rescan</button></h2><div class="rows" id="devices"></div></section>
     <section><h2>Disks <span class="spacer"></span><button onclick="loadDisks()">Refresh</button></h2><div class="rows" id="disks"><div class="empty">Reading disks…</div></div></section>
+    <section><h2>Your installers <span class="spacer"></span><button onclick="addInstaller()" title="Add a .msi or .exe from this machine">Add installer…</button></h2>
+      <div class="rows" id="myapps"></div>
+    </section>
     <section><h2>Sources</h2><div class="rows" id="sources"></div></section>
   </div>
 </main>
+
+<dialog id="appDialog">
+  <div class="body">
+    <h3 id="appTitle">Add installer</h3>
+    <div class="target" id="appPath"></div>
+    <div class="opt">
+      <label for="appId">Id — what you tick and what <code>--apps</code> takes</label>
+      <input id="appId" autocomplete="off" placeholder="macula">
+    </div>
+    <div class="opt">
+      <label for="appName">Name shown in the picker</label>
+      <input id="appName" autocomplete="off" placeholder="Macula Agent">
+    </div>
+    <div class="opt">
+      <label for="appArgs">Silent-install switches</label>
+      <input id="appArgs" autocomplete="off" placeholder="/qn /norestart">
+      <div class="sub" style="color:var(--dim);margin-top:4px">
+        Leave blank for an MSI and <code>/qn</code> is used. Get this wrong and the
+        machine sits on an installer dialog nobody is there to click.
+      </div>
+    </div>
+    <div class="actions">
+      <button onclick="appDialog.close()">Cancel</button>
+      <button class="primary" id="appSave">Save</button>
+    </div>
+  </div>
+</dialog>
 
 <dialog id="armDialog">
   <div class="body">
@@ -195,6 +225,117 @@ async function api(path, body) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
+}
+
+// ── your installers ─────────────────────────────────────────────────────────
+// The MSI no package manager has: the RMM agent built for this customer, a
+// licensed app, an in-house tool. Managed here rather than only on the command
+// line, because the person imaging machines is often not the person who set
+// the tool up.
+async function loadMyApps() {
+  const box = $("myapps");
+  let apps = [];
+  try { apps = (await api("/api/apps")).apps || []; }
+  catch (e) { box.replaceChildren(el("div", "empty", "Could not read your installers: " + e.message)); return; }
+  box.replaceChildren();
+  if (!apps.length) {
+    box.append(el("div", "empty",
+      "None yet. Add a .msi or .exe and it rides on every stick you build — no network needed at first boot."));
+    return;
+  }
+  for (const a of apps) {
+    const row = el("div", "row");
+    const grow = el("div", "grow");
+    grow.append(el("div", "title", a.name),
+      el("div", "sub", `${a.id} · ${a.filename} · ${a.size_mb} MiB · added ${a.added}`));
+    const cmd = el("div", "sub", a.run_line);
+    cmd.style.color = "var(--dim)";
+    cmd.style.fontFamily = "ui-monospace, monospace";
+    grow.append(cmd);
+    row.append(grow);
+
+    const edit = el("button", null, "Edit…");
+    edit.onclick = () => editInstaller(a);
+    const upd = el("button", null, "Replace…");
+    upd.title = "Swap in a newer version of this installer";
+    upd.onclick = () => addInstaller(a.id);
+    const del = el("button", null, "Remove");
+    del.onclick = async () => {
+      if (!confirm(`Remove ${a.name}? The file stays in the library until you run gc.`)) return;
+      try { await api("/api/apps/remove", { id: a.id }); showOk(`Removed ${a.name}.`); await refreshApps(); }
+      catch (e) { showErr(e.message); }
+    };
+    row.append(edit, upd, del);
+    box.append(row);
+  }
+}
+
+// refreshApps reloads both the panel and the program picker, which reads from
+// the main state — otherwise a just-added installer would not be offerable
+// until the page was reloaded.
+async function refreshApps() {
+  await loadMyApps();
+  await loadState();
+}
+
+// addInstaller adds one, or replaces an existing id when given one. The path
+// comes from the desktop's own chooser, since a browser hands over file
+// contents rather than a location and the server is on this machine anyway.
+async function addInstaller(replaceID) {
+  let picked = null;
+  try {
+    picked = await api("/api/browse/installer", {});
+  } catch (e) {
+    const typed = prompt("Full path to the .msi or .exe:");
+    if (!typed) return;
+    picked = { path: typed.trim().replace(/^["']|["']$/g, "") };
+  }
+  if (!picked || !picked.path) return; // chooser dismissed
+  openAppForm({
+    title: replaceID ? "Replace installer" : "Add installer",
+    path: picked.path,
+    id: replaceID || picked.id || "",
+    idLocked: !!replaceID,
+    name: picked.name || "",
+    args: "",
+    onSave: async v => {
+      await api("/api/apps/add", {
+        path: picked.path, id: v.id, name: v.name, args: v.args, replace: !!replaceID,
+      });
+      showOk(`${v.name} is ready — tick it under Install programs.`);
+    },
+  });
+}
+
+function editInstaller(a) {
+  openAppForm({
+    title: "Edit " + a.name,
+    path: a.filename,
+    id: a.id, idLocked: true, name: a.name, args: a.args,
+    onSave: async v => {
+      await api("/api/apps/set", { id: a.id, name: v.name, args: v.args });
+      showOk(`Updated ${v.name}.`);
+    },
+  });
+}
+
+// openAppForm is the one dialog behind add, replace and edit: the same three
+// fields mean the same thing in all three, so one form keeps them consistent.
+function openAppForm(o) {
+  $("appTitle").textContent = o.title;
+  $("appPath").textContent = o.path;
+  const id = $("appId"), name = $("appName"), args = $("appArgs");
+  id.value = o.id; name.value = o.name; args.value = o.args;
+  id.disabled = !!o.idLocked;
+  $("appSave").onclick = async () => {
+    const v = { id: id.value.trim(), name: name.value.trim(), args: args.value.trim() };
+    if (!v.id || !v.name) { showErr("An id and a name are both required."); return; }
+    appDialog.close();
+    try { await o.onSave(v); await refreshApps(); }
+    catch (e) { showErr(e.message); }
+  };
+  appDialog.showModal();
+  (o.idLocked ? args : id).focus();
 }
 
 // ── disks ───────────────────────────────────────────────────────────────────
@@ -463,6 +604,7 @@ function render() {
 }
 
 // ── arm dialog ──────────────────────────────────────────────────────────────
+const appDialog = $("appDialog");
 const armDialog = $("armDialog");
 function pickDevice() {
   const usable = state.devices.filter(d => d.flashable);
@@ -856,6 +998,7 @@ async function loadState() {
 }
 loadState();
 loadDisks();
+loadMyApps();
 loadWorkspaceDefaults();
 streamEvents();
 checkUpdate();

@@ -10,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
 )
 
 // Custom programs: installers the operator supplies.
@@ -247,6 +250,180 @@ func RemoveCustom(root, id string) (Custom, error) {
 		}
 	}
 	return Custom{}, fmt.Errorf("no program %q — see `uplink apps`", id)
+}
+
+// FormatForFile reports how an installer will be run, from its extension.
+// Only these two can be driven silently by the first-boot script.
+func FormatForFile(path string) (string, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".msi":
+		return "msi", nil
+	case ".exe":
+		return "exe", nil
+	}
+	return "", fmt.Errorf("%s is not a .msi or .exe — those are what the first-boot script can run",
+		filepath.Base(path))
+}
+
+// DeriveID makes a usable picker id from a filename, so the common case needs
+// no id to be chosen by hand.
+func DeriveID(path string) string {
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	var b strings.Builder
+	for _, r := range strings.ToLower(base) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('-')
+		}
+	}
+	return strings.Trim(b.String(), "-._")
+}
+
+// SplitArgs turns a switch string into arguments. Quoted runs are kept whole,
+// since installer switches routinely carry paths and licence keys with spaces.
+func SplitArgs(s string) []string {
+	var out []string
+	var cur strings.Builder
+	quote := rune(0)
+	flush := func() {
+		if cur.Len() > 0 {
+			out = append(out, cur.String())
+			cur.Reset()
+		}
+	}
+	for _, r := range s {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '"' || r == '\'':
+			quote = r
+		case r == ' ' || r == '\t':
+			flush()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush()
+	return out
+}
+
+// RunLine is the command the first-boot script will run. Worth showing
+// wherever an installer is configured: a silent switch that is wrong produces
+// a machine sitting on an installer dialog forever, and nobody finds out until
+// they walk up to it.
+func (c Custom) RunLine() string {
+	if c.Format == "msi" {
+		args := strings.Join(c.Args, " ")
+		if args == "" {
+			args = "/qn" // msiexec's default, applied downstream
+		}
+		return fmt.Sprintf(`msiexec /i "%s" %s`, c.Filename, args)
+	}
+	return strings.TrimSpace(fmt.Sprintf(`"%s" %s`, c.Filename, strings.Join(c.Args, " ")))
+}
+
+// Installer is what a caller knows about an installer being added; the empty
+// fields are filled in from the file.
+type Installer struct {
+	Path     string
+	ID       string
+	Name     string
+	Args     string
+	Category string
+	Replace  bool
+}
+
+// AddInstaller does the whole job: work out the defaults, refuse anything
+// wrong before copying gigabytes, file the installer in the library, and
+// record it.
+//
+// One implementation for the command line and the portal both, because the
+// order of those steps is the part that matters — validating after the copy
+// would waste it, and recording before the copy would leave a program
+// pointing at nothing.
+//
+// onImport, if given, is called just before the copy starts and only if it is
+// going to happen, so a caller can say "this takes a moment" without saying it
+// on the way to a refusal.
+func AddInstaller(root string, lib blobStore, in Installer, onImport func(filename string)) (Custom, error) {
+	format, err := FormatForFile(in.Path)
+	if err != nil {
+		return Custom{}, err
+	}
+	st, err := os.Stat(in.Path)
+	if err != nil {
+		return Custom{}, err
+	}
+	if st.IsDir() {
+		return Custom{}, fmt.Errorf("%s is a directory — point at the installer file", in.Path)
+	}
+
+	c := Custom{
+		ID:       firstNonEmpty(in.ID, DeriveID(in.Path)),
+		Name:     firstNonEmpty(in.Name, filepath.Base(in.Path)),
+		Category: in.Category,
+		Format:   format,
+		Filename: filepath.Base(in.Path),
+		Args:     SplitArgs(in.Args),
+	}
+	if err := CheckCustomID(c.ID, c.Name, c.Format); err != nil {
+		return Custom{}, err
+	}
+	// Checked here as well as in AddCustom so a duplicate costs nothing: the
+	// copy below is the expensive part.
+	if existing, ok := GetCustom(c.ID); ok && !in.Replace {
+		return Custom{}, fmt.Errorf("%q already exists (%s) — replace it to update",
+			c.ID, existing.Filename)
+	}
+
+	if onImport != nil {
+		onImport(c.Filename)
+	}
+	entry, err := lib.Import(&manifest.Source{
+		ID:       c.SourceID(),
+		Kind:     manifest.KindPayload,
+		Format:   manifest.Format(c.Format),
+		Filename: c.Filename,
+	}, in.Path)
+	if err != nil {
+		return Custom{}, err
+	}
+	c.SHA256, c.Size = entry.SHA256, entry.Size
+	if err := AddCustom(root, c, in.Replace); err != nil {
+		return Custom{}, err
+	}
+	// Return what was actually stored, not the copy that went in: AddCustom
+	// stamps AddedAt (and preserves the original on a replace), so the local
+	// copy is missing it and a caller echoing it back would show a 1-01-01
+	// date it never had.
+	if stored, ok := GetCustom(c.ID); ok {
+		return stored, nil
+	}
+	return c, nil
+}
+
+// blobStore is the slice of the library this package needs, kept narrow so
+// the dependency is obvious and the tests need no real library.
+type blobStore interface {
+	Import(src *manifest.Source, filePath string) (library.Entry, error)
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func builtinByID(id string) (App, bool) {
