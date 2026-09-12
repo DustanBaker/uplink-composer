@@ -2,11 +2,16 @@ package oscatalog
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/recipe"
 	"github.com/DustanBaker/uplink-composer/internal/workspace"
@@ -268,6 +273,89 @@ func TestResolveChecksumLive(t *testing.T) {
 		}
 		t.Logf("%s -> %s", e.ID, sum)
 	}
+}
+
+// TestCatalogURLsLive is the link-rot alarm. Distros move and prune: Garuda
+// and PikaOS publish no permanent alias and delete old builds outright, and a
+// pinned URL that has become a 404 is invisible here — the tests pass, the
+// index publishes, and the first person to learn is a user whose download
+// fails.
+//
+// It checks reachability, not content. Verifying the bytes would mean
+// downloading well over a hundred gigabytes; the pinned hash already catches
+// a changed file at pull time, and this catches the case that check never
+// reaches. Every entry is reported before failing, so one run says everything
+// that rotted rather than only the first thing.
+//
+// Network, so it is skipped under -short. CI runs -short; the scheduled
+// catalog-health workflow is what runs this.
+func TestCatalogURLsLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network test")
+	}
+	client := &http.Client{Timeout: 90 * time.Second}
+	for _, e := range Catalog() {
+		if e.ImportOnly() {
+			continue // nothing to fetch by design
+		}
+		if e.URL == "" {
+			continue // Windows resolves through Fido at pull time
+		}
+		size, err := reachable(client, e.URL)
+		switch {
+		case err != nil:
+			t.Errorf("%s: %s\n    %v", e.ID, e.URL, err)
+		// Every entry here is an OS image; anything this small is an error
+		// page or a stub that happened to return 200.
+		case size >= 0 && size < 100<<20:
+			t.Errorf("%s: %s\n    returned only %d bytes — not an OS image", e.ID, e.URL, size)
+		default:
+			t.Logf("%s: ok (%d MiB)", e.ID, size>>20)
+		}
+	}
+}
+
+// reachable reports the size the server declares for a URL. HEAD first, since
+// it costs nothing; some hosts refuse it, so a refusal falls back to asking
+// for the first byte rather than being reported as rot.
+func reachable(client *http.Client, url string) (int64, error) {
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
+	resp, err := client.Do(req)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return resp.ContentLength, nil
+		}
+	}
+
+	rangeReq, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	rangeReq.Header.Set("User-Agent", buildinfo.UserAgent())
+	rangeReq.Header.Set("Range", "bytes=0-0")
+	r2, err2 := client.Do(rangeReq)
+	if err2 != nil {
+		return 0, err2
+	}
+	defer r2.Body.Close()
+	_, _ = io.Copy(io.Discard, r2.Body)
+	if r2.StatusCode != http.StatusOK && r2.StatusCode != http.StatusPartialContent {
+		return 0, fmt.Errorf("HEAD and ranged GET both refused (GET returned HTTP %d)", r2.StatusCode)
+	}
+	// A 206 states the full length after the slash in Content-Range.
+	if cr := r2.Header.Get("Content-Range"); cr != "" {
+		if i := strings.LastIndex(cr, "/"); i >= 0 {
+			if n, err := strconv.ParseInt(cr[i+1:], 10, 64); err == nil {
+				return n, nil
+			}
+		}
+	}
+	return -1, nil // reachable, size not stated
 }
 
 // TestRawImageEntriesCompose guards the single-board path: a Raspberry Pi

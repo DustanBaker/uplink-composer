@@ -94,14 +94,21 @@ var builtin = []Entry{
 		FirmwareNotes: "UEFI boot. Signed shim, so Secure Boot works out of the box on most firmware.",
 	},
 	{
-		ID:            "debian-13-netinst",
-		Name:          "Debian 13 (netinst)",
-		Family:        Linux,
-		Category:      Server,
-		Version:       "13.6.0",
-		URL:           "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.6.0-amd64-netinst.iso",
-		SHA256:        "65273beed27b2df543b68b65630ba525cfbad8df2b12035732b2dff87d6664e7",
-		Filename:      "debian-13.6.0-amd64-netinst.iso",
+		ID:       "debian-13-netinst",
+		Name:     "Debian 13 (netinst)",
+		Family:   Linux,
+		Category: Server,
+		Version:  "13.7.0",
+		// "current" is an alias that moves at every point release, taking the
+		// filename with it — 13.6.0 sat here until 13.7.0 replaced it and the
+		// old URL began 404ing, which is how this entry was found broken.
+		// There is no permanent path for the newest release: Debian only moves
+		// a version into /cdimage/archive/ once it has been superseded. So
+		// this needs re-pinning every point release, and the scheduled health
+		// check is what says when.
+		URL:           "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.7.0-amd64-netinst.iso",
+		SHA256:        "a7ef94ac2fb9a7fec454552abd629b7cc9d5155c886165a45649f5ce6167e355",
+		Filename:      "debian-13.7.0-amd64-netinst.iso",
 		Notes:         "Small network installer — the target machine needs wired internet during setup.",
 		FirmwareNotes: "UEFI boot. Signed shim, so Secure Boot works out of the box on most firmware.",
 	},

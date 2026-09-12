@@ -115,6 +115,54 @@ func TestRunScriptsAreComplete(t *testing.T) {
 	}
 }
 
+// TestCatalogHealthActuallyChecks guards the health job against the failure it
+// exists to prevent: a check that runs and proves nothing. `-short` skips
+// every network test, so a stray -short here would turn the whole workflow
+// into a green tick that never touches a single URL — the precise silence it
+// was built to break.
+func TestCatalogHealthActuallyChecks(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(workflowDir, "catalog-health.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		On   map[string]any `yaml:"on"`
+		Jobs map[string]struct {
+			Steps []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	all := ""
+	for _, j := range doc.Jobs {
+		for _, s := range j.Steps {
+			for _, line := range strings.Split(s.Run, "\n") {
+				if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+					all += line + "\n"
+				}
+			}
+		}
+	}
+	if strings.Contains(all, "-short") {
+		t.Error("catalog-health.yml passes -short, which skips every network test — " +
+			"the job would pass without checking a single URL")
+	}
+	if !strings.Contains(all, "TestCatalogURLsLive") {
+		t.Error("catalog-health.yml no longer runs TestCatalogURLsLive — nothing checks for link rot")
+	}
+	// A check nobody is told about is not a check.
+	if !strings.Contains(all, "gh issue") {
+		t.Error("catalog-health.yml does not raise an issue on failure — a failed " +
+			"scheduled run notifies nobody who reads it")
+	}
+	if _, ok := doc.On["schedule"]; !ok {
+		t.Error("catalog-health.yml has no schedule — it would only ever run by hand")
+	}
+}
+
 // TestReleasePublishes is the specific regression: the release job must still
 // actually create the release with its built assets.
 func TestReleasePublishes(t *testing.T) {

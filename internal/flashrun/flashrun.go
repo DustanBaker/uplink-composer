@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/DustanBaker/uplink-composer/internal/awake"
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/device"
 	"github.com/DustanBaker/uplink-composer/internal/diskutil"
@@ -115,6 +116,11 @@ func RunPrepare(ctx context.Context, dev device.Device, opts diskutil.Options, p
 // its own handle, its own readback verify — so one slow or dead stick only
 // holds up itself.
 func flashAll(ctx context.Context, art *compose.Artifact, devs []device.Device, progress DeviceProgress) error {
+	// Held across the whole batch, in the process actually doing the writing.
+	// A suspend partway through leaves a stick that mounts and boots to
+	// something broken, which nobody thinks to suspect.
+	defer awake.Keep("writing removable media")()
+
 	var wg sync.WaitGroup
 	errs := make([]error, len(devs))
 	for i, dev := range devs {
