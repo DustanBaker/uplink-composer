@@ -52,6 +52,27 @@ mv -f "$TMP" "$BIN/uplink"
 chmod +x "$BIN/uplink"
 ln -sf uplink "$BIN/compose"
 
+# Linux: an app-drawer launcher (macOS has no equivalent drop-in; use the CLI).
+if [ "$OS" = "linux" ]; then
+  APPS="$HOME/.local/share/applications"
+  ICONS="$HOME/.local/share/icons"
+  mkdir -p "$APPS" "$ICONS"
+  curl -fsSL -H 'User-Agent: uplink-composer-installer' -o "$ICONS/uplink.png" \
+    "https://raw.githubusercontent.com/$REPO/main/uplink.png" 2>/dev/null || true
+  cat > "$APPS/uplink-composer.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=The Uplink CompOSer
+Comment=Build and flash bootable OS installers
+Exec=$BIN/uplink serve --open
+Icon=$ICONS/uplink.png
+Terminal=false
+Categories=System;Utility;
+EOF
+  update-desktop-database "$APPS" >/dev/null 2>&1 || true
+  echo "Added an app-drawer launcher (The Uplink CompOSer)."
+fi
+
 echo ""
 echo "Installed The Uplink CompOSer $TAG to $BIN (uplink, compose)."
 case ":$PATH:" in

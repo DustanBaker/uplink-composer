@@ -43,6 +43,31 @@ Move-Item -Force "$exe.download" $exe
 Unblock-File $exe
 Copy-Item -Force $exe (Join-Path $dir 'compose.exe')
 
+# Windowless launcher for the click-to-launch app + its icon (best effort).
+$appAsset = $rel.assets | Where-Object { $_.name -like "uplink-app-*-windows-$arch.exe" } | Select-Object -First 1
+$appExe = Join-Path $dir 'uplink-app.exe'
+$ico = Join-Path $dir 'uplink.ico'
+if ($appAsset) {
+    Invoke-WebRequest -Uri $appAsset.url -Headers $dl -OutFile $appExe
+    Unblock-File $appExe
+    try { Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$repo/main/uplink.ico" -Headers @{ 'User-Agent' = 'uplink-composer-installer' } -OutFile $ico } catch {}
+
+    $target = $appExe
+    if (-not (Test-Path $ico)) { $ico = $appExe }
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($loc in @(
+        (Join-Path ([Environment]::GetFolderPath('Programs')) 'The Uplink CompOSer.lnk'),
+        (Join-Path ([Environment]::GetFolderPath('Desktop'))  'The Uplink CompOSer.lnk'))) {
+        $lnk = $shell.CreateShortcut($loc)
+        $lnk.TargetPath = $target
+        $lnk.IconLocation = $ico
+        $lnk.Description = 'Build and flash bootable OS installers'
+        $lnk.WorkingDirectory = $dir
+        $lnk.Save()
+    }
+    Write-Host "Created Start-menu and desktop shortcuts."
+}
+
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not $userPath) { $userPath = '' }
 if (($userPath -split ';') -notcontains $dir) {
@@ -52,6 +77,7 @@ if (($userPath -split ';') -notcontains $dir) {
 $env:Path = "$env:Path;$dir"
 
 Write-Host ""
-Write-Host "Installed The Uplink CompOSer $($rel.tag_name) to $dir (uplink, compose)."
-Write-Host "Open a NEW terminal, cd into a workspace, and run:  compose <recipe>"
-Write-Host "No workspace yet?  uplink init --org `"Your Org`" my-workspace"
+Write-Host "Installed The Uplink CompOSer $($rel.tag_name) to $dir."
+Write-Host "Launch the app from the Start menu (The Uplink CompOSer), or from a NEW terminal:"
+Write-Host "  uplink serve --open      # the web portal"
+Write-Host "  compose <recipe>         # one-shot build + flash, inside a workspace"

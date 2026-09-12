@@ -27,6 +27,13 @@ jobs:
             CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
               go build -trimpath -ldflags "$LDFLAGS" -o "$out" ./cmd/uplink
           done
+          # Windowless launcher for the click-to-launch app (Windows GUI subsystem).
+          for GOARCH in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=windows GOARCH="$GOARCH" \
+              go build -trimpath -ldflags "$LDFLAGS -H=windowsgui" \
+              -o "dist/uplink-app-${VERSION}-windows-${GOARCH}.exe" ./cmd/uplink-app
+          done
+          cp uplink.ico dist/uplink.ico
           (cd dist && sha256sum * > SHA256SUMS.txt)
       - name: Create release
         env:

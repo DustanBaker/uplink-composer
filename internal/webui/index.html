@@ -18,7 +18,11 @@
   header h1 { font-size: 17px; margin: 0; letter-spacing: .3px; }
   header .org { color: var(--dim); }
   header .ws { margin-left: auto; color: var(--dim); font-size: 12px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+  #quitBtn { margin-left: 12px; }
+  .wsrow input { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 9px; font: inherit; font-size: 13px; min-width: 0; }
+  .active { color: var(--ok); }
   main { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px;
     padding: 16px 22px; max-width: 1200px; margin: 0 auto; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
@@ -78,9 +82,13 @@
   <h1>The Uplink CompOSer</h1>
   <span class="org" id="org"></span>
   <span class="ws" id="ws"></span>
+  <button id="quitBtn" title="Stop the app" onclick="quitApp()">Quit</button>
 </header>
 <main>
   <div style="display:flex;flex-direction:column;gap:16px">
+    <section><h2>Workspace <span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
+      <div class="rows" id="wsPanel"></div>
+    </section>
     <section id="jobsSec"><h2>Activity</h2><div class="rows" id="jobs"><div class="empty">No jobs yet — build a recipe or flash a stick.</div></div></section>
     <section><h2>Recipes <span class="spacer"></span><button onclick="loadState()">Refresh</button></h2><div class="rows" id="recipes"></div></section>
     <section><h2>Artifacts</h2><div class="rows" id="artifacts"></div></section>
@@ -110,7 +118,7 @@
 "use strict";
 const token = new URLSearchParams(location.hash.slice(1)).get("t") || "";
 const $ = id => document.getElementById(id);
-let state = { recipes: [], devices: [], artifacts: [], sources: [] };
+let state = { recipes: [], devices: [], artifacts: [], sources: [], recent: [], has_workspace: false };
 
 async function api(path, body) {
   const opts = { headers: { "X-Uplink-Token": token } };
@@ -138,8 +146,43 @@ function render() {
   $("org").textContent = state.org || "";
   $("ws").textContent = state.workspace || "";
 
+  // ── Workspace panel ─────────────────────────────────────────────────────
+  const wp = $("wsPanel"); wp.replaceChildren();
+  $("wsHint").textContent = state.has_workspace ? "" : "open one to build recipes";
+  if (state.has_workspace) {
+    const row = el("div", "row");
+    const grow = el("div", "grow");
+    grow.append(el("div", "title active", state.org || "workspace"),
+      el("div", "sub", state.workspace));
+    row.append(grow, el("span", "badge ok", "open"));
+    wp.append(row);
+  } else {
+    wp.append(el("div", "empty", "No workspace open. Open one to see its recipes and build media."));
+  }
+  // Recents (excluding the current one).
+  for (const w of state.recent || []) {
+    if (state.has_workspace && w.dir === state.workspace) continue;
+    const row = el("div", "row");
+    const grow = el("div", "grow");
+    grow.append(el("div", "title", w.name || w.dir), el("div", "sub", w.dir));
+    row.append(grow);
+    const open = el("button", "", "Open");
+    open.onclick = () => openWorkspace(w.dir);
+    row.append(open);
+    wp.append(row);
+  }
+  // Open-by-path.
+  const orow = el("div", "row wsrow");
+  const input = el("input"); input.placeholder = "path to a workspace folder…"; input.id = "wsInput";
+  input.onkeydown = e => { if (e.key === "Enter") openWorkspace(input.value.trim()); };
+  const openBtn = el("button", "primary", "Open folder");
+  openBtn.onclick = () => openWorkspace(input.value.trim());
+  orow.append(input, openBtn);
+  wp.append(orow);
+
   const rr = $("recipes"); rr.replaceChildren();
-  if (!state.recipes.length) rr.append(el("div", "empty", "No recipes in this workspace."));
+  if (!state.has_workspace) rr.append(el("div", "empty", "Open a workspace above to see its recipes."));
+  else if (!state.recipes.length) rr.append(el("div", "empty", "No recipes in this workspace."));
   for (const rc of state.recipes) {
     const row = el("div", "row");
     const grow = el("div", "grow");
@@ -300,6 +343,21 @@ async function streamEvents() {
     } catch (e) { /* server restarting or network blip */ }
     await new Promise(res => setTimeout(res, 1500));
   }
+}
+
+async function openWorkspace(dir) {
+  if (!dir) { showErr("Enter a workspace folder path."); return; }
+  try { await api("/api/workspace", { dir }); await loadState(); }
+  catch (e) { showErr(e.message); }
+}
+
+async function quitApp() {
+  if (!confirm("Stop The Uplink CompOSer? Any running flash finishes first.")) return;
+  try { await api("/api/quit", {}); } catch (e) {}
+  document.body.innerHTML =
+    '<div style="max-width:520px;margin:16vh auto;text-align:center;color:var(--dim);font:14px system-ui">' +
+    '<h2 style="color:var(--text)">The Uplink CompOSer has stopped.</h2>' +
+    '<p>You can close this tab. Relaunch it from the Start menu (or <code>uplink serve</code>).</p></div>';
 }
 
 async function loadState() {

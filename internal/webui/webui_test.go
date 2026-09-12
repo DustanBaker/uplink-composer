@@ -18,15 +18,16 @@ func testServer(t *testing.T) *Server {
 	if err := workspace.Scaffold(wsDir, "Test Org"); err != nil {
 		t.Fatal(err)
 	}
-	ws, err := workspace.Load(wsDir)
-	if err != nil {
-		t.Fatal(err)
-	}
 	lib, err := library.Open(filepath.Join(root, "lib"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Server{WS: ws, Lib: lib, Token: "sekrit", Reg: jobs.NewRegistry()}
+	// Cfg left nil so the test never writes to the real user config dir.
+	s := &Server{Lib: lib, Token: "sekrit", Reg: jobs.NewRegistry()}
+	if err := s.SetWorkspaceDir(wsDir); err != nil {
+		t.Fatal(err)
+	}
+	return s
 }
 
 func do(t *testing.T, h http.Handler, method, path, host, origin, token string) *httptest.ResponseRecorder {

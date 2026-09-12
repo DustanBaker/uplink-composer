@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/DustanBaker/uplink-composer/internal/appconfig"
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/device"
 	"github.com/DustanBaker/uplink-composer/internal/flashrun"
@@ -31,30 +32,72 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
-// Server holds the wiring for one serve session.
+// Server holds the wiring for one serve session. The workspace is optional
+// and switchable at runtime, so the app can launch to a home screen and let
+// the operator open a workspace from the page.
 type Server struct {
-	WS      *workspace.Workspace
 	Lib     *library.Library
 	CLIVars map[string]string
 	Token   string
 	Reg     *jobs.Registry
+	Cfg     *appconfig.Config
 
+	wsMu sync.RWMutex
+	ws   *workspace.Workspace
+
+	quit     func()     // cancels Serve; set in Serve
 	deviceMu sync.Mutex // one raw-device operation at a time
 }
 
-// Serve runs until ctx is canceled.
-func Serve(ctx context.Context, addr string, s *Server) error {
+// SetWorkspaceDir loads the workspace rooted at dir and makes it current,
+// recording it in the recents. Used at startup and by the page.
+func (s *Server) SetWorkspaceDir(dir string) error {
+	root, err := workspace.Find(dir)
+	if err != nil {
+		return err
+	}
+	ws, err := workspace.Load(root)
+	if err != nil {
+		return err
+	}
+	s.wsMu.Lock()
+	s.ws = ws
+	s.wsMu.Unlock()
+	if s.Cfg != nil {
+		s.Cfg.AddRecent(root)
+	}
+	return nil
+}
+
+func (s *Server) workspace() *workspace.Workspace {
+	s.wsMu.RLock()
+	defer s.wsMu.RUnlock()
+	return s.ws
+}
+
+// WorkspaceName returns the current workspace's org name, or "" if none.
+func (s *Server) WorkspaceName() string {
+	if ws := s.workspace(); ws != nil {
+		return ws.Config.Org.Name
+	}
+	return ""
+}
+
+// Serve runs on ln until ctx is canceled or the page requests quit.
+func Serve(ctx context.Context, ln net.Listener, s *Server) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.quit = cancel
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           s.handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.ListenAndServe() }()
+	go func() { errCh <- srv.Serve(ln) }()
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
+		shutdownCtx, c := context.WithTimeout(context.Background(), 3*time.Second)
+		defer c()
 		_ = srv.Shutdown(shutdownCtx)
 		return nil
 	case err := <-errCh:
@@ -72,9 +115,11 @@ func (s *Server) handler() http.Handler {
 		w.Write(indexHTML)
 	})
 	mux.HandleFunc("GET /api/state", s.auth(s.handleState))
+	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
 	mux.HandleFunc("POST /api/build", s.auth(s.handleBuild))
 	mux.HandleFunc("POST /api/flash", s.auth(s.handleFlash))
 	mux.HandleFunc("POST /api/capture", s.auth(s.handleCapture))
+	mux.HandleFunc("POST /api/quit", s.auth(s.handleQuit))
 	mux.HandleFunc("GET /api/events", s.auth(s.handleEvents))
 	return s.hostGuard(mux)
 }
@@ -132,12 +177,20 @@ func httpErr(w http.ResponseWriter, status int, format string, args ...any) {
 // ── state ────────────────────────────────────────────────────────────────────
 
 type stateResp struct {
-	Org       string         `json:"org"`
-	Workspace string         `json:"workspace"`
-	Recipes   []recipeInfo   `json:"recipes"`
-	Sources   []sourceInfo   `json:"sources"`
-	Devices   []deviceInfo   `json:"devices"`
-	Artifacts []artifactInfo `json:"artifacts"`
+	Org          string         `json:"org"`
+	Workspace    string         `json:"workspace"`
+	HasWorkspace bool           `json:"has_workspace"`
+	Recent       []recentWS     `json:"recent"`
+	Recipes      []recipeInfo   `json:"recipes"`
+	Sources      []sourceInfo   `json:"sources"`
+	Devices      []deviceInfo   `json:"devices"`
+	Artifacts    []artifactInfo `json:"artifacts"`
+	LibraryRoot  string         `json:"library_root"`
+}
+
+type recentWS struct {
+	Dir  string `json:"dir"`
+	Name string `json:"name"`
 }
 
 type recipeInfo struct {
@@ -174,30 +227,39 @@ type artifactInfo struct {
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
-	resp := stateResp{Org: s.WS.Config.Org.Name, Workspace: s.WS.Dir,
-		Recipes: []recipeInfo{}, Sources: []sourceInfo{}, Devices: []deviceInfo{}, Artifacts: []artifactInfo{}}
-
-	recipes, err := s.WS.Recipes()
-	if err != nil {
-		httpErr(w, 500, "loading recipes: %v", err)
-		return
+	resp := stateResp{
+		Recent: []recentWS{}, Recipes: []recipeInfo{}, Sources: []sourceInfo{},
+		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, LibraryRoot: s.Lib.Root,
 	}
-	for _, rc := range recipes {
-		info := recipeInfo{ID: rc.ID, Name: rc.Name, Type: string(rc.OS.Type)}
-		for _, f := range rc.Lint() {
-			info.Lint = append(info.Lint, f.String())
+	if s.Cfg != nil {
+		for _, dir := range s.Cfg.Recent {
+			resp.Recent = append(resp.Recent, recentWS{Dir: dir, Name: workspaceName(dir)})
 		}
-		resp.Recipes = append(resp.Recipes, info)
 	}
 
-	if sources, err := s.WS.Sources(); err == nil {
-		for _, src := range sources {
-			info := sourceInfo{ID: src.ID, Kind: string(src.Kind), Pinned: src.SHA256 != ""}
-			if e, err := s.Lib.Resolve(src.ID); err == nil {
-				info.InLibrary = true
-				info.SizeMB = e.Size >> 20
+	ws := s.workspace()
+	if ws != nil {
+		resp.HasWorkspace = true
+		resp.Org = ws.Config.Org.Name
+		resp.Workspace = ws.Dir
+		if recipes, err := ws.Recipes(); err == nil {
+			for _, rc := range recipes {
+				info := recipeInfo{ID: rc.ID, Name: rc.Name, Type: string(rc.OS.Type)}
+				for _, f := range rc.Lint() {
+					info.Lint = append(info.Lint, f.String())
+				}
+				resp.Recipes = append(resp.Recipes, info)
 			}
-			resp.Sources = append(resp.Sources, info)
+		}
+		if sources, err := ws.Sources(); err == nil {
+			for _, src := range sources {
+				info := sourceInfo{ID: src.ID, Kind: string(src.Kind), Pinned: src.SHA256 != ""}
+				if e, err := s.Lib.Resolve(src.ID); err == nil {
+					info.InLibrary = true
+					info.SizeMB = e.Size >> 20
+				}
+				resp.Sources = append(resp.Sources, info)
+			}
 		}
 	}
 
@@ -254,7 +316,11 @@ func (s *Server) handleBuild(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) build(ctx context.Context, recipeID string, progress func(string, int64, int64)) (*compose.Artifact, error) {
-	rc, err := s.WS.Recipe(recipeID)
+	ws := s.workspace()
+	if ws == nil {
+		return nil, fmt.Errorf("no workspace is open")
+	}
+	rc, err := ws.Recipe(recipeID)
 	if err != nil {
 		return nil, err
 	}
@@ -264,9 +330,45 @@ func (s *Server) build(ctx context.Context, recipeID string, progress func(strin
 		}
 	}
 	return compose.Build(ctx, compose.Request{
-		Workspace: s.WS, Library: s.Lib, Recipe: rc, CLIVars: s.CLIVars,
+		Workspace: ws, Library: s.Lib, Recipe: rc, CLIVars: s.CLIVars,
 		Progress: progress,
 	})
+}
+
+// workspaceName reads a workspace directory's org name for display, falling
+// back to the folder name.
+func workspaceName(dir string) string {
+	if ws, err := workspace.Load(dir); err == nil && ws.Config.Org.Name != "" {
+		return ws.Config.Org.Name
+	}
+	return filepath.Base(dir)
+}
+
+// handleSetWorkspace opens the workspace at the posted dir.
+func (s *Server) handleSetWorkspace(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Dir string `json:"dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Dir) == "" {
+		httpErr(w, 400, "body must be {\"dir\": \"<path>\"}")
+		return
+	}
+	if err := s.SetWorkspaceDir(strings.TrimSpace(req.Dir)); err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"ok": "1"})
+}
+
+// handleQuit stops the server (the app's clean exit).
+func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]string{"ok": "1"})
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		if s.quit != nil {
+			s.quit()
+		}
+	}()
 }
 
 // buildProgressJob wraps compose progress into job events.
