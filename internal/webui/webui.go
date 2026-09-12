@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/diskutil"
 	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
 	"github.com/DustanBaker/uplink-composer/internal/filepicker"
 	"github.com/DustanBaker/uplink-composer/internal/flashrun"
@@ -129,6 +131,9 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/state", s.auth(s.handleState))
 	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
 	mux.HandleFunc("POST /api/browse", s.auth(s.handleBrowse))
+	mux.HandleFunc("POST /api/workspace/new", s.auth(s.handleNewWorkspace))
+	mux.HandleFunc("GET /api/disks", s.auth(s.handleDisks))
+	mux.HandleFunc("POST /api/disks/prepare", s.auth(s.handleDiskPrepare))
 	mux.HandleFunc("POST /api/build", s.auth(s.handleBuild))
 	mux.HandleFunc("POST /api/flash", s.auth(s.handleFlash))
 	mux.HandleFunc("POST /api/install", s.auth(s.handleInstall))
@@ -264,6 +269,17 @@ type artifactInfo struct {
 	Created  string `json:"created"`
 }
 
+// deviceInfoOf is the one place a device becomes a page row, so the devices
+// list and the disks view cannot drift apart.
+func deviceInfoOf(d device.Device) deviceInfo {
+	return deviceInfo{
+		ID: d.ID, Model: d.Model, Bus: d.Bus,
+		SizeGiB:   d.SizeConfirmation(),
+		Flashable: d.Flashable(), System: d.System,
+		Mounts: d.Mounts, Confirm: d.SizeConfirmation(),
+	}
+}
+
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	resp := stateResp{
 		Recent: []recentWS{}, Recipes: []recipeInfo{}, Sources: []sourceInfo{},
@@ -318,12 +334,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 
 	if devs, err := device.List(r.Context()); err == nil {
 		for _, d := range devs {
-			resp.Devices = append(resp.Devices, deviceInfo{
-				ID: d.ID, Model: d.Model, Bus: d.Bus,
-				SizeGiB:   d.SizeConfirmation(),
-				Flashable: d.Flashable(), System: d.System,
-				Mounts: d.Mounts, Confirm: d.SizeConfirmation(),
-			})
+			resp.Devices = append(resp.Devices, deviceInfoOf(d))
 		}
 	}
 
@@ -680,6 +691,161 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"path": path})
+}
+
+// handleNewWorkspace scaffolds a workspace and opens it. The folder is
+// chosen with the host's own picker rather than typed, and a workspace is
+// created inside it named after the org.
+func (s *Server) handleNewWorkspace(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Org    string `json:"org"`
+		Parent string `json:"parent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpErr(w, 400, "body must include org and parent")
+		return
+	}
+	org := strings.TrimSpace(req.Org)
+	parent := strings.TrimSpace(req.Parent)
+	if org == "" || parent == "" {
+		httpErr(w, 400, "both an organisation name and a folder are required")
+		return
+	}
+	st, err := os.Stat(parent)
+	if err != nil || !st.IsDir() {
+		httpErr(w, 400, "%s is not a folder", parent)
+		return
+	}
+	dir := filepath.Join(parent, slugify(org)+"-workspace")
+	if _, err := os.Stat(dir); err == nil {
+		httpErr(w, 400, "%s already exists — open it instead of creating it again", dir)
+		return
+	}
+	if err := workspace.Scaffold(dir, org); err != nil {
+		httpErr(w, 500, "%v", err)
+		return
+	}
+	if err := s.SetWorkspaceDir(dir); err != nil {
+		httpErr(w, 500, "created %s but could not open it: %v", dir, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"dir": dir})
+}
+
+// slugify turns an org name into a folder-safe stem.
+var notSlug = regexp.MustCompile(`[^a-z0-9]+`)
+
+func slugify(s string) string {
+	out := notSlug.ReplaceAllString(strings.ToLower(s), "-")
+	if out = strings.Trim(out, "-"); out == "" {
+		return "org"
+	}
+	return out
+}
+
+// handleDisks reports each attached disk with its partition layout. Reading
+// needs no elevation, so the page can show this without prompting anyone.
+func (s *Server) handleDisks(w http.ResponseWriter, r *http.Request) {
+	devs, err := device.List(r.Context())
+	if err != nil {
+		httpErr(w, 500, "%v", err)
+		return
+	}
+	type partOut struct {
+		Number int      `json:"number"`
+		SizeGB float64  `json:"size_gb"`
+		Type   string   `json:"type"`
+		Label  string   `json:"label,omitempty"`
+		Mounts []string `json:"mounts,omitempty"`
+	}
+	type diskOut struct {
+		deviceInfo
+		Scheme   string    `json:"scheme"`
+		Parts    []partOut `json:"parts"`
+		UnusedGB float64   `json:"unused_gb"`
+		Notes    []string  `json:"notes,omitempty"`
+		Error    string    `json:"error,omitempty"`
+	}
+	out := []diskOut{}
+	for _, d := range devs {
+		row := diskOut{deviceInfo: deviceInfoOf(d), Parts: []partOut{}}
+		if d.Flashable() {
+			if l, err := diskutil.Inspect(r.Context(), d); err != nil {
+				row.Error = err.Error()
+			} else {
+				row.Scheme = l.Scheme
+				row.Notes = l.Notes
+				row.UnusedGB = float64(l.UnusedBytes()) / 1e9
+				for _, p := range l.Parts {
+					row.Parts = append(row.Parts, partOut{
+						Number: p.Number, SizeGB: float64(p.Size) / 1e9,
+						Type: p.Type, Label: p.Label, Mounts: p.Mounts,
+					})
+				}
+			}
+		}
+		out = append(out, row)
+	}
+	writeJSON(w, 200, map[string]any{"disks": out})
+}
+
+// handleDiskPrepare erases a removable disk and gives it one full-size
+// volume. Same interlock as a flash: the operator types the device's size.
+func (s *Server) handleDiskPrepare(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID string `json:"device_id"`
+		Scheme   string `json:"scheme"`
+		FS       string `json:"fs"`
+		Label    string `json:"label"`
+		Confirm  string `json:"confirm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceID == "" {
+		httpErr(w, 400, "body must include device_id and confirm")
+		return
+	}
+	dev, err := s.findDevice(r.Context(), req.DeviceID)
+	if err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	if err := diskutil.Guard(dev); err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	opts := diskutil.Options{
+		Scheme: diskutil.Scheme(strings.ToLower(req.Scheme)),
+		FS:     diskutil.FS(strings.ToLower(req.FS)),
+		Label:  req.Label,
+	}
+	if opts.Scheme == "" {
+		opts.Scheme = diskutil.GPT
+	}
+	if opts.FS == "" {
+		opts.FS = diskutil.ExFAT
+	}
+	if opts.Label == "" {
+		opts.Label = "UPLINK"
+	}
+	if err := opts.Validate(dev); err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	if strings.TrimSpace(req.Confirm) != dev.SizeConfirmation() {
+		httpErr(w, 400, "confirmation mismatch: %s is %s GiB — type exactly %q to arm",
+			dev.ID, dev.SizeConfirmation(), dev.SizeConfirmation())
+		return
+	}
+	job := s.Reg.New("prepare", fmt.Sprintf("%s → %s %s", dev.ID, opts.FS, opts.Label))
+	go func() {
+		s.deviceMu.Lock()
+		defer s.deviceMu.Unlock()
+		if _, err := flashrun.RunPrepare(context.Background(), dev, opts, progressFor(job)); err != nil {
+			job.Fail(err)
+			return
+		}
+		job.Finish("prepared — one " + string(opts.FS) + " volume, safe to use")
+	}()
+	writeJSON(w, 202, map[string]string{"job_id": job.ID})
 }
 
 // handleDetect profiles the machine the server runs on, so the page can offer

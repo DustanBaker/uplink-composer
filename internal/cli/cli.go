@@ -62,6 +62,12 @@ Building and flashing
   clone <device>            read a working stick into the library as a master image
                             (--to <device> … , or --to all, to write it straight to blanks)
 
+Disk utilities (removable USB media only)
+  disks                     every disk, with what is actually on it
+  disks inspect <device>    partition table, volumes, and why the OS may not mount it
+  disks prepare <device>    erase and lay down one full-size volume
+                            (--fs exfat|fat32|ntfs, --scheme gpt|mbr, --label NAME)
+
 Pick an interface
   tui                       full-screen terminal wizard (pick OS, options, stick)
   serve [--port 8931]       local web UI (recipes, devices, build, flash, live progress)
@@ -173,6 +179,8 @@ func Main(args []string) int {
 		err = cmdUninstall(ctx, env, cmdArgs)
 	case "devices":
 		err = cmdDevices(ctx)
+	case "disks":
+		err = cmdDisks(ctx, env, cmdArgs)
 	case "sources":
 		err = cmdSources(ctx, env, cmdArgs)
 	case "recipes":

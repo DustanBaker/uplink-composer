@@ -16,6 +16,7 @@ import (
 
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/diskutil"
 	"github.com/DustanBaker/uplink-composer/internal/elevate"
 	"github.com/DustanBaker/uplink-composer/internal/flash"
 )
@@ -28,10 +29,11 @@ type Progress func(stage string, done, total int64)
 // twenty UAC prompts to image twenty sticks is not a workflow anyone would
 // use.
 type Job struct {
-	Op       string            `json:"op"` // "flash" | "clone"
+	Op       string            `json:"op"` // "flash" | "clone" | "prepare"
 	Artifact *compose.Artifact `json:"artifact,omitempty"`
 	Devices  []device.Device   `json:"devices"`
 	OutPath  string            `json:"out_path,omitempty"` // clone
+	Disk     *diskutil.Options `json:"disk,omitempty"`     // prepare
 }
 
 // event is one progress-file line. Device tags which target it came from, so
@@ -83,6 +85,25 @@ func RunClone(ctx context.Context, dev device.Device, outPath string, progress P
 		return flash.Capture(ctx, dev, outPath, flash.Progress(progress))
 	}
 	return runElevated(ctx, Job{Op: "clone", Devices: []device.Device{dev}, OutPath: outPath},
+		func(_, stage string, done, total int64) {
+			if progress != nil {
+				progress(stage, done, total)
+			}
+		})
+}
+
+// RunPrepare rewrites a removable disk's partition table and gives it one
+// full-size formatted volume, elevating as needed.
+func RunPrepare(ctx context.Context, dev device.Device, opts diskutil.Options, progress Progress) (string, error) {
+	if elevate.IsElevated() {
+		err := diskutil.Prepare(ctx, dev, opts, func(stage string) {
+			if progress != nil {
+				progress(stage, 0, -1)
+			}
+		})
+		return "prepared", err
+	}
+	return runElevated(ctx, Job{Op: "prepare", Devices: []device.Device{dev}, Disk: &opts},
 		func(_, stage string, done, total int64) {
 			if progress != nil {
 				progress(stage, done, total)
@@ -278,6 +299,21 @@ func Worker(ctx context.Context, jobPath, progPath string) int {
 			return 1
 		}
 		emit(event{Stage: "done", Result: result})
+		return 0
+	case "prepare":
+		if job.Disk == nil {
+			emit(event{Error: "job has no disk options"})
+			return 2
+		}
+		dev := job.Devices[0]
+		err := diskutil.Prepare(ctx, dev, *job.Disk, func(stage string) {
+			report(dev.ID, stage, 0, -1)
+		})
+		if err != nil {
+			emit(event{Stage: "error", Error: err.Error()})
+			return 1
+		}
+		emit(event{Stage: "done", Result: "prepared " + dev.ID})
 		return 0
 	default:
 		emit(event{Error: fmt.Sprintf("unknown op %q", job.Op)})

@@ -122,6 +122,7 @@
   </div>
   <div style="display:flex;flex-direction:column;gap:16px">
     <section><h2>Devices <span class="spacer"></span><button onclick="loadState()">Rescan</button></h2><div class="rows" id="devices"></div></section>
+    <section><h2>Disks <span class="spacer"></span><button onclick="loadDisks()">Refresh</button></h2><div class="rows" id="disks"><div class="empty">Reading disks…</div></div></section>
     <section><h2>Sources</h2><div class="rows" id="sources"></div></section>
   </div>
 </main>
@@ -136,6 +137,22 @@
     <div class="actions">
       <button onclick="armDialog.close()">Cancel</button>
       <button class="danger" id="armGo">Erase &amp; write</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="prepDialog">
+  <div class="body">
+    <h3>Prepare disk</h3>
+    <div id="prepOpts"></div>
+    <div class="target" id="prepTarget"></div>
+    <p>This <b>permanently erases</b> the disk and replaces everything on it with one
+       empty volume. Only removable USB media can be prepared here.</p>
+    <p>Type the disk size (<b id="prepSize"></b>) to arm:</p>
+    <input id="prepInput" autocomplete="off">
+    <div class="actions">
+      <button onclick="prepDialog.close()">Cancel</button>
+      <button class="danger" id="prepGo">Erase &amp; prepare</button>
     </div>
   </div>
 </dialog>
@@ -172,6 +189,65 @@ async function api(path, body) {
   return data;
 }
 
+// ── disks ───────────────────────────────────────────────────────────────────
+// Shows what is actually on each disk, so "my 64 GB stick says 4 GB" is
+// answered on screen rather than by someone knowing to run diskpart.
+async function loadDisks() {
+  const box = $("disks");
+  let data;
+  try { data = await api("/api/disks"); }
+  catch (e) { box.replaceChildren(el("div", "empty", "Could not read disks: " + e.message)); return; }
+  box.replaceChildren();
+  for (const d of data.disks || []) {
+    const row = el("div", "row");
+    const grow = el("div", "grow");
+    grow.append(el("div", "title", `${d.model || d.id} — ${d.size_gib} GiB`));
+    const bits = [d.id];
+    if (d.scheme) bits.push(d.scheme.toUpperCase());
+    for (const p of d.parts || []) {
+      bits.push(`${p.size_gb.toFixed(1)} GB ${p.label || p.type}${p.mounts && p.mounts.length ? " (" + p.mounts.join(",") + ")" : ""}`);
+    }
+    if (d.unused_gb > 1) bits.push(`${d.unused_gb.toFixed(1)} GB unpartitioned`);
+    grow.append(el("div", "sub", bits.join(" · ")));
+    for (const n of d.notes || []) {
+      const note = el("div", "lint", n);   // amber: something needs attention
+      grow.append(note);
+    }
+    row.append(grow);
+    if (d.system) row.append(el("span", "badge err", "system"));
+    else if (!d.flashable) row.append(el("span", "badge", "internal"));
+    else {
+      const b = el("button", d.notes && d.notes.length ? "primary" : "", "Prepare…");
+      b.onclick = () => openPrepare(d);
+      row.append(b);
+    }
+    box.append(row);
+  }
+  if (!box.children.length) box.append(el("div", "empty", "No disks found."));
+}
+
+function openPrepare(disk) {
+  const opts = $("prepOpts"); opts.replaceChildren();
+  const scheme = selectOpt("Partition table", [["gpt", "GPT (modern, recommended)"], ["mbr", "MBR (very old systems)"]]);
+  const fs = selectOpt("Filesystem", [
+    ["exfat", "exFAT — Windows, macOS, Linux; no file-size limit"],
+    ["fat32", "FAT32 — maximum compatibility, 4 GB file limit"],
+    ["ntfs", "NTFS — Windows only"]]);
+  const label = textOpt("Volume label", "UPLINK");
+  opts.append(scheme.wrap, fs.wrap, label.wrap);
+  $("prepTarget").textContent = `${disk.model || disk.id} — ${disk.id} — ${disk.size_gib} GiB`;
+  $("prepSize").textContent = disk.confirm;
+  const input = $("prepInput"); input.value = ""; input.placeholder = disk.confirm;
+  $("prepGo").onclick = () => {
+    api("/api/disks/prepare", {
+      device_id: disk.id, scheme: scheme.get(), fs: fs.get(),
+      label: label.get() || "UPLINK", confirm: input.value.trim(),
+    }).then(() => setTimeout(loadDisks, 4000)).catch(e => showErr(e.message));
+    $("prepDialog").close();
+  };
+  $("prepDialog").showModal(); input.focus();
+}
+
 // checkUpdate asks once on load. The server caches the answer, and being
 // offline is normal on a bench, so a failure here says nothing at all.
 async function checkUpdate() {
@@ -192,9 +268,16 @@ async function checkUpdate() {
   document.body.insertBefore(bar, document.body.firstChild);
 }
 
-function showErr(msg) {
-  const el = $("err"); el.textContent = msg; el.style.display = "block";
-  clearTimeout(el._t); el._t = setTimeout(() => el.style.display = "none", 8000);
+function showErr(msg) { toast(msg, true); }
+// Good news needs its own colour — a success dressed as a failure reads as
+// one, and people stop trusting the banner either way.
+function showOk(msg) { toast(msg, false); }
+function toast(msg, bad) {
+  const e = $("err");
+  e.textContent = msg;
+  e.style.background = bad ? "var(--danger)" : "var(--ok, #1f7a3d)";
+  e.style.display = "block";
+  clearTimeout(e._t); e._t = setTimeout(() => e.style.display = "none", 8000);
 }
 
 function el(tag, cls, text) {
@@ -268,6 +351,14 @@ function render() {
   openBtn.onclick = () => openWorkspace(input.value.trim());
   orow.append(input, browseBtn, openBtn);
   wp.append(orow);
+
+  const nrow = el("div", "row wsrow");
+  const orgIn = el("input"); orgIn.placeholder = "new workspace for… (organisation name)";
+  const newBtn = el("button", "", "Create workspace…");
+  newBtn.onclick = () => createWorkspace(newBtn, orgIn);
+  orgIn.onkeydown = e => { if (e.key === "Enter") createWorkspace(newBtn, orgIn); };
+  nrow.append(orgIn, newBtn);
+  wp.append(nrow);
 
   const rr = $("recipes"); rr.replaceChildren();
   if (!state.has_workspace) rr.append(el("div", "empty", "Open a workspace above to see its recipes."));
@@ -582,6 +673,28 @@ async function browseWorkspace(btn, input) {
   }
 }
 
+// createWorkspace asks for the organisation, then where to put it, using the
+// host's folder chooser — so nobody has to know what a workspace directory
+// looks like before making one.
+async function createWorkspace(btn, orgInput) {
+  const org = orgInput.value.trim();
+  if (!org) { showErr("Give the workspace an organisation name first."); orgInput.focus(); return; }
+  const was = btn.textContent;
+  btn.textContent = "Choose a folder…"; btn.disabled = true;
+  try {
+    const picked = await api("/api/browse", {});
+    if (!picked.path) return;                       // cancelled
+    const r = await api("/api/workspace/new", { org, parent: picked.path });
+    orgInput.value = "";
+    await loadState();
+    showOk("Created and opened " + r.dir);
+  } catch (e) {
+    showErr(e.message);
+  } finally {
+    btn.textContent = was; btn.disabled = false;
+  }
+}
+
 async function openWorkspace(dir) {
   if (!dir) { showErr("Enter a workspace folder path."); return; }
   try { await api("/api/workspace", { dir }); await loadState(); }
@@ -602,6 +715,7 @@ async function loadState() {
   catch (e) { showErr(e.message); }
 }
 loadState();
+loadDisks();
 streamEvents();
 checkUpdate();
 </script>
