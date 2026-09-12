@@ -5,3 +5,9 @@
 *.md text eol=lf
 *.ps1 text eol=crlf
 *.cmd text eol=crlf
+
+# The catalog index is signed over its exact bytes. Any end-of-line
+# conversion would change them and break verification everywhere, so these
+# two are excluded from the text handling above.
+catalog/index.json      -text
+catalog/index.json.sig  -text
