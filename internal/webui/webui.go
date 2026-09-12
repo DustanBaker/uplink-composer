@@ -23,10 +23,13 @@ import (
 	"github.com/DustanBaker/uplink-composer/internal/appconfig"
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
 	"github.com/DustanBaker/uplink-composer/internal/flashrun"
+	"github.com/DustanBaker/uplink-composer/internal/hwdetect"
 	"github.com/DustanBaker/uplink-composer/internal/jobs"
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
+	"github.com/DustanBaker/uplink-composer/internal/recipe"
 	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
@@ -120,6 +123,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/build", s.auth(s.handleBuild))
 	mux.HandleFunc("POST /api/flash", s.auth(s.handleFlash))
 	mux.HandleFunc("POST /api/install", s.auth(s.handleInstall))
+	mux.HandleFunc("GET /api/detect", s.auth(s.handleDetect))
 	mux.HandleFunc("POST /api/capture", s.auth(s.handleCapture))
 	mux.HandleFunc("POST /api/quit", s.auth(s.handleQuit))
 	mux.HandleFunc("GET /api/events", s.auth(s.handleEvents))
@@ -467,6 +471,7 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		AccountMode       string `json:"account_mode"`
 		Debloat           string `json:"debloat"`
 		BypassRequirement bool   `json:"bypass_requirement"`
+		Drivers           bool   `json:"drivers"`
 		DeviceID          string `json:"device_id"`
 		Confirm           string `json:"confirm"`
 	}
@@ -493,9 +498,22 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			dev.ID, dev.SizeConfirmation(), dev.SizeConfirmation())
 		return
 	}
+	var hw []recipe.HardwareSpec
+	if req.Drivers && e.Family == oscatalog.Windows {
+		h, err := hwdetect.Detect(r.Context())
+		if err != nil {
+			httpErr(w, 400, "hardware detection failed: %v", err)
+			return
+		}
+		if hw = driverresolve.SpecsFor(h, e.DriverOS()); len(hw) == 0 {
+			httpErr(w, 400, "nothing to resolve drivers for on this machine")
+			return
+		}
+	}
 	opts := oscatalog.Options{
 		Edition: req.Edition, AccountMode: req.AccountMode,
 		Debloat: req.Debloat, BypassRequirement: req.BypassRequirement,
+		Hardware: hw,
 	}
 	job := s.Reg.New("install", fmt.Sprintf("%s → %s", e.Name, dev.ID))
 	go func() {
@@ -513,6 +531,41 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		job.Finish("installed — safe to remove and boot the target machine")
 	}()
 	writeJSON(w, 202, map[string]string{"job_id": job.ID})
+}
+
+// handleDetect profiles the machine the server runs on, so the page can offer
+// "include drivers for this computer" with the actual hardware named.
+func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
+	h, err := hwdetect.Detect(r.Context())
+	if err != nil {
+		httpErr(w, 501, "%v", err)
+		return
+	}
+	type dev struct {
+		Name  string `json:"name"`
+		Brand string `json:"brand,omitempty"`
+	}
+	resp := struct {
+		Vendor      string   `json:"vendor"`
+		Model       string   `json:"model"`
+		CPU         string   `json:"cpu"`
+		Feed        string   `json:"feed,omitempty"`
+		GPUs        []dev    `json:"gpus"`
+		NICs        []dev    `json:"nics"`
+		LookupIDs   []string `json:"lookup_ids"`
+		DeviceCount int      `json:"device_count"`
+	}{
+		Vendor: h.Vendor, Model: h.Model, CPU: h.CPU, Feed: h.KnownVendor(),
+		GPUs: []dev{}, NICs: []dev{},
+		LookupIDs: h.DriverHWIDs(), DeviceCount: len(h.Devices),
+	}
+	for _, g := range h.GPUs {
+		resp.GPUs = append(resp.GPUs, dev{Name: g.Name, Brand: g.GPUVendor})
+	}
+	for _, n := range h.NICs {
+		resp.NICs = append(resp.NICs, dev{Name: n.Name})
+	}
+	writeJSON(w, 200, resp)
 }
 
 func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {

@@ -25,7 +25,7 @@ func TestSynthesizedRecipesValid(t *testing.T) {
 	}
 	for _, e := range Catalog() {
 		if e.Family != Windows {
-			dir, err := scaffoldQuickWorkspace(lib, e, Options{})
+			dir, err := scaffoldQuickWorkspace(lib, e, Options{}, nil)
 			if err != nil {
 				t.Fatalf("%s: scaffold: %v", e.ID, err)
 			}
@@ -33,7 +33,7 @@ func TestSynthesizedRecipesValid(t *testing.T) {
 			continue
 		}
 		for _, c := range cases {
-			dir, err := scaffoldQuickWorkspace(lib, e, c.opts)
+			dir, err := scaffoldQuickWorkspace(lib, e, c.opts, nil)
 			if err != nil {
 				t.Fatalf("%s/%s: scaffold: %v", e.ID, c.name, err)
 			}
@@ -68,6 +68,63 @@ func assertLoads(t *testing.T, dir, id string) *recipe.Recipe {
 		t.Errorf("manifest for %s missing: %v", id, err)
 	}
 	return r
+}
+
+// TestHardwareBlockRoundTrips is the guard on auto-detected drivers reaching
+// the recipe intact: hardware IDs carry backslashes (PCI\VEN_...), so a
+// quoting slip in the generated YAML would either fail to parse or silently
+// mangle the ID and match no driver pack.
+func TestHardwareBlockRoundTrips(t *testing.T) {
+	lib, err := library.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := Get("windows-11")
+	if !ok {
+		t.Fatal("windows-11 missing from the catalog")
+	}
+	hw := []recipe.HardwareSpec{
+		{Vendor: "dell", Model: "OptiPlex 7010", OS: "win11"},
+		{HWIDs: []string{`PCI\VEN_10DE&DEV_2B85`, `PCI\VEN_8086&DEV_15F3`}, OS: "win11"},
+	}
+	dir, err := scaffoldQuickWorkspace(lib, e, Options{Edition: "Pro"}, hw)
+	if err != nil {
+		t.Fatalf("scaffold: %v", err)
+	}
+	r := assertLoads(t, dir, e.ID)
+	if r == nil || r.Windows == nil {
+		t.Fatal("recipe did not load")
+	}
+	got := r.Windows.Hardware
+	if len(got) != 2 {
+		t.Fatalf("got %d hardware entries, want 2: %+v", len(got), got)
+	}
+	if got[0].Vendor != "dell" || got[0].Model != "OptiPlex 7010" {
+		t.Errorf("vendor entry round-tripped as %+v", got[0])
+	}
+	want := []string{`PCI\VEN_10DE&DEV_2B85`, `PCI\VEN_8086&DEV_15F3`}
+	if len(got[1].HWIDs) != len(want) {
+		t.Fatalf("got %d hwids, want %d: %q", len(got[1].HWIDs), len(want), got[1].HWIDs)
+	}
+	for i, id := range want {
+		if got[1].HWIDs[i] != id {
+			t.Errorf("hwid %d round-tripped as %q, want %q", i, got[1].HWIDs[i], id)
+		}
+	}
+	for _, f := range r.Lint() {
+		if f.Severity == "error" {
+			t.Errorf("lint error: %s", f.Message)
+		}
+	}
+	// A machine whose catalogs covered nothing must leave the block out
+	// entirely rather than emit an empty `hardware:` key.
+	bare, err := scaffoldQuickWorkspace(lib, e, Options{Edition: "Pro"}, nil)
+	if err != nil {
+		t.Fatalf("scaffold without hardware: %v", err)
+	}
+	if rb := assertLoads(t, bare, e.ID); rb != nil && rb.Windows != nil && len(rb.Windows.Hardware) != 0 {
+		t.Errorf("expected no hardware entries, got %+v", rb.Windows.Hardware)
+	}
 }
 
 // TestGenericKeysComplete makes sure every Windows edition option has a key

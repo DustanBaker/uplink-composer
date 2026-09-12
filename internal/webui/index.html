@@ -336,6 +336,30 @@ function checkOpt(label) {
   wrap.append(cb, lb);
   return { wrap, get: () => cb.checked };
 }
+// driverOpt is the hardware auto-detect toggle. The note under it fills in
+// from /api/detect so it names the machine and devices that will actually be
+// looked up, rather than promising drivers in the abstract.
+function driverOpt() {
+  const inner = checkOpt("Include drivers for this computer");
+  inner.wrap.style.margin = "0";
+  const note = el("div", "sub", "detecting this computer…");
+  note.style.color = "var(--dim)";
+  note.style.marginTop = "4px";
+  const wrap = el("div", "opt");
+  wrap.append(inner.wrap, note);
+  api("/api/detect").then(h => {
+    const bits = [];
+    const name = ((h.vendor || "") + " " + (h.model || "")).trim();
+    if (name) bits.push(name);
+    for (const g of h.gpus || []) bits.push(g.name);
+    const n = (h.lookup_ids || []).length;
+    let tail = n === 1 ? "1 device to look up" : `${n} devices to look up`;
+    if (h.feed) tail += `, plus the ${h.feed} model pack`;
+    note.textContent = bits.join(" · ") + (bits.length ? " — " : "") + tail;
+  }).catch(e => { note.textContent = "Detection unavailable: " + e.message; });
+  return { wrap, get: inner.get };
+}
+
 function openInstall(os) {
   const dev = pickDevice(); if (!dev) return;
   $("instTitle").textContent = "Install " + os.name;
@@ -345,9 +369,13 @@ function openInstall(os) {
     const ed = selectOpt("Edition", (os.editions || ["Pro"]).map(e => [e, e]));
     const am = selectOpt("Account setup", [["local", "Local account, no setup screens"], ["oobe", "Normal Windows setup (OOBE)"]]);
     const db = selectOpt("Remove bloatware", [["standard", "Standard"], ["aggressive", "Aggressive"], ["off", "Keep everything"]]);
+    const dv = driverOpt();
     const bp = checkOpt("Skip TPM / Secure Boot / RAM checks (older or virtual hardware)");
-    opts.append(ed.wrap, am.wrap, db.wrap, bp.wrap);
-    getOpts = () => ({ edition: ed.get(), account_mode: am.get(), debloat: db.get(), bypass_requirement: bp.get() });
+    opts.append(ed.wrap, am.wrap, db.wrap, dv.wrap, bp.wrap);
+    getOpts = () => ({
+      edition: ed.get(), account_mode: am.get(), debloat: db.get(),
+      drivers: dv.get(), bypass_requirement: bp.get(),
+    });
   } else {
     opts.append(el("div", "sub", "Boots the installer — nothing to configure here."));
   }

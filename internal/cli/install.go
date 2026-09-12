@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
+	"github.com/DustanBaker/uplink-composer/internal/hwdetect"
 	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
+	"github.com/DustanBaker/uplink-composer/internal/recipe"
 )
 
 func cmdCatalog(_ *Env, _ []string) error {
@@ -30,6 +33,7 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	account := fs.String("account", "local", "Windows account setup: local | oobe")
 	debloat := fs.String("debloat", "standard", "Windows debloat: off | standard | aggressive")
 	bypass := fs.Bool("bypass-checks", false, "Windows: skip TPM/Secure Boot/RAM checks")
+	withDrivers := fs.Bool("drivers", false, "Windows: detect this machine and stage its drivers")
 	yes := fs.Bool("yes", false, "skip the typed size confirmation")
 	buildOnly := fs.Bool("build-only", false, "stop after building; do not flash")
 	if err := parseFlags(fs, args); err != nil {
@@ -56,10 +60,19 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 		return derr
 	}
 
+	var hw []recipe.HardwareSpec
+	if *withDrivers {
+		var err error
+		if hw, err = detectedHardware(ctx, e); err != nil {
+			return err
+		}
+	}
+
 	fmt.Printf("Building %s installer media...\n", e.Name)
 	prog := &stageProgress{}
 	art, err := oscatalog.BuildQuick(ctx, lib, e, oscatalog.Options{
 		Edition: *edition, AccountMode: *account, Debloat: *debloat, BypassRequirement: *bypass,
+		Hardware: hw,
 	}, prog.report)
 	prog.finish()
 	if err != nil {
@@ -70,4 +83,29 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 		return nil
 	}
 	return armAndFlash(ctx, art, dev, *yes)
+}
+
+// detectedHardware profiles this machine into the hardware entries Quick
+// Install should hunt driver packs for. Whatever the catalogs turn out not to
+// carry is dropped during the build, not here.
+func detectedHardware(ctx context.Context, e oscatalog.Entry) ([]recipe.HardwareSpec, error) {
+	if e.Family != oscatalog.Windows {
+		return nil, fmt.Errorf("--drivers is a Windows option — Linux ships its drivers in the kernel")
+	}
+	h, err := hwdetect.Detect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Detected %s %s (%s)\n", h.Vendor, h.Model, h.CPU)
+	ids := h.DriverHWIDs()
+	if v := h.KnownVendor(); v != "" {
+		fmt.Printf("  %s model driver pack, plus %d GPU/network hardware ID(s)\n", v, len(ids))
+	} else {
+		fmt.Printf("  no per-model feed for this maker; %d GPU/network hardware ID(s) to look up\n", len(ids))
+	}
+	hw := driverresolve.SpecsFor(h, e.DriverOS())
+	if len(hw) == 0 {
+		return nil, fmt.Errorf("nothing to resolve: this machine has no Dell/Lenovo/HP model feed and no PCI GPU or network device was detected")
+	}
+	return hw, nil
 }

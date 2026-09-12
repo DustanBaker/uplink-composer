@@ -2,15 +2,11 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 
+	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
 	"github.com/DustanBaker/uplink-composer/internal/drivers/catalog"
-	"github.com/DustanBaker/uplink-composer/internal/fetch"
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/manifest"
 	"github.com/DustanBaker/uplink-composer/internal/recipe"
@@ -74,7 +70,9 @@ func driversSearch(ctx context.Context, env *Env, args []string) error {
 		ref.Vendor = string(feed.Vendor())
 		ref.Model = packs[*pick-1].Model
 	}
-	id, err := addPack(ctx, ws, lib, feed, packs[*pick-1], ref, !*noPull)
+	prog := &stageProgress{}
+	id, err := driverresolve.AddPack(ctx, ws, lib, feed, packs[*pick-1], ref, !*noPull, prog.report)
+	prog.finish()
 	if err != nil {
 		return err
 	}
@@ -115,200 +113,17 @@ func trunc(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
-// resolverFeed is implemented by feeds whose results need a second request
-// to learn the download URL (the Microsoft Update Catalog).
-type resolverFeed interface {
-	Resolve(ctx context.Context, p *catalog.Pack) error
-}
-
-// addPack writes manifests/<id>.yaml for the pack (with its hardware
-// binding and install method) and, unless told otherwise, pulls it into the
-// library — pinning the SHA-256 for feeds that don't publish one.
-func addPack(ctx context.Context, ws *workspace.Workspace, lib *library.Library, feed catalog.Feed, p catalog.Pack, ref manifest.HardwareRef, pull bool) (string, error) {
-	if r, ok := feed.(resolverFeed); ok && p.URL == "" {
-		if err := r.Resolve(ctx, &p); err != nil {
-			return "", err
-		}
-	}
-	id := p.ID()
-	install := recipe.InstallSweep
-	switch p.Format {
-	case "cab":
-		install = recipe.InstallExpandSweep
-	case "exe":
-		install = recipe.InstallExtractSweep
-	}
-	manPath := filepath.Join(ws.Dir, "manifests", id+".yaml")
-	if _, err := os.Stat(manPath); err != nil {
-		if err := os.MkdirAll(filepath.Dir(manPath), 0o755); err != nil {
-			return "", err
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "id: %s\nkind: driver-pack\nformat: %s\n", id, p.Format)
-		fmt.Fprintf(&b, "# Found by `uplink drivers search %s` on %s catalog data.\n", feed.Vendor(), feed.Vendor())
-		fmt.Fprintf(&b, "url: %s\n", p.URL)
-		fmt.Fprintf(&b, "sha256: %q\n", p.SHA256)
-		if p.SHA1 != "" {
-			fmt.Fprintf(&b, "sha1: %s\n", p.SHA1)
-		}
-		if p.Size > 0 {
-			fmt.Fprintf(&b, "size: %d\n", p.Size)
-		}
-		fmt.Fprintf(&b, "filename: %s\n", filepath.Base(strings.SplitN(p.URL, "?", 2)[0]))
-		fmt.Fprintf(&b, "hardware:\n")
-		if ref.HWID != "" {
-			fmt.Fprintf(&b, "  hwid: %q\n", ref.HWID)
-		} else {
-			fmt.Fprintf(&b, "  vendor: %s\n  model: %q\n", ref.Vendor, ref.Model)
-		}
-		fmt.Fprintf(&b, "  os: %s\n", ref.OS)
-		fmt.Fprintf(&b, "install: %s\n", install)
-		if install == recipe.InstallExtractSweep {
-			quoted := make([]string, len(p.Extract))
-			for i, a := range p.Extract {
-				quoted[i] = fmt.Sprintf("%q", a)
-			}
-			fmt.Fprintf(&b, "extract: [%s]\n", strings.Join(quoted, ", "))
-		}
-		note := strings.TrimSpace(fmt.Sprintf("%s %s %s %s", p.Model, p.OSVersion, p.Version, p.Released))
-		fmt.Fprintf(&b, "notes: %q\n", note)
-		if err := os.WriteFile(manPath, []byte(b.String()), 0o644); err != nil {
-			return "", err
-		}
-		fmt.Printf("wrote manifests/%s.yaml\n", id)
-	} else {
-		fmt.Printf("manifests/%s.yaml already exists — keeping it\n", id)
-	}
-	if !pull {
-		return id, nil
-	}
-
-	src, err := manifest.Load(manPath)
-	if err != nil {
-		return "", err
-	}
-	if _, err := lib.Resolve(id); err == nil {
-		fmt.Printf("%s already in library\n", id)
-		return id, nil
-	}
-	fmt.Printf("pulling %s (%d MiB)...\n", id, p.Size>>20)
-	prog := &stageProgress{}
-	entry, err := lib.Pull(ctx, src, true, nil, func(done, total int64) { prog.report("download", done, total) })
-	prog.finish()
-	var unpinned *library.ErrUnpinned
-	if err != nil && !errors.As(err, &unpinned) {
-		return "", err
-	}
-	// Feeds without a SHA-256 (the Microsoft Update Catalog) publish a
-	// SHA-1: verify the download against it, then pin the SHA-256 we saw.
-	if src.SHA256 == "" {
-		if p.SHA1 != "" {
-			got, err := sha1File(lib.BlobPath(entry.SHA256))
-			if err != nil {
-				return "", err
-			}
-			if got != p.SHA1 {
-				os.Remove(lib.BlobPath(entry.SHA256))
-				return "", fmt.Errorf("%s: downloaded file SHA-1 %s does not match the catalog's %s — refusing", id, got, p.SHA1)
-			}
-		}
-		text, err := os.ReadFile(manPath)
-		if err != nil {
-			return "", err
-		}
-		pinned := strings.Replace(string(text), "sha256: \"\"\n", "sha256: "+entry.SHA256+"\n", 1)
-		if err := os.WriteFile(manPath, []byte(pinned), 0o644); err != nil {
-			return "", err
-		}
-		fmt.Printf("pinned sha256 %s into manifests/%s.yaml\n", entry.SHA256, id)
-	}
-	fmt.Printf("%s in library (%d MiB)\n", id, entry.Size>>20)
-	return id, nil
-}
-
-// resolveHardware makes sure every windows.hardware entry of the recipe has
-// a matching pulled driver pack: searches the right feed, takes the newest
-// pack for the OS, writes its manifest, and pulls it. Used by
-// `drivers resolve` and automatically by `compose <recipe>`.
+// resolveHardware fetches a driver pack for every windows.hardware entry of a
+// recipe. Strict: a hand-authored entry whose hardware no feed covers is an
+// authoring mistake, not something to quietly skip.
 func resolveHardware(ctx context.Context, ws *workspace.Workspace, lib *library.Library, r *recipe.Recipe) error {
 	if r.Windows == nil || len(r.Windows.Hardware) == 0 {
 		return nil
 	}
-	sources, err := ws.Sources()
-	if err != nil {
-		return err
-	}
-	cache := catalog.NewCache(lib.HelpersDir())
-	have := func(vendor, model, hwid string) *manifest.Source {
-		for _, s := range sources {
-			if s.Hardware.Matches(vendor, model, hwid) {
-				return s
-			}
-		}
-		return nil
-	}
-	ensurePulled := func(s *manifest.Source) error {
-		if _, err := lib.Resolve(s.ID); err == nil {
-			return nil
-		}
-		fmt.Printf("pulling %s...\n", s.ID)
-		prog := &stageProgress{}
-		_, err := lib.Pull(ctx, s, true, nil, func(done, total int64) { prog.report("download", done, total) })
-		prog.finish()
-		return err
-	}
-	for _, h := range r.Windows.Hardware {
-		osName := h.OS
-		if osName == "" {
-			osName = "win11"
-		}
-		if h.Vendor != "" {
-			if s := have(h.Vendor, h.Model, ""); s != nil {
-				if err := ensurePulled(s); err != nil {
-					return err
-				}
-				continue
-			}
-			feed, err := catalog.FeedFor(h.Vendor, cache)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("resolving drivers for %s %q (%s)...\n", h.Vendor, h.Model, osName)
-			packs, err := feed.Search(ctx, catalog.Query{Model: h.Model, OS: osName})
-			if err != nil {
-				return err
-			}
-			if len(packs) == 0 {
-				return fmt.Errorf("no %s driver pack found for %q (%s) — check the model name with `uplink drivers search %s %q`", h.Vendor, h.Model, osName, h.Vendor, h.Model)
-			}
-			ref := manifest.HardwareRef{Vendor: h.Vendor, Model: h.Model, OS: osName}
-			if _, err := addPack(ctx, ws, lib, feed, packs[0], ref, true); err != nil {
-				return err
-			}
-		}
-		for _, hwid := range h.HWIDs {
-			if s := have("", "", hwid); s != nil {
-				if err := ensurePulled(s); err != nil {
-					return err
-				}
-				continue
-			}
-			feed, _ := catalog.FeedFor("mscatalog", cache)
-			fmt.Printf("resolving driver for %s (%s) via the Microsoft Update Catalog...\n", hwid, osName)
-			packs, err := feed.Search(ctx, catalog.Query{HWID: hwid, OS: osName})
-			if err != nil {
-				return err
-			}
-			if len(packs) == 0 {
-				return fmt.Errorf("the Microsoft Update Catalog has no %s driver for %s", osName, hwid)
-			}
-			ref := manifest.HardwareRef{HWID: hwid, OS: osName}
-			if _, err := addPack(ctx, ws, lib, feed, packs[0], ref, true); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	prog := &stageProgress{}
+	_, err := driverresolve.Resolve(ctx, ws, lib, r.Windows.Hardware, true, prog.report)
+	prog.finish()
+	return err
 }
 
 func driversResolve(ctx context.Context, env *Env, args []string) error {
@@ -334,10 +149,6 @@ func driversResolve(ctx context.Context, env *Env, args []string) error {
 	if err := resolveHardware(ctx, ws, lib, r); err != nil {
 		return err
 	}
-	fmt.Println("all hardware entries have driver packs in the library — build with: compose", r.ID)
+	fmt.Println("all hardware entries have driver packs in the library — build with: uplink", r.ID)
 	return nil
-}
-
-func sha1File(path string) (string, error) {
-	return fetch.SHA1File(path)
 }

@@ -13,9 +13,11 @@ import (
 	"strings"
 
 	"github.com/DustanBaker/uplink-composer/internal/compose"
+	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
 	"github.com/DustanBaker/uplink-composer/internal/helpers"
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/recipe"
 	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
@@ -58,6 +60,18 @@ type Options struct {
 	AccountMode       string // windows: local | oobe
 	Debloat           string // windows: off | standard | aggressive
 	BypassRequirement bool   // windows: skip TPM/SecureBoot/RAM checks
+	// Hardware asks for driver packs to be found and staged for these
+	// machines (windows only) — normally what hwdetect found on this box,
+	// via driverresolve.SpecsFor. Entries no catalog covers are dropped.
+	Hardware []recipe.HardwareSpec
+}
+
+// DriverOS is the driver-catalog OS token for this entry ("win11"/"win10").
+func (e Entry) DriverOS() string {
+	if e.Fido != nil && e.Fido.Win == "10" {
+		return "win10"
+	}
+	return "win11"
 }
 
 func (o *Options) defaults(e Entry) {
@@ -75,11 +89,11 @@ func (o *Options) defaults(e Entry) {
 // genericKeys are Microsoft's public edition-select keys (they choose the
 // edition Setup installs; activation still needs a real license).
 var genericKeys = map[string]string{
-	"Pro":         "VK7JG-NPHTM-C97JM-9MPGT-3V66T",
-	"Home":        "YTMG3-N6DKC-DKB77-7M9GH-8HVX7",
-	"Pro N":       "2B87N-8KFHP-DKV6R-Y2C8J-PKCKT",
-	"Education":   "YNMGQ-8RYV3-4PGQ3-C8XTP-7CFBY",
-	"Enterprise":  "XGVPP-NMH47-7TTHJ-W3FW7-8HV2C",
+	"Pro":        "VK7JG-NPHTM-C97JM-9MPGT-3V66T",
+	"Home":       "YTMG3-N6DKC-DKB77-7M9GH-8HVX7",
+	"Pro N":      "2B87N-8KFHP-DKV6R-Y2C8J-PKCKT",
+	"Education":  "YNMGQ-8RYV3-4PGQ3-C8XTP-7CFBY",
+	"Enterprise": "XGVPP-NMH47-7TTHJ-W3FW7-8HV2C",
 }
 
 // Catalog returns the built-in OS list.
@@ -106,7 +120,7 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 	if err := ensureSource(ctx, lib, e, progress); err != nil {
 		return nil, err
 	}
-	wsDir, err := scaffoldQuickWorkspace(lib, e, opts)
+	wsDir, err := scaffoldQuickWorkspace(lib, e, opts, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +128,31 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 	if err != nil {
 		return nil, err
 	}
+
+	// Driver auto-resolve rewrites the recipe, because compose requires every
+	// windows.hardware entry to match a staged pack: a detected GPU the
+	// catalogs don't carry (common — Windows Update covers most) must not
+	// fail the build, so only what resolved goes in.
+	if e.Family == Windows && len(opts.Hardware) > 0 {
+		res, err := driverresolve.Resolve(ctx, ws, lib, opts.Hardware, false, progress)
+		if err != nil {
+			return nil, err
+		}
+		if progress != nil {
+			for _, m := range res.Missing {
+				progress("no driver pack found for "+m, 0, -1)
+			}
+		}
+		if len(res.Specs) > 0 {
+			if err := writeQuickRecipe(wsDir, e, opts, res.Specs); err != nil {
+				return nil, err
+			}
+			if ws, err = workspace.Load(wsDir); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	r, err := ws.Recipe(e.ID)
 	if err != nil {
 		return nil, err
@@ -122,6 +161,24 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 		Workspace: ws, Library: lib, Recipe: r,
 		Progress: progress,
 	})
+}
+
+// PlanDrivers finds and downloads the driver packs a machine needs without
+// building any media, reporting what each piece of hardware resolved to. It
+// stages into the same Quick Install workspace the real build uses, so
+// nothing is fetched twice.
+func PlanDrivers(ctx context.Context, lib *library.Library, e Entry, hw []recipe.HardwareSpec, progress func(stage string, done, total int64)) (*driverresolve.Resolved, error) {
+	opts := Options{}
+	opts.defaults(e)
+	wsDir, err := scaffoldQuickWorkspace(lib, e, opts, nil)
+	if err != nil {
+		return nil, err
+	}
+	ws, err := workspace.Load(wsDir)
+	if err != nil {
+		return nil, err
+	}
+	return driverresolve.Resolve(ctx, ws, lib, hw, false, progress)
 }
 
 // ensureSource makes sure the OS ISO is in the library.
@@ -158,7 +215,7 @@ func ensureSource(ctx context.Context, lib *library.Library, e Entry, progress f
 
 // scaffoldQuickWorkspace writes an ephemeral workspace under the library with
 // the embedded template, a manifest for the OS, and a synthesized recipe.
-func scaffoldQuickWorkspace(lib *library.Library, e Entry, opts Options) (string, error) {
+func scaffoldQuickWorkspace(lib *library.Library, e Entry, opts Options, hw []recipe.HardwareSpec) (string, error) {
 	dir := filepath.Join(lib.Root, "quick")
 	for _, sub := range []string{"templates", "manifests", "recipes", "payload"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
@@ -179,13 +236,17 @@ func scaffoldQuickWorkspace(lib *library.Library, e Entry, opts Options) (string
 	if err := os.WriteFile(filepath.Join(dir, "manifests", e.ID+".yaml"), []byte(manifestYAML(e)), 0o644); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "recipes", e.ID+".yaml"), []byte(recipeYAML(e, opts)), 0o644); err != nil {
+	if err := writeQuickRecipe(dir, e, opts, hw); err != nil {
 		return "", err
 	}
 	// Only keep this build's recipe so ws.Recipes() stays unambiguous.
 	pruneOtherRecipes(filepath.Join(dir, "recipes"), e.ID)
 	pruneOtherManifests(filepath.Join(dir, "manifests"), e.ID)
 	return dir, nil
+}
+
+func writeQuickRecipe(dir string, e Entry, opts Options, hw []recipe.HardwareSpec) error {
+	return os.WriteFile(filepath.Join(dir, "recipes", e.ID+".yaml"), []byte(recipeYAML(e, opts, hw)), 0o644)
 }
 
 func pruneOtherRecipes(dir, keep string) {
@@ -197,12 +258,21 @@ func pruneOtherRecipes(dir, keep string) {
 	}
 }
 
+// pruneOtherManifests drops a previous Quick Install's OS manifest but keeps
+// resolved driver packs: they are pinned, already downloaded, and only ever
+// matched by hardware, so keeping them makes repeat installs on the same
+// machine skip the catalog lookups entirely.
 func pruneOtherManifests(dir, keep string) {
 	entries, _ := os.ReadDir(dir)
 	for _, en := range entries {
-		if en.Name() != keep+".yaml" {
-			os.Remove(filepath.Join(dir, en.Name()))
+		if en.Name() == keep+".yaml" {
+			continue
 		}
+		p := filepath.Join(dir, en.Name())
+		if b, err := os.ReadFile(p); err == nil && strings.Contains(string(b), "kind: driver-pack") {
+			continue
+		}
+		os.Remove(p)
 	}
 }
 
@@ -225,7 +295,35 @@ func manifestYAML(e Entry) string {
 	return b.String()
 }
 
-func recipeYAML(e Entry, opts Options) string {
+// hardwareYAML renders resolved machines as a windows.hardware block. Vendor
+// packs and hardware IDs become separate entries, which is how compose
+// matches them against staged manifests.
+func hardwareYAML(hw []recipe.HardwareSpec) string {
+	if len(hw) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("  hardware:\n")
+	for _, h := range hw {
+		osName := h.OS
+		if osName == "" {
+			osName = "win11"
+		}
+		if h.Vendor != "" {
+			fmt.Fprintf(&b, "    - { vendor: %s, model: %q, os: %s }\n", h.Vendor, h.Model, osName)
+		}
+		if len(h.HWIDs) > 0 {
+			quoted := make([]string, len(h.HWIDs))
+			for i, id := range h.HWIDs {
+				quoted[i] = fmt.Sprintf("%q", id)
+			}
+			fmt.Fprintf(&b, "    - { hwids: [%s], os: %s }\n", strings.Join(quoted, ", "), osName)
+		}
+	}
+	return b.String()
+}
+
+func recipeYAML(e Entry, opts Options, hw []recipe.HardwareSpec) string {
 	if e.Family == Linux {
 		return fmt.Sprintf(`version: 1
 id: %s
@@ -249,6 +347,12 @@ flash:
 	if preset != "off" {
 		steps += "      - debloat\n"
 	}
+	// Staged GPU driver packages run past a gigabyte each, so driver media
+	// outgrows the 8 GiB stick a bare Windows ISO fits on.
+	minStick := "8GiB"
+	if len(hw) > 0 {
+		minStick = "16GiB"
+	}
 	return fmt.Sprintf(`version: 1
 id: %s
 name: %q
@@ -261,7 +365,7 @@ target:
   filesystem: fat32
   volume_label: ESD-USB
   size: auto
-  min_stick: 8GiB
+  min_stick: %s
   boot: uefi-only
 windows:
   ei_cfg: { edition: %s, channel: Retail, vl: false }
@@ -276,7 +380,7 @@ windows:
       computer_name: "*"
       account_mode: %s
       bypass_requirements: "%s"
-  debloat:
+%s  debloat:
     preset: %s
   firstboot:
     mode: generate
@@ -284,8 +388,8 @@ windows:
 %s
 flash:
   verify: readback-sha256
-`, e.ID, e.Name, e.ID, editionName(opts.Edition), genericKeys[opts.Edition],
-		opts.AccountMode, bypass, preset, steps)
+`, e.ID, e.Name, e.ID, minStick, editionName(opts.Edition), genericKeys[opts.Edition],
+		opts.AccountMode, bypass, hardwareYAML(hw), preset, steps)
 }
 
 // editionName maps the option to the ei.cfg EditionID (drops the "N"/space).
