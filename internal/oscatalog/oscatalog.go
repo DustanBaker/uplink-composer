@@ -1,0 +1,313 @@
+// Package oscatalog is the built-in list of installable operating systems and
+// the Quick-Install flow: pick an OS, choose a few options, and build media
+// with no workspace to author. It synthesizes an ephemeral workspace and
+// recipe and runs them through the normal compose pipeline.
+package oscatalog
+
+import (
+	"context"
+	"embed"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/DustanBaker/uplink-composer/internal/compose"
+	"github.com/DustanBaker/uplink-composer/internal/helpers"
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/workspace"
+)
+
+//go:embed templates/*.tmpl
+var templatesFS embed.FS
+
+// Family groups OSes.
+type Family string
+
+const (
+	Windows Family = "windows"
+	Linux   Family = "linux"
+)
+
+// Entry is one installable OS in the built-in catalog.
+type Entry struct {
+	ID            string
+	Name          string
+	Family        Family
+	Version       string
+	Notes         string
+	FirmwareNotes string
+
+	// Windows sources resolve their ISO at pull time via Fido; Linux
+	// sources pin url + sha256 (or a ChecksumsURL to verify against).
+	Provider     string
+	Fido         *manifest.FidoSpec
+	URL          string
+	SHA256       string
+	ChecksumsURL string // fetch + verify when SHA256 is empty
+	Filename     string
+
+	// Windows-only options.
+	Editions []string // e.g. Pro, Home
+}
+
+// Options are the Quick-Install choices.
+type Options struct {
+	Edition           string // windows: Pro | Home
+	AccountMode       string // windows: local | oobe
+	Debloat           string // windows: off | standard | aggressive
+	BypassRequirement bool   // windows: skip TPM/SecureBoot/RAM checks
+}
+
+func (o *Options) defaults(e Entry) {
+	if o.Edition == "" && len(e.Editions) > 0 {
+		o.Edition = e.Editions[0]
+	}
+	if o.AccountMode == "" {
+		o.AccountMode = "local"
+	}
+	if o.Debloat == "" {
+		o.Debloat = "standard"
+	}
+}
+
+// genericKeys are Microsoft's public edition-select keys (they choose the
+// edition Setup installs; activation still needs a real license).
+var genericKeys = map[string]string{
+	"Pro":         "VK7JG-NPHTM-C97JM-9MPGT-3V66T",
+	"Home":        "YTMG3-N6DKC-DKB77-7M9GH-8HVX7",
+	"Pro N":       "2B87N-8KFHP-DKV6R-Y2C8J-PKCKT",
+	"Education":   "YNMGQ-8RYV3-4PGQ3-C8XTP-7CFBY",
+	"Enterprise":  "XGVPP-NMH47-7TTHJ-W3FW7-8HV2C",
+}
+
+// Catalog returns the built-in OS list.
+func Catalog() []Entry { return builtin }
+
+// Get returns the entry with id, or false.
+func Get(id string) (Entry, bool) {
+	for _, e := range builtin {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return Entry{}, false
+}
+
+// BuildQuick pulls the OS (if needed), synthesizes an ephemeral workspace and
+// recipe from the entry + options, and composes flashable media.
+func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options, progress func(stage string, done, total int64)) (*compose.Artifact, error) {
+	opts.defaults(e)
+	if e.Family == Windows && genericKeys[opts.Edition] == "" {
+		return nil, fmt.Errorf("unknown Windows edition %q (have: %s)", opts.Edition, strings.Join(e.Editions, ", "))
+	}
+
+	if err := ensureSource(ctx, lib, e, progress); err != nil {
+		return nil, err
+	}
+	wsDir, err := scaffoldQuickWorkspace(lib, e, opts)
+	if err != nil {
+		return nil, err
+	}
+	ws, err := workspace.Load(wsDir)
+	if err != nil {
+		return nil, err
+	}
+	r, err := ws.Recipe(e.ID)
+	if err != nil {
+		return nil, err
+	}
+	return compose.Build(ctx, compose.Request{
+		Workspace: ws, Library: lib, Recipe: r,
+		Progress: progress,
+	})
+}
+
+// ensureSource makes sure the OS ISO is in the library.
+func ensureSource(ctx context.Context, lib *library.Library, e Entry, progress func(string, int64, int64)) error {
+	if _, err := lib.Resolve(e.ID); err == nil {
+		return nil
+	}
+	src := &manifest.Source{
+		ID: e.ID, Kind: manifest.KindOSImage, Format: manifest.FormatISO,
+		Provider: e.Provider, Fido: e.Fido, URL: e.URL, SHA256: e.SHA256, Filename: e.Filename,
+	}
+	// Distros that publish a SHA256SUMS file: resolve the pin now.
+	if src.SHA256 == "" && e.ChecksumsURL != "" {
+		sum, err := resolveChecksum(ctx, e)
+		if err != nil {
+			return err
+		}
+		src.SHA256 = sum
+	}
+	resolver := func(ctx context.Context, s *manifest.Source) (string, error) {
+		if progress != nil {
+			progress("resolving download URL", 0, -1)
+		}
+		return helpers.ResolveFidoURL(ctx, lib.HelpersDir(), s.Fido)
+	}
+	// Windows (Fido, unpinnable) uses trust-on-first-use; pinned distros verify.
+	_, err := lib.Pull(ctx, src, true, resolver, func(done, total int64) {
+		if progress != nil {
+			progress("downloading "+e.Name, done, total)
+		}
+	})
+	return err
+}
+
+// scaffoldQuickWorkspace writes an ephemeral workspace under the library with
+// the embedded template, a manifest for the OS, and a synthesized recipe.
+func scaffoldQuickWorkspace(lib *library.Library, e Entry, opts Options) (string, error) {
+	dir := filepath.Join(lib.Root, "quick")
+	for _, sub := range []string{"templates", "manifests", "recipes", "payload"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			return "", err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "workspace.yaml"),
+		[]byte("version: 1\norg:\n  name: \"Quick Install\"\n  id: quick\ndefaults:\n  locale: en-US\n"), 0o644); err != nil {
+		return "", err
+	}
+	tmpl, err := templatesFS.ReadFile("templates/autounattend.xml.tmpl")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "templates", "autounattend.xml.tmpl"), tmpl, 0o644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifests", e.ID+".yaml"), []byte(manifestYAML(e)), 0o644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "recipes", e.ID+".yaml"), []byte(recipeYAML(e, opts)), 0o644); err != nil {
+		return "", err
+	}
+	// Only keep this build's recipe so ws.Recipes() stays unambiguous.
+	pruneOtherRecipes(filepath.Join(dir, "recipes"), e.ID)
+	pruneOtherManifests(filepath.Join(dir, "manifests"), e.ID)
+	return dir, nil
+}
+
+func pruneOtherRecipes(dir, keep string) {
+	entries, _ := os.ReadDir(dir)
+	for _, en := range entries {
+		if en.Name() != keep+".yaml" {
+			os.Remove(filepath.Join(dir, en.Name()))
+		}
+	}
+}
+
+func pruneOtherManifests(dir, keep string) {
+	entries, _ := os.ReadDir(dir)
+	for _, en := range entries {
+		if en.Name() != keep+".yaml" {
+			os.Remove(filepath.Join(dir, en.Name()))
+		}
+	}
+}
+
+func manifestYAML(e Entry) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "id: %s\nkind: os-image\nformat: iso\n", e.ID)
+	if e.Provider != "" {
+		fmt.Fprintf(&b, "provider: %s\n", e.Provider)
+		if e.Fido != nil {
+			fmt.Fprintf(&b, "fido:\n  win: %q\n  release: %s\n  edition: %s\n  language: %s\n  arch: %s\n",
+				e.Fido.Win, e.Fido.Release, e.Fido.Edition, e.Fido.Language, e.Fido.Arch)
+		}
+	} else {
+		fmt.Fprintf(&b, "url: %s\n", e.URL)
+	}
+	fmt.Fprintf(&b, "sha256: %q\n", e.SHA256)
+	if e.Filename != "" {
+		fmt.Fprintf(&b, "filename: %s\n", e.Filename)
+	}
+	return b.String()
+}
+
+func recipeYAML(e Entry, opts Options) string {
+	if e.Family == Linux {
+		return fmt.Sprintf(`version: 1
+id: %s
+name: %q
+os:
+  type: linux-iso
+  source: %s
+target:
+  min_stick: 4GiB
+  boot: uefi-only
+flash:
+  verify: readback-sha256
+`, e.ID, e.Name, e.ID)
+	}
+	bypass := "0"
+	if opts.BypassRequirement {
+		bypass = "1"
+	}
+	preset := debloatPreset(opts.Debloat)
+	steps := "      - drivers\n"
+	if preset != "off" {
+		steps += "      - debloat\n"
+	}
+	return fmt.Sprintf(`version: 1
+id: %s
+name: %q
+os:
+  type: windows
+  source: %s
+  source_mode: iso
+target:
+  scheme: mbr
+  filesystem: fat32
+  volume_label: ESD-USB
+  size: auto
+  min_stick: 8GiB
+  boot: uefi-only
+windows:
+  ei_cfg: { edition: %s, channel: Retail, vl: false }
+  unattend:
+    template: templates/autounattend.xml.tmpl
+    vars:
+      edition_key: %s
+      locale: en-US
+      admin_user: user
+      admin_display_name: User
+      admin_password: ""
+      computer_name: "*"
+      account_mode: %s
+      bypass_requirements: "%s"
+  debloat:
+    preset: %s
+  firstboot:
+    mode: generate
+    steps:
+%s
+flash:
+  verify: readback-sha256
+`, e.ID, e.Name, e.ID, editionName(opts.Edition), genericKeys[opts.Edition],
+		opts.AccountMode, bypass, preset, steps)
+}
+
+// editionName maps the option to the ei.cfg EditionID (drops the "N"/space).
+func editionName(ed string) string {
+	switch ed {
+	case "Pro N":
+		return "ProfessionalN"
+	case "Pro":
+		return "Professional"
+	case "Home":
+		return "Core"
+	case "Education":
+		return "Education"
+	case "Enterprise":
+		return "Enterprise"
+	}
+	return "Professional"
+}
+
+func debloatPreset(d string) string {
+	if d == "" {
+		return "off"
+	}
+	return d
+}

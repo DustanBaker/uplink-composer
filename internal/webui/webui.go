@@ -26,6 +26,7 @@ import (
 	"github.com/DustanBaker/uplink-composer/internal/flashrun"
 	"github.com/DustanBaker/uplink-composer/internal/jobs"
 	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
 	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
@@ -118,6 +119,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
 	mux.HandleFunc("POST /api/build", s.auth(s.handleBuild))
 	mux.HandleFunc("POST /api/flash", s.auth(s.handleFlash))
+	mux.HandleFunc("POST /api/install", s.auth(s.handleInstall))
 	mux.HandleFunc("POST /api/capture", s.auth(s.handleCapture))
 	mux.HandleFunc("POST /api/quit", s.auth(s.handleQuit))
 	mux.HandleFunc("GET /api/events", s.auth(s.handleEvents))
@@ -185,7 +187,18 @@ type stateResp struct {
 	Sources      []sourceInfo   `json:"sources"`
 	Devices      []deviceInfo   `json:"devices"`
 	Artifacts    []artifactInfo `json:"artifacts"`
+	Catalog      []catalogEntry `json:"catalog"`
 	LibraryRoot  string         `json:"library_root"`
+}
+
+type catalogEntry struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Family        string   `json:"family"`
+	Version       string   `json:"version"`
+	Notes         string   `json:"notes"`
+	FirmwareNotes string   `json:"firmware_notes,omitempty"`
+	Editions      []string `json:"editions,omitempty"`
 }
 
 type recentWS struct {
@@ -229,7 +242,13 @@ type artifactInfo struct {
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	resp := stateResp{
 		Recent: []recentWS{}, Recipes: []recipeInfo{}, Sources: []sourceInfo{},
-		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, LibraryRoot: s.Lib.Root,
+		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, Catalog: []catalogEntry{}, LibraryRoot: s.Lib.Root,
+	}
+	for _, e := range oscatalog.Catalog() {
+		resp.Catalog = append(resp.Catalog, catalogEntry{
+			ID: e.ID, Name: e.Name, Family: string(e.Family), Version: e.Version,
+			Notes: e.Notes, FirmwareNotes: e.FirmwareNotes, Editions: e.Editions,
+		})
 	}
 	if s.Cfg != nil {
 		for _, dir := range s.Cfg.Recent {
@@ -435,6 +454,63 @@ func (s *Server) handleFlash(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		job.Finish("flashed and verified — safe to remove")
+	}()
+	writeJSON(w, 202, map[string]string{"job_id": job.ID})
+}
+
+// handleInstall is Quick Install: build media for a catalog OS + options and
+// flash it to the chosen stick — no workspace required.
+func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OSID              string `json:"os_id"`
+		Edition           string `json:"edition"`
+		AccountMode       string `json:"account_mode"`
+		Debloat           string `json:"debloat"`
+		BypassRequirement bool   `json:"bypass_requirement"`
+		DeviceID          string `json:"device_id"`
+		Confirm           string `json:"confirm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.OSID == "" || req.DeviceID == "" {
+		httpErr(w, 400, "body must include os_id, device_id, and confirm")
+		return
+	}
+	e, ok := oscatalog.Get(req.OSID)
+	if !ok {
+		httpErr(w, 400, "unknown OS %q", req.OSID)
+		return
+	}
+	dev, err := s.findDevice(r.Context(), req.DeviceID)
+	if err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	if !dev.Flashable() {
+		httpErr(w, 400, "%s is not flashable (bus=%s, system=%v)", dev.ID, dev.Bus, dev.System)
+		return
+	}
+	if strings.TrimSpace(req.Confirm) != dev.SizeConfirmation() {
+		httpErr(w, 400, "confirmation mismatch: device %s is %s GiB — type exactly %q to arm",
+			dev.ID, dev.SizeConfirmation(), dev.SizeConfirmation())
+		return
+	}
+	opts := oscatalog.Options{
+		Edition: req.Edition, AccountMode: req.AccountMode,
+		Debloat: req.Debloat, BypassRequirement: req.BypassRequirement,
+	}
+	job := s.Reg.New("install", fmt.Sprintf("%s → %s", e.Name, dev.ID))
+	go func() {
+		s.deviceMu.Lock()
+		defer s.deviceMu.Unlock()
+		art, err := oscatalog.BuildQuick(context.Background(), s.Lib, e, opts, progressFor(job))
+		if err != nil {
+			job.Fail(err)
+			return
+		}
+		if err := flashrun.RunFlash(context.Background(), art, dev, progressFor(job)); err != nil {
+			job.Fail(err)
+			return
+		}
+		job.Finish("installed — safe to remove and boot the target machine")
 	}()
 	writeJSON(w, 202, map[string]string{"job_id": job.ID})
 }

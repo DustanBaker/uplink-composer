@@ -22,6 +22,11 @@ Usage: uplink <recipe>            the whole thing: pull sources, build, flash th
 One-shot
   go <recipe|.img> [device]  pull missing sources, build, flash, verify (--yes, --build-only)
 
+Quick install (no workspace needed)
+  catalog                   list the built-in operating systems
+  install <os-id> [device]  build + flash an OS from the catalog
+                            (--edition, --account local|oobe, --debloat, --bypass-checks)
+
 Workspace
   init --org <name> [dir]   scaffold a new org workspace
   recipes list              recipes in the workspace
@@ -149,6 +154,10 @@ func Main(args []string) int {
 		err = cmdSources(ctx, env, cmdArgs)
 	case "recipes":
 		err = cmdRecipes(env, cmdArgs)
+	case "catalog":
+		err = cmdCatalog(env, cmdArgs)
+	case "install":
+		err = cmdInstall(ctx, env, cmdArgs)
 	case "drivers":
 		err = cmdDrivers(ctx, env, cmdArgs)
 	case "build":

@@ -94,6 +94,24 @@ against the release's checksum list, install it under your user profile
 plus the `compose` alias on your user PATH. Nothing touches system
 directories. (Private fork? Set `GITHUB_TOKEN` first.)
 
+## Quick Install — pick an OS, no setup
+
+Launch the app (Start-menu icon or `uplink serve --open`) and the home screen
+has an **Install an OS** list: Windows 11/10 (fetched from Microsoft on demand
+via Fido) and Linux distros (Ubuntu Server, Linux Mint, more coming). Pick
+one, choose a couple of options — for Windows: edition, **local account vs.
+normal OOBE**, how much bloatware to strip, and an optional skip of the
+TPM/Secure-Boot/RAM checks — plug in a stick, confirm its size, and it builds
+and flashes. No workspace, no recipes. From the CLI:
+
+```
+uplink catalog
+uplink install windows-11 --edition Pro --account local --debloat standard
+```
+
+This is the "distro-hop / image a machine in two clicks" path. For repeatable,
+branded, fleet imaging with agents and per-model drivers, use a **workspace**:
+
 ## Quick start — "compose this"
 
 ```
