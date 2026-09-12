@@ -132,15 +132,30 @@ func TestReleasePublishes(t *testing.T) {
 	if err := yaml.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
+	// Comment lines are stripped: these checks are about what the job runs, and
+	// a comment explaining a past mistake should not read as committing it.
 	all := ""
 	for _, j := range doc.Jobs {
 		for _, s := range j.Steps {
-			all += s.Run + "\n"
+			for _, line := range strings.Split(s.Run, "\n") {
+				if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+					all += line + "\n"
+				}
+			}
 		}
 	}
 	for _, want := range []string{"gh release create", "dist/*", "SHA256SUMS.txt"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("release.yml no longer contains %q — the release would publish nothing", want)
 		}
+	}
+	// checkout can leave a lightweight tag ref, and git then falls back to the
+	// tagged commit's message with no error — which once published a release
+	// whose notes described a CI fix instead of the features. Read the tag
+	// object through the API instead.
+	if regexp.MustCompile(`git tag -l[^\n]*--format`).MatchString(all) {
+		t.Error("release.yml reads the tag message with `git tag -l --format` — " +
+			"that silently yields the COMMIT message when the local ref is lightweight; " +
+			"use the git/tags API")
 	}
 }
