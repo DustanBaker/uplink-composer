@@ -264,6 +264,54 @@ func TestResolveChecksumLive(t *testing.T) {
 	}
 }
 
+// TestRawImageEntriesCompose guards the single-board path: a Raspberry Pi
+// image is a compressed raw disk image, not an installer ISO, so it has to
+// reach compose as raw-img or it would be written as if it were bootable
+// media for a PC.
+func TestRawImageEntriesCompose(t *testing.T) {
+	lib, err := library.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := 0
+	for _, e := range Catalog() {
+		if e.Kind() != ImageRaw {
+			continue
+		}
+		raw++
+		dir, err := scaffoldQuickWorkspace(lib, e, Options{}, nil)
+		if err != nil {
+			t.Fatalf("%s: scaffold: %v", e.ID, err)
+		}
+		r := assertLoads(t, dir, e.ID)
+		if r == nil {
+			continue
+		}
+		if got := string(r.OS.Type); got != "raw-img" {
+			t.Errorf("%s: os.type = %q, want raw-img", e.ID, got)
+		}
+		src, err := workspace.Load(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := src.Source(e.ID)
+		if err != nil {
+			t.Fatalf("%s: manifest: %v", e.ID, err)
+		}
+		if s.Format != "img" {
+			t.Errorf("%s: manifest format = %q, want img", e.ID, s.Format)
+		}
+		for _, f := range r.Lint() {
+			if f.Severity == "error" {
+				t.Errorf("%s: lint error: %s", e.ID, f.Message)
+			}
+		}
+	}
+	if raw == 0 {
+		t.Skip("no raw-image entries in the catalog")
+	}
+}
+
 // TestGenericKeysComplete makes sure every Windows edition option has a key
 // and an ei.cfg name.
 func TestGenericKeysComplete(t *testing.T) {

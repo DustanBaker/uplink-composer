@@ -51,6 +51,7 @@ var builtin = []Entry{
 		ID:            "ubuntu-24.04-server",
 		Name:          "Ubuntu 24.04 LTS Server",
 		Family:        Linux,
+		Category:      Server,
 		Version:       "24.04.5",
 		URL:           "https://releases.ubuntu.com/24.04/ubuntu-24.04.5-live-server-amd64.iso",
 		SHA256:        "97f3d7ffb032c3eb3b23d2c8be9cc76e60c2c1f2c0146ba5ba9fe01cafae0fd8",
@@ -73,6 +74,7 @@ var builtin = []Entry{
 		ID:            "ubuntu-26.04-server",
 		Name:          "Ubuntu 26.04 LTS Server",
 		Family:        Linux,
+		Category:      Server,
 		Version:       "26.04.1",
 		URL:           "https://releases.ubuntu.com/26.04/ubuntu-26.04.1-live-server-amd64.iso",
 		SHA256:        "cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927",
@@ -95,6 +97,7 @@ var builtin = []Entry{
 		ID:            "debian-13-netinst",
 		Name:          "Debian 13 (netinst)",
 		Family:        Linux,
+		Category:      Server,
 		Version:       "13.6.0",
 		URL:           "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.6.0-amd64-netinst.iso",
 		SHA256:        "65273beed27b2df543b68b65630ba525cfbad8df2b12035732b2dff87d6664e7",
@@ -115,6 +118,59 @@ var builtin = []Entry{
 		Filename:      "archlinux-x86_64.iso",
 		Notes:         "Boots the Arch installer environment; run archinstall or install by hand.",
 		FirmwareNotes: "UEFI boot. Unsigned — Secure Boot must be off.",
+	},
+	{
+		ID:            "fedora-44-server",
+		Name:          "Fedora 44 Server",
+		Family:        Linux,
+		Category:      Server,
+		Version:       "44-1.7",
+		URL:           "https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Server/x86_64/iso/Fedora-Server-dvd-x86_64-44-1.7.iso",
+		SHA256:        "85837793bfa36db6bc709b4cecd2ec116951b87d9c53c3d95eb2fac8dcf7cf1f",
+		Filename:      "Fedora-Server-dvd-x86_64-44-1.7.iso",
+		Notes:         "Full server install DVD — no network needed during setup.",
+		FirmwareNotes: "UEFI boot. Signed shim, so Secure Boot works out of the box on most firmware.",
+	},
+	{
+		ID:       "nixos-26.05-minimal",
+		Name:     "NixOS 26.05 (minimal)",
+		Family:   Linux,
+		Category: Server,
+		Version:  "26.05",
+		// The channel URL always serves that channel's newest build, so there
+		// is no fixed hash; NixOS publishes a per-image .sha256 beside it.
+		URL:           "https://channels.nixos.org/nixos-26.05/latest-nixos-minimal-x86_64-linux.iso",
+		ChecksumsURL:  "https://channels.nixos.org/nixos-26.05/latest-nixos-minimal-x86_64-linux.iso.sha256",
+		Filename:      "latest-nixos-minimal-x86_64-linux.iso",
+		Notes:         "Console installer for the declarative, reproducible distro. Install from its shell.",
+		FirmwareNotes: "UEFI boot. Unsigned — Secure Boot must be off.",
+	},
+	{
+		ID:            "omarchy",
+		Name:          "Omarchy",
+		Family:        Linux,
+		Version:       "4.0.3",
+		URL:           "https://iso.omarchy.org/omarchy-4.0.3.iso",
+		SHA256:        "03d60bc74306dca51f96e1a84b690871d8d606826b260edd0208962da8507d14",
+		Filename:      "omarchy-4.0.3.iso",
+		Notes:         "Opinionated Arch + Hyprland desktop, preconfigured and ready to use.",
+		FirmwareNotes: "UEFI boot. Unsigned — Secure Boot must be off.",
+	},
+	{
+		ID:       "raspios-arm64",
+		Name:     "Raspberry Pi OS (64-bit)",
+		Family:   Linux,
+		Category: Appliance,
+		Version:  "2026-06-18 (trixie)",
+		// A raw disk image, not an installer: written to the card or stick the
+		// Pi boots from, and it runs as-is.
+		Image:         ImageRaw,
+		Arch:          "arm64",
+		URL:           "https://downloads.raspberrypi.com/raspios_arm64/images/raspios_arm64-2026-06-19/2026-06-18-raspios-trixie-arm64.img.xz",
+		SHA256:        "123287c05f27b0eebd8f65456f6369b8f6635fa50a3d440a4f9f6223bf58c8e2",
+		Filename:      "2026-06-18-raspios-trixie-arm64.img.xz",
+		Notes:         "For Raspberry Pi hardware, not a PC. Writes a ready-to-run system — no installer to sit through.",
+		FirmwareNotes: "Boots on Pi 3/4/5 and Zero 2. A Pi 4 or 5 boots this from USB; earlier boards want an SD card.",
 	},
 	{
 		ID:            "linuxmint-22.1-cinnamon",
@@ -150,14 +206,23 @@ func resolveChecksum(ctx context.Context, e Entry) (string, error) {
 	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	var all []string
 	for sc.Scan() {
 		line := sc.Text()
-		if !strings.Contains(line, e.Filename) {
+		m := sha256Line.FindString(line)
+		if m == "" {
 			continue
 		}
-		if m := sha256Line.FindString(line); m != "" {
+		if strings.Contains(line, e.Filename) {
 			return strings.ToLower(m), nil
 		}
+		all = append(all, strings.ToLower(m))
+	}
+	// A per-file checksum (`<image>.sha256`) holds exactly one hash, and names
+	// the resolved image rather than the "latest-" alias used to fetch it —
+	// NixOS does this. One hash in the whole file is unambiguous, so take it.
+	if len(all) == 1 {
+		return all[0], nil
 	}
 	return "", fmt.Errorf("no sha256 for %s in its checksum file — the URL or filename may have moved", e.Filename)
 }

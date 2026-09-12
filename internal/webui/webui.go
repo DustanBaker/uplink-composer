@@ -210,6 +210,8 @@ type catalogEntry struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`
 	Family        string   `json:"family"`
+	Category      string   `json:"category"`
+	Arch          string   `json:"arch"`
 	Version       string   `json:"version"`
 	Notes         string   `json:"notes"`
 	FirmwareNotes string   `json:"firmware_notes,omitempty"`
@@ -269,7 +271,8 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, e := range oscatalog.Catalog() {
 		resp.Catalog = append(resp.Catalog, catalogEntry{
-			ID: e.ID, Name: e.Name, Family: string(e.Family), Version: e.Version,
+			ID: e.ID, Name: e.Name, Family: string(e.Family),
+			Category: string(e.Group()), Arch: e.CPUArch(), Version: e.Version,
 			Notes: e.Notes, FirmwareNotes: e.FirmwareNotes, Editions: e.Editions,
 		})
 	}

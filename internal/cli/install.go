@@ -18,13 +18,32 @@ import (
 
 func cmdCatalog(_ *Env, _ []string) error {
 	fmt.Println("Built-in operating systems (uplink install <id>):")
-	for _, e := range oscatalog.Catalog() {
-		opts := ""
-		if len(e.Editions) > 0 {
-			opts = "  editions: " + strings.Join(e.Editions, ", ")
+	headings := map[oscatalog.Category]string{
+		oscatalog.Desktop:   "Desktop",
+		oscatalog.Server:    "Server",
+		oscatalog.Appliance: "Single-board and appliance",
+	}
+	for _, cat := range []oscatalog.Category{oscatalog.Desktop, oscatalog.Server, oscatalog.Appliance} {
+		first := true
+		for _, e := range oscatalog.Catalog() {
+			if e.Group() != cat {
+				continue
+			}
+			if first {
+				fmt.Printf("\n  %s\n", headings[cat])
+				first = false
+			}
+			tags := string(e.Family)
+			if a := e.CPUArch(); a != "amd64" {
+				tags += "/" + a
+			}
+			fmt.Printf("    %-24s %-13s %s\n", e.ID, tags, e.Name)
+			detail := fmt.Sprintf("%s — %s", e.Version, e.Notes)
+			if len(e.Editions) > 0 {
+				detail += "  editions: " + strings.Join(e.Editions, ", ")
+			}
+			fmt.Printf("      %s\n", detail)
 		}
-		fmt.Printf("  %-26s %-8s %s%s\n", e.ID, e.Family, e.Name, "")
-		fmt.Printf("      %s (%s)%s\n", e.Version, e.Notes, opts)
 	}
 	return nil
 }

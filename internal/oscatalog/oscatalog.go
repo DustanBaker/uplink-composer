@@ -33,14 +33,41 @@ const (
 	Linux   Family = "linux"
 )
 
+// Category groups the catalog for the pickers. A flat list stops being
+// browsable somewhere around a dozen entries, and "I want a server" is a
+// different errand from "I want to try a desktop".
+type Category string
+
+const (
+	Desktop   Category = "desktop"
+	Server    Category = "server"
+	Appliance Category = "appliance" // single-board and purpose-built images
+)
+
+// ImageKind says how the downloaded file is written. Most installers are
+// hybrid ISOs; single-board images are raw disk images, usually compressed,
+// which take a different compose path.
+type ImageKind string
+
+const (
+	ImageISO ImageKind = "iso"
+	ImageRaw ImageKind = "raw"
+)
+
 // Entry is one installable OS in the built-in catalog.
 type Entry struct {
 	ID            string
 	Name          string
 	Family        Family
+	Category      Category
 	Version       string
 	Notes         string
 	FirmwareNotes string
+
+	// Image defaults to ImageISO. Arch defaults to amd64 and exists so an
+	// arm64 board image is never offered as if it would boot a PC.
+	Image ImageKind
+	Arch  string
 
 	// Windows sources resolve their ISO at pull time via Fido; Linux
 	// sources pin url + sha256 (or a ChecksumsURL to verify against).
@@ -68,6 +95,49 @@ type Options struct {
 	// Apps are appcatalog picker ids to install at first boot (windows only,
 	// via winget). Resolved to package ids by the caller.
 	Apps []string
+}
+
+// sourceFormat is the manifest format for this entry's download. Raw images
+// arrive compressed (.img.xz); the flash engine sniffs and decompresses on
+// the way to the device, so the manifest just says "img".
+func (e Entry) sourceFormat() manifest.Format {
+	if e.Kind() == ImageRaw {
+		return manifest.FormatImg
+	}
+	return manifest.FormatISO
+}
+
+// recipeOSType is the compose pipeline this entry runs through.
+func (e Entry) recipeOSType() string {
+	if e.Kind() == ImageRaw {
+		return "raw-img"
+	}
+	return "linux-iso"
+}
+
+// ImageKind is the entry's image kind, defaulting to a hybrid ISO.
+func (e Entry) Kind() ImageKind {
+	if e.Image != "" {
+		return e.Image
+	}
+	return ImageISO
+}
+
+// CPUArch is the entry's architecture, defaulting to amd64.
+func (e Entry) CPUArch() string {
+	if e.Arch != "" {
+		return e.Arch
+	}
+	return "amd64"
+}
+
+// Group is the entry's category, defaulting by family: Windows and Linux
+// entries that do not say otherwise are desktops.
+func (e Entry) Group() Category {
+	if e.Category != "" {
+		return e.Category
+	}
+	return Desktop
 }
 
 // DriverOS is the driver-catalog OS token for this entry ("win11"/"win10").
@@ -252,7 +322,7 @@ func ensureSource(ctx context.Context, lib *library.Library, e Entry, progress f
 		return nil
 	}
 	src := &manifest.Source{
-		ID: e.ID, Kind: manifest.KindOSImage, Format: manifest.FormatISO,
+		ID: e.ID, Kind: manifest.KindOSImage, Format: e.sourceFormat(),
 		Provider: e.Provider, Fido: e.Fido, URL: e.URL, SHA256: e.SHA256, Filename: e.Filename,
 	}
 	// Distros that publish a SHA256SUMS file: resolve the pin now.
@@ -343,7 +413,7 @@ func pruneOtherManifests(dir, keep string) {
 
 func manifestYAML(e Entry) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "id: %s\nkind: os-image\nformat: iso\n", e.ID)
+	fmt.Fprintf(&b, "id: %s\nkind: os-image\nformat: %s\n", e.ID, e.sourceFormat())
 	if e.Provider != "" {
 		fmt.Fprintf(&b, "provider: %s\n", e.Provider)
 		if e.Fido != nil {
@@ -394,14 +464,14 @@ func recipeYAML(e Entry, opts Options, hw []recipe.HardwareSpec) string {
 id: %s
 name: %q
 os:
-  type: linux-iso
+  type: %s
   source: %s
 target:
   min_stick: 4GiB
   boot: uefi-only
 flash:
   verify: readback-sha256
-`, e.ID, e.Name, e.ID)
+`, e.ID, e.Name, e.recipeOSType(), e.ID)
 	}
 	bypass := "0"
 	if opts.BypassRequirement {
