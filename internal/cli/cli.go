@@ -10,6 +10,7 @@ import (
 
 	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/selfupdate"
 	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
@@ -66,6 +67,7 @@ Pick an interface
   serve [--port 8931]       local web UI (recipes, devices, build, flash, live progress)
 
 Other
+  update [--check]          replace this binary with the newest release
   doctor                    check this host's tooling and configuration
   version                   print version
 
@@ -136,6 +138,10 @@ func Main(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
+	// Windows cannot delete the previous binary while it is still running, so
+	// an update leaves it behind for the next run to clear.
+	selfupdate.CleanupOld()
+
 	// "compose this": no arguments in a one-recipe workspace runs it.
 	if len(rest) == 0 {
 		if id := soleRecipe(env); id != "" {
@@ -159,6 +165,8 @@ func Main(args []string) int {
 		err = cmdInit(cmdArgs)
 	case "doctor":
 		err = cmdDoctor(ctx, env)
+	case "update":
+		err = cmdUpdate(ctx, env, cmdArgs)
 	case "devices":
 		err = cmdDevices(ctx)
 	case "sources":

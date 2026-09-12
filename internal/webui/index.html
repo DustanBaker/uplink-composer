@@ -76,6 +76,9 @@
     border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 13px; }
   .opt { margin: 10px 0; }
   .opt > label { display: block; color: var(--dim); font-size: 12px; margin-bottom: 4px; }
+  .updbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+    font-size: 13px; }
   .catgroup { color: var(--dim); font-size: 11px; text-transform: uppercase;
     letter-spacing: .04em; margin: 10px 0 2px; }
   .catgroup:first-child { margin-top: 0; }
@@ -167,6 +170,26 @@ async function api(path, body) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
+}
+
+// checkUpdate asks once on load. The server caches the answer, and being
+// offline is normal on a bench, so a failure here says nothing at all.
+async function checkUpdate() {
+  let u;
+  try { u = await api("/api/update"); } catch (e) { return; }
+  if (!u || !u.newer) return;
+  const bar = el("div", "updbar");
+  bar.append(el("span", null, `${u.latest} is available — you are running ${u.current}.`));
+  const go = el("button", "primary", "Update now");
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = "Updating…";
+    try { await api("/api/update", {}); }
+    catch (e) { showErr(e.message); go.disabled = false; go.textContent = "Update now"; }
+  };
+  const note = el("span", "sub", "Installs over this copy; restart to run it.");
+  note.style.color = "var(--dim)";
+  bar.append(go, note);
+  document.body.insertBefore(bar, document.body.firstChild);
 }
 
 function showErr(msg) {
@@ -580,6 +603,7 @@ async function loadState() {
 }
 loadState();
 streamEvents();
+checkUpdate();
 </script>
 </body>
 </html>

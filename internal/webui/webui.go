@@ -22,6 +22,7 @@ import (
 
 	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
 	"github.com/DustanBaker/uplink-composer/internal/appconfig"
+	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/device"
 	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
@@ -32,6 +33,7 @@ import (
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
 	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/DustanBaker/uplink-composer/internal/selfupdate"
 	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
@@ -53,6 +55,10 @@ type Server struct {
 
 	quit     func()     // cancels Serve; set in Serve
 	deviceMu sync.Mutex // one raw-device operation at a time
+
+	updMu  sync.Mutex // guards the cached update check
+	updRel *selfupdate.Release
+	updAt  time.Time
 }
 
 // SetWorkspaceDir loads the workspace rooted at dir and makes it current,
@@ -127,6 +133,8 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/flash", s.auth(s.handleFlash))
 	mux.HandleFunc("POST /api/install", s.auth(s.handleInstall))
 	mux.HandleFunc("GET /api/detect", s.auth(s.handleDetect))
+	mux.HandleFunc("GET /api/update", s.auth(s.handleUpdateCheck))
+	mux.HandleFunc("POST /api/update", s.auth(s.handleUpdateApply))
 	mux.HandleFunc("POST /api/capture", s.auth(s.handleCapture))
 	mux.HandleFunc("POST /api/quit", s.auth(s.handleQuit))
 	mux.HandleFunc("GET /api/events", s.auth(s.handleEvents))
@@ -590,6 +598,64 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		job.Finish("installed — safe to remove and boot the target machine")
+	}()
+	writeJSON(w, 202, map[string]string{"job_id": job.ID})
+}
+
+// handleUpdateCheck reports whether a newer release exists. The result is
+// cached: the page asks on load, and hitting the release feed every time
+// would be rude to it and slow for no gain.
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	s.updMu.Lock()
+	fresh := s.updAt.After(time.Now().Add(-time.Hour))
+	rel := s.updRel
+	s.updMu.Unlock()
+
+	if !fresh {
+		got, err := selfupdate.Check(r.Context())
+		if err != nil {
+			// Offline is the normal case for a tool used on a bench; say so
+			// quietly rather than making the page look broken.
+			writeJSON(w, 200, map[string]any{"current": buildinfo.Version, "unavailable": err.Error()})
+			return
+		}
+		s.updMu.Lock()
+		s.updRel, s.updAt = got, time.Now()
+		s.updMu.Unlock()
+		rel = got
+	}
+	writeJSON(w, 200, map[string]any{
+		"current": buildinfo.Version,
+		"latest":  rel.Version,
+		"newer":   rel.Newer,
+		"asset":   rel.Asset,
+		"size_mb": rel.Size >> 20,
+	})
+}
+
+// handleUpdateApply installs the newest release over this binary. The server
+// keeps running the old image until it is restarted — a process cannot swap
+// itself out mid-flight — so the page says so rather than implying otherwise.
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	rel, err := selfupdate.Check(r.Context())
+	if err != nil {
+		httpErr(w, 502, "%v", err)
+		return
+	}
+	if !rel.Newer {
+		httpErr(w, 400, "%s is already the newest release", rel.Version)
+		return
+	}
+	job := s.Reg.New("update", "update to "+rel.Version)
+	go func() {
+		path, err := selfupdate.Apply(context.Background(), rel, func(done, total int64) {
+			progressFor(job)("downloading "+rel.Asset, done, total)
+		})
+		if err != nil {
+			job.Fail(err)
+			return
+		}
+		job.Finish("updated " + path + " to " + rel.Version + " — restart to run it")
 	}()
 	writeJSON(w, 202, map[string]string{"job_id": job.ID})
 }
