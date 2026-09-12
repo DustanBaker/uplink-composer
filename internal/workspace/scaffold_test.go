@@ -1,0 +1,90 @@
+package workspace
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func scaffolded(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "ws")
+	if err := Scaffold(dir, "Test Org"); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func read(t *testing.T, dir string, parts ...string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(append([]string{dir}, parts...)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// TestUnattendTemplateIsASCII: the answer file is parsed by Windows Setup in
+// WinPE, on hardware and in locales nobody here controls. It was pure ASCII
+// before domain join was added, there is no reason for it not to stay that
+// way, and a stray character in a comment is an entirely self-inflicted risk.
+func TestUnattendTemplateIsASCII(t *testing.T) {
+	b := read(t, scaffolded(t), "templates", "autounattend.xml.tmpl")
+	for i := 0; i < len(b); i++ {
+		if b[i] > 127 {
+			lo, hi := max(0, i-50), min(len(b), i+50)
+			t.Fatalf("byte %d is non-ASCII (0x%02X) — near: %q", i, b[i], b[lo:hi])
+		}
+	}
+}
+
+// TestScaffoldRefusesToOverwrite: init creates fresh workspaces. Clobbering
+// somebody's recipes and their gitignored secrets file would be unrecoverable.
+func TestScaffoldRefusesToOverwrite(t *testing.T) {
+	dir := scaffolded(t)
+	err := Scaffold(dir, "Test Org")
+	if err == nil {
+		t.Fatal("scaffolding over an existing workspace was allowed")
+	}
+	if !strings.Contains(err.Error(), "refusing to overwrite") {
+		t.Errorf("unhelpful refusal: %v", err)
+	}
+}
+
+// TestScaffoldKeepsSecretsOutOfGit: vars.local.yaml holds the domain-join
+// password and the autoinstall hash. It is only safe to tell people to put
+// secrets there because it is gitignored from the start.
+func TestScaffoldKeepsSecretsOutOfGit(t *testing.T) {
+	dir := scaffolded(t)
+	if got := read(t, dir, ".gitignore"); !strings.Contains(got, "vars.local.yaml") {
+		t.Errorf("vars.local.yaml is not gitignored:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vars.local.yaml")); err != nil {
+		t.Errorf("no vars.local.yaml to put secrets in: %v", err)
+	}
+}
+
+// TestScaffoldedUnattendHasBothJoinPaths: a workspace created today must be
+// able to do a domain join. A template without these blocks silently ignores
+// windows.domain — which is exactly what the build-time check exists to catch,
+// and what a fresh workspace must never trip.
+func TestScaffoldedUnattendHasBothJoinPaths(t *testing.T) {
+	got := read(t, scaffolded(t), "templates", "autounattend.xml.tmpl")
+	for _, want := range []string{
+		`name="Microsoft-Windows-UnattendedJoin"`,
+		"<JoinDomain>", "<AccountData>",
+		`{{if eq .Vars.domain_mode "offline"}}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a fresh workspace cannot do a domain join: missing %s", want)
+		}
+	}
+	// The join belongs to specialize; the same element in offlineServicing is
+	// a differently-named thing and putting it in the wrong pass does nothing.
+	spec := got[strings.Index(got, `<settings pass="specialize">`):]
+	spec = spec[:strings.Index(spec, "</settings>")]
+	if !strings.Contains(spec, "Microsoft-Windows-UnattendedJoin") {
+		t.Error("the join component is not in the specialize pass")
+	}
+}

@@ -56,7 +56,7 @@
          so no user credential appears here and no domain controller has to be
          reachable while Setup runs.
 
-         Provisioning and Credentials are mutually exclusive — Provisioning
+         Provisioning and Credentials are mutually exclusive - Provisioning
          wins if both appear, so only one is ever emitted. The blob belongs to
          exactly one machine.
 
@@ -79,7 +79,7 @@
          PlainText/base64 obfuscation that local-account passwords can use is
          not available for this element, and Microsoft says so plainly: only
          local account passwords can be hidden in an answer file. Nothing
-         removes this file from the USB either — Setup copies it to Panther and
+         removes this file from the USB either - Setup copies it to Panther and
          scrubs the copy, never the media. So this stick carries a live domain
          credential for as long as it exists.
 
@@ -100,10 +100,14 @@
         </Credentials>
         <JoinDomain>{{xml .Vars.domain_join}}</JoinDomain>
         {{if .Vars.domain_ou}}<MachineObjectOU>{{xml .Vars.domain_ou}}</MachineObjectOU>{{end}}
-        <!-- Writes %WINDIR%\Panther\UnattendGC\UnattendedJoinDCLocator.etl,
-             which is what tells you whether a failure was DNS or the DC. It
-             only breaks into a kernel debugger if one is attached. -->
-        <DebugJoin>true</DebugJoin>
+        <!-- Deliberately no DebugJoin element. It writes a DC-locator trace to
+             %WINDIR%\Panther\UnattendGC\UnattendedJoinDCLocator.etl, which is
+             tempting - but its documented purpose is to break into a kernel
+             debugger on failure, and Microsoft says to leave it unmodified.
+             On the rare machine with kernel debugging enabled that would stall
+             Setup, which is far worse than the trace is useful: the first-boot
+             check already captures netsetup.log and both UnattendGC logs. Add
+             it by hand when you are debugging a join and know the machine. -->
       </Identification>
     </component>
     {{end}}

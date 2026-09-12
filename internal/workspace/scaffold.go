@@ -84,11 +84,11 @@ const scaffoldReadme = `# %s — Composer workspace
 Recipes, templates, and pinned-source manifests for building bootable
 installation USB media with The Uplink CompOSer.
 
-- ` + "`uplink recipes list`" + ` — what can be built
-- ` + "`uplink sources pull <id>`" + ` — fetch a pinned source into the local library
-- ` + "`uplink sources import <id> <file>`" + ` — add a manually-downloaded file (e.g. a Windows ISO)
-- ` + "`uplink build <recipe>`" + ` — compose a bootable image
-- ` + "`uplink devices`" + ` / ` + "`uplink flash <recipe> <device>`" + ` — write a USB stick
+- ` + "`uplink recipes list`" + ` - what can be built
+- ` + "`uplink sources pull <id>`" + ` - fetch a pinned source into the local library
+- ` + "`uplink sources import <id> <file>`" + ` - add a manually-downloaded file (e.g. a Windows ISO)
+- ` + "`uplink build <recipe>`" + ` - compose a bootable image
+- ` + "`uplink devices`" + ` / ` + "`uplink flash <recipe> <device>`" + ` - write a USB stick
 
 Multi-gigabyte binaries never live in this repo: manifests pin url + sha256
 so any machine can re-fetch them.
@@ -170,7 +170,7 @@ const scaffoldUnattend = `<?xml version="1.0" encoding="utf-8"?>
          domain controller has to be reachable while Setup runs. The blob
          belongs to exactly one machine, and is as sensitive as a password.
 
-         Provisioning and Credentials are mutually exclusive — Provisioning
+         Provisioning and Credentials are mutually exclusive - Provisioning
          wins if both appear, so only one is ever emitted. -->
     <component name="Microsoft-Windows-UnattendedJoin" processorArchitecture="amd64"
                publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
@@ -186,7 +186,7 @@ const scaffoldUnattend = `<?xml version="1.0" encoding="utf-8"?>
          The password below is CLEARTEXT and cannot be otherwise: the
          PlainText/base64 obfuscation local-account passwords can use does not
          exist for this element. Nothing removes this file from the USB either
-         — Setup copies it to Panther and scrubs the copy, never the media. So
+         - Setup copies it to Panther and scrubs the copy, never the media. So
          the stick carries a live domain credential for as long as it exists.
          Use an account delegated "Create Computer Objects" on the target OU
          and nothing more.
@@ -203,7 +203,10 @@ const scaffoldUnattend = `<?xml version="1.0" encoding="utf-8"?>
         </Credentials>
         <JoinDomain>{{xml .Vars.domain_join}}</JoinDomain>
         {{if .Vars.domain_ou}}<MachineObjectOU>{{xml .Vars.domain_ou}}</MachineObjectOU>{{end}}
-        <DebugJoin>true</DebugJoin>
+        <!-- Deliberately no DebugJoin element: its purpose is to break
+             into a kernel debugger on failure and Microsoft says to leave it
+             unmodified. The first-boot check already captures netsetup.log and
+             both UnattendGC logs, which is the diagnostic that matters. -->
       </Identification>
     </component>
     {{end}}

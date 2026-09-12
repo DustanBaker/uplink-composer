@@ -90,11 +90,29 @@ func TestRenderCredentialedJoin(t *testing.T) {
 		}
 	}
 	// Provisioning wins over Credentials when both are present, so a
-	// credentialed join must not emit one.
-	for _, unwanted := range []string{"<Provisioning>", "<AccountData>", "<MachinePassword>"} {
+	// credentialed join must not emit one. MachinePassword belongs to the
+	// unsecure-join path and appears in Microsoft's own example, which is
+	// misleading. DebugJoin is documented as "leave unmodified" and can stall
+	// Setup on a machine with kernel debugging enabled.
+	for _, unwanted := range []string{
+		"<Provisioning>", "<AccountData>", "<MachinePassword>", "<DebugJoin>",
+	} {
 		if strings.Contains(doc, unwanted) {
-			t.Errorf("a credentialed join emitted %s, which belongs to another join path", unwanted)
+			t.Errorf("a credentialed join emitted %s, which it should not", unwanted)
 		}
+	}
+	// The child order is a sequence in the schema, so it is asserted rather
+	// than assumed: a wrong order is refused or ignored, and an ignored join
+	// is silent.
+	wantOrder := []string{"<Credentials>", "<Domain>", "<Password>", "<Username>",
+		"</Credentials>", "<JoinDomain>", "<MachineObjectOU>"}
+	at := 0
+	for _, el := range wantOrder {
+		i := strings.Index(sp[at:], el)
+		if i < 0 {
+			t.Fatalf("%s is missing or out of order; expected %v\n%s", el, wantOrder, sp)
+		}
+		at += i + len(el)
 	}
 	if err := checkDomainRendered(doc, &recipe.DomainSpec{Join: "x", Username: "u", Password: "p"}, "t"); err != nil {
 		t.Errorf("the build-time check rejected a correctly rendered join: %v", err)
