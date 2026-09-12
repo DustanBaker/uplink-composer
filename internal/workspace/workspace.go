@@ -13,8 +13,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/DustanBaker/the-composer/internal/manifest"
-	"github.com/DustanBaker/the-composer/internal/recipe"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/recipe"
 )
 
 // Config is workspace.yaml.
@@ -50,7 +50,7 @@ func Find(dir string) (string, error) {
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
-			return "", fmt.Errorf("no workspace.yaml found in %s or any parent — run `composer init` to create a workspace", dir)
+			return "", fmt.Errorf("no workspace.yaml found in %s or any parent — run `uplink init` to create a workspace", dir)
 		}
 		d = parent
 	}
@@ -144,7 +144,7 @@ func (w *Workspace) Recipe(id string) (*recipe.Recipe, error) {
 			return r, nil
 		}
 	}
-	return nil, fmt.Errorf("no recipe %q in %s (composer recipes list)", id, filepath.Join(w.Dir, "recipes"))
+	return nil, fmt.Errorf("no recipe %q in %s (uplink recipes list)", id, filepath.Join(w.Dir, "recipes"))
 }
 
 // MergedVars implements the precedence chain: workspace < recipe <

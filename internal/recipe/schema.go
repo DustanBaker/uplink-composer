@@ -120,8 +120,8 @@ const (
 	InstallExe          InstallMethod = "exe"                // vendor silent installer
 )
 
-// HardwareSpec names a machine whose driver packs the composer should find
-// and stage automatically (`composer drivers resolve`): a vendor model from
+// HardwareSpec names a machine whose driver packs the uplink should find
+// and stage automatically (`uplink drivers resolve`): a vendor model from
 // the Dell/Lenovo/HP catalogs, or hardware IDs looked up in the Microsoft
 // Update Catalog.
 type HardwareSpec struct {

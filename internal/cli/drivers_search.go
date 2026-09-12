@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DustanBaker/the-composer/internal/drivers/catalog"
-	"github.com/DustanBaker/the-composer/internal/fetch"
-	"github.com/DustanBaker/the-composer/internal/library"
-	"github.com/DustanBaker/the-composer/internal/manifest"
-	"github.com/DustanBaker/the-composer/internal/recipe"
-	"github.com/DustanBaker/the-composer/internal/workspace"
+	"github.com/DustanBaker/uplink-composer/internal/drivers/catalog"
+	"github.com/DustanBaker/uplink-composer/internal/fetch"
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
 // driversSearch queries a vendor catalog (dell/lenovo/hp by model) or the
@@ -57,7 +57,7 @@ func driversSearch(ctx context.Context, env *Env, args []string) error {
 	}
 	printPacks(packs, *limit)
 	if !*add {
-		fmt.Printf("\nAdd one:  composer drivers search %s %q --add --pick N\n", fs.Arg(0), fs.Arg(1))
+		fmt.Printf("\nAdd one:  uplink drivers search %s %q --add --pick N\n", fs.Arg(0), fs.Arg(1))
 		return nil
 	}
 	if *pick < 1 || *pick > len(packs) {
@@ -145,7 +145,7 @@ func addPack(ctx context.Context, ws *workspace.Workspace, lib *library.Library,
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "id: %s\nkind: driver-pack\nformat: %s\n", id, p.Format)
-		fmt.Fprintf(&b, "# Found by `composer drivers search %s` on %s catalog data.\n", feed.Vendor(), feed.Vendor())
+		fmt.Fprintf(&b, "# Found by `uplink drivers search %s` on %s catalog data.\n", feed.Vendor(), feed.Vendor())
 		fmt.Fprintf(&b, "url: %s\n", p.URL)
 		fmt.Fprintf(&b, "sha256: %q\n", p.SHA256)
 		if p.SHA1 != "" {
@@ -279,7 +279,7 @@ func resolveHardware(ctx context.Context, ws *workspace.Workspace, lib *library.
 				return err
 			}
 			if len(packs) == 0 {
-				return fmt.Errorf("no %s driver pack found for %q (%s) — check the model name with `composer drivers search %s %q`", h.Vendor, h.Model, osName, h.Vendor, h.Model)
+				return fmt.Errorf("no %s driver pack found for %q (%s) — check the model name with `uplink drivers search %s %q`", h.Vendor, h.Model, osName, h.Vendor, h.Model)
 			}
 			ref := manifest.HardwareRef{Vendor: h.Vendor, Model: h.Model, OS: osName}
 			if _, err := addPack(ctx, ws, lib, feed, packs[0], ref, true); err != nil {

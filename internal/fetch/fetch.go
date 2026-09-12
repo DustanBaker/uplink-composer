@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/DustanBaker/the-composer/internal/buildinfo"
+	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 )
 
 // Progress receives byte counts as a download advances. total is -1 when the

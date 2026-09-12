@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/DustanBaker/the-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/device"
 )
 
 // Capture reads a device into outPath, from sector 0 through the end of its

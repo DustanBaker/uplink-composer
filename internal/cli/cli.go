@@ -1,4 +1,4 @@
-// Package cli implements the composer command line.
+// Package cli implements the uplink command line.
 package cli
 
 import (
@@ -8,16 +8,16 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/DustanBaker/the-composer/internal/buildinfo"
-	"github.com/DustanBaker/the-composer/internal/library"
-	"github.com/DustanBaker/the-composer/internal/workspace"
+	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
 const usage = `The Uplink CompOSer — build bootable installation USB media from recipes.
 
-Usage: composer <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
-       composer                     same, in a workspace with a single recipe
-       composer <command> [args]
+Usage: uplink <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
+       uplink                     same, in a workspace with a single recipe
+       uplink <command> [args]
 
 One-shot
   go <recipe|.img> [device]  pull missing sources, build, flash, verify (--yes, --build-only)
@@ -134,7 +134,7 @@ func Main(args []string) int {
 	var err error
 	switch cmd {
 	case "version", "--version":
-		fmt.Println("composer", buildinfo.Version)
+		fmt.Println("uplink", buildinfo.Version)
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	case "go":

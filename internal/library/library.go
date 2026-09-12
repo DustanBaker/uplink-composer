@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DustanBaker/the-composer/internal/fetch"
-	"github.com/DustanBaker/the-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/fetch"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
 )
 
 // Entry is one catalog record.
@@ -39,31 +39,41 @@ type Library struct {
 // DefaultRoot picks the per-user store location: never a roaming or
 // cloud-synced path (multi-GB blobs).
 func DefaultRoot() string {
-	if env := os.Getenv("COMPOSER_LIBRARY"); env != "" {
+	if env := os.Getenv("UPLINK_LIBRARY"); env != "" {
 		return env
 	}
 	switch runtime.GOOS {
 	case "windows":
 		if la := os.Getenv("LOCALAPPDATA"); la != "" {
-			return filepath.Join(la, "the-composer")
+			return filepath.Join(la, "uplink-composer")
 		}
 	case "darwin":
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, "Library", "Application Support", "the-composer")
+			return filepath.Join(home, "Library", "Application Support", "uplink-composer")
 		}
 	default:
 		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-			return filepath.Join(xdg, "the-composer")
+			return filepath.Join(xdg, "uplink-composer")
 		}
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, ".local", "share", "the-composer")
+			return filepath.Join(home, ".local", "share", "uplink-composer")
 		}
 	}
-	return filepath.Join(".", "the-composer-library")
+	return filepath.Join(".", "uplink-composer-library")
 }
 
-// Open ensures the directory layout exists and returns the library.
+// Open ensures the directory layout exists and returns the library. A
+// library left under the tool's former name is migrated once, so an
+// existing cache of ISOs and driver packs survives the rename.
 func Open(root string) (*Library, error) {
+	if filepath.Base(root) == "uplink-composer" {
+		if _, err := os.Stat(root); os.IsNotExist(err) {
+			old := filepath.Join(filepath.Dir(root), "the-composer")
+			if st, err := os.Stat(old); err == nil && st.IsDir() {
+				_ = os.Rename(old, root) // best-effort; falls through to a fresh dir on failure
+			}
+		}
+	}
 	l := &Library{Root: root}
 	for _, d := range []string{l.blobDir(), l.TmpDir(), l.ArtifactsDir(), l.HelpersDir()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -210,7 +220,7 @@ func (l *Library) Pull(ctx context.Context, src *manifest.Source, pinTOFU bool, 
 		}
 	}
 	if url == "" {
-		return Entry{}, fmt.Errorf("library: source %s has no url; use `composer sources import %s <file>`", src.ID, src.ID)
+		return Entry{}, fmt.Errorf("library: source %s has no url; use `uplink sources import %s <file>`", src.ID, src.ID)
 	}
 	dest := filepath.Join(l.TmpDir(), src.ID+"-"+src.DownloadFilename())
 	sum, err := fetch.Download(ctx, url, dest, progress)
@@ -267,7 +277,7 @@ func (l *Library) Resolve(id string) (Entry, error) {
 	}
 	e, ok := cat[id]
 	if !ok {
-		return Entry{}, fmt.Errorf("library: %s is not in the local library — run `composer sources pull %s` or `composer sources import %s <file>`", id, id, id)
+		return Entry{}, fmt.Errorf("library: %s is not in the local library — run `uplink sources pull %s` or `uplink sources import %s <file>`", id, id, id)
 	}
 	if _, err := os.Stat(l.BlobPath(e.SHA256)); err != nil {
 		return Entry{}, fmt.Errorf("library: %s is cataloged but its blob is missing (%s) — re-pull or re-import", id, l.BlobPath(e.SHA256))

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DustanBaker/the-composer/internal/fsimg"
-	"github.com/DustanBaker/the-composer/internal/library"
-	"github.com/DustanBaker/the-composer/internal/manifest"
-	"github.com/DustanBaker/the-composer/internal/workspace"
+	"github.com/DustanBaker/uplink-composer/internal/fsimg"
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
 // TestComposeWindowsTreeMode drives the full Windows pipeline against a

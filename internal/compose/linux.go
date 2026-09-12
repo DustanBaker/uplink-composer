@@ -15,9 +15,9 @@ import (
 	"github.com/diskfs/go-diskfs/filesystem"
 	"github.com/diskfs/go-diskfs/partition/gpt"
 
-	"github.com/DustanBaker/the-composer/internal/library"
-	"github.com/DustanBaker/the-composer/internal/recipe"
-	"github.com/DustanBaker/the-composer/internal/stream"
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/DustanBaker/uplink-composer/internal/stream"
 )
 
 const (

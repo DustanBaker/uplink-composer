@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/DustanBaker/the-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/device"
 )
 
 type darwinTarget struct {

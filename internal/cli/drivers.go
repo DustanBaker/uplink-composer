@@ -12,9 +12,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/DustanBaker/the-composer/internal/drivers"
-	"github.com/DustanBaker/the-composer/internal/helpers"
-	"github.com/DustanBaker/the-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/drivers"
+	"github.com/DustanBaker/uplink-composer/internal/helpers"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
 )
 
 func cmdDrivers(ctx context.Context, env *Env, args []string) error {
@@ -81,7 +81,7 @@ func materializeForInspect(ctx context.Context, env *Env, src string) (dir strin
 		}
 		return tmp, cleanup, nil
 	case ".exe":
-		return "", cleanup, fmt.Errorf("%s is a vendor installer — INFs are packed inside it.\nAdd it as an exe pack with silent flags instead, e.g.:\n  composer drivers add --id my-wifi --exe-args \"-q -s\" %s", filepath.Base(src), src)
+		return "", cleanup, fmt.Errorf("%s is a vendor installer — INFs are packed inside it.\nAdd it as an exe pack with silent flags instead, e.g.:\n  uplink drivers add --id my-wifi --exe-args \"-q -s\" %s", filepath.Base(src), src)
 	default:
 		return "", cleanup, fmt.Errorf("unsupported pack type %s (dir, .zip, .cab, .inf, .exe)", filepath.Ext(src))
 	}
@@ -126,7 +126,7 @@ func driversInspect(ctx context.Context, env *Env, src string) error {
 		fmt.Println()
 		fmt.Println()
 	}
-	fmt.Println("Installable by pnputil sweep. Stage it with `composer drivers add --id <name> " + src + "`")
+	fmt.Println("Installable by pnputil sweep. Stage it with `uplink drivers add --id <name> " + src + "`")
 	return nil
 }
 
@@ -207,7 +207,7 @@ func driversAdd(ctx context.Context, env *Env, args []string) error {
 	if err := os.MkdirAll(filepath.Dir(manPath), 0o755); err != nil {
 		return err
 	}
-	man := fmt.Sprintf("id: %s\nkind: driver-pack\nformat: %s\n# No URL: added from a local file. Re-import on other machines:\n#   composer sources import %s %s\nsha256: %s\nfilename: %s\n",
+	man := fmt.Sprintf("id: %s\nkind: driver-pack\nformat: %s\n# No URL: added from a local file. Re-import on other machines:\n#   uplink sources import %s %s\nsha256: %s\nfilename: %s\n",
 		*id, format, *id, filepath.Base(src), entry.SHA256, entry.Filename)
 	if err := os.WriteFile(manPath, []byte(man), 0o644); err != nil {
 		return err
@@ -259,9 +259,9 @@ func driversScan(ctx context.Context) error {
 		return nil
 	}
 	fmt.Printf("\n%d device(s) need drivers. Look each hardware ID up in the Microsoft Update Catalog:\n", problems)
-	fmt.Println("  composer drivers search mscatalog \"<hardware-id>\" --add")
+	fmt.Println("  uplink drivers search mscatalog \"<hardware-id>\" --add")
 	fmt.Println("or, for Dell/Lenovo/HP machines, take the whole vendor pack:")
-	fmt.Println("  composer drivers search dell \"<model>\" --add")
+	fmt.Println("  uplink drivers search dell \"<model>\" --add")
 	return nil
 }
 

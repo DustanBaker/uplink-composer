@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DustanBaker/the-composer/internal/fsimg"
-	"github.com/DustanBaker/the-composer/internal/helpers"
-	"github.com/DustanBaker/the-composer/internal/manifest"
-	"github.com/DustanBaker/the-composer/internal/recipe"
-	"github.com/DustanBaker/the-composer/internal/workspace"
+	"github.com/DustanBaker/uplink-composer/internal/fsimg"
+	"github.com/DustanBaker/uplink-composer/internal/helpers"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
 // scriptsImg is where $OEM$ payload lands on the stick; Windows Setup copies
@@ -332,7 +332,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 
 // hardwarePacks turns windows.hardware entries into driver packs by finding
 // workspace manifests whose `hardware:` block matches (written by
-// `composer drivers resolve`). Each entry must have at least one pack.
+// `uplink drivers resolve`). Each entry must have at least one pack.
 func hardwarePacks(ws *workspace.Workspace, hw []recipe.HardwareSpec) ([]recipe.DriverPack, error) {
 	if len(hw) == 0 {
 		return nil, nil
@@ -377,7 +377,7 @@ func hardwarePacks(ws *workspace.Workspace, hw []recipe.HardwareSpec) ([]recipe.
 				if what == "" {
 					what = t.vendor + " " + t.model
 				}
-				return nil, fmt.Errorf("compose: no driver-pack manifest for hardware %q — run `composer drivers resolve %s`", what, ws.Dir)
+				return nil, fmt.Errorf("compose: no driver-pack manifest for hardware %q — run `uplink drivers resolve %s`", what, ws.Dir)
 			}
 		}
 	}

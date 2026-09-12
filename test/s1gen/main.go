@@ -14,8 +14,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/DustanBaker/the-composer/internal/fsimg"
-	"github.com/DustanBaker/the-composer/internal/vhd"
+	"github.com/DustanBaker/uplink-composer/internal/fsimg"
+	"github.com/DustanBaker/uplink-composer/internal/vhd"
 )
 
 func main() {

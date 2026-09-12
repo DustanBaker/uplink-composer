@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/DustanBaker/the-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/device"
 )
 
 type unixTarget struct {

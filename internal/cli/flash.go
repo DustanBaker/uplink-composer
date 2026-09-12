@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DustanBaker/the-composer/internal/compose"
-	"github.com/DustanBaker/the-composer/internal/device"
-	"github.com/DustanBaker/the-composer/internal/elevate"
-	"github.com/DustanBaker/the-composer/internal/flashrun"
+	"github.com/DustanBaker/uplink-composer/internal/compose"
+	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/elevate"
+	"github.com/DustanBaker/uplink-composer/internal/flashrun"
 )
 
 func cmdFlash(ctx context.Context, env *Env, args []string) error {
@@ -38,7 +38,7 @@ func cmdFlash(ctx context.Context, env *Env, args []string) error {
 	if strings.HasSuffix(strings.ToLower(what), ".img") {
 		art, err = compose.LoadArtifact(compose.MetaPath(what))
 		if err != nil {
-			return fmt.Errorf("no artifact metadata next to %s (build it with `composer build`): %w", what, err)
+			return fmt.Errorf("no artifact metadata next to %s (build it with `uplink build`): %w", what, err)
 		}
 	} else {
 		ws, err := env.workspace()

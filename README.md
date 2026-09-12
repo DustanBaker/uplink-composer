@@ -7,7 +7,7 @@ USB sticks. Runs on Windows, macOS, and Linux from a single static binary.
 
 Org-agnostic by design: everything specific to an organization — recipes,
 unattend templates, pinned download manifests, driver packs — lives in that
-org's own **workspace** (a small git repo). `composer init` scaffolds one in
+org's own **workspace** (a small git repo). `uplink init` scaffolds one in
 seconds.
 
 ## What it produces
@@ -29,7 +29,7 @@ UEFI-only by explicit constraint. Legacy BIOS boot is out of scope.
 
 ## How it works
 
-**Compose to image, then flash.** The composer builds a raw disk image file
+**Compose to image, then flash.** The uplink builds a raw disk image file
 (partition table + FAT32 + files) entirely in userspace — no admin rights, no
 mounting — then the flash engine raw-writes it to the stick and verifies by
 readback hash. One identical build path on all three OSes; images are
@@ -37,12 +37,12 @@ reproducible byte-for-byte (`SOURCE_DATE_EPOCH`), cacheable, and safe to
 archive as masters.
 
 Multi-gigabyte binaries never live in git. Workspace **manifests** pin
-`url` + `sha256` (`composer sources pull`); everything lands in a
+`url` + `sha256` (`uplink sources pull`); everything lands in a
 machine-local content-addressed **library**. Official Windows ISOs need no
 browser dance: a manifest with `provider: fido` resolves Microsoft's
 rotating download links at pull time through the hash-pinned
 [Fido](https://github.com/pbatard/Fido) helper, so
-`composer sources pull win11-iso` goes straight from nothing to the current
+`uplink sources pull win11-iso` goes straight from nothing to the current
 official Pro ISO.
 
 **Bloat-free by recipe, not by modified media.** `windows.debloat` (presets
@@ -53,16 +53,16 @@ promotions and Start suggestions, and sets telemetry to the Pro floor — while
 the installed media itself stays official, fully updatable, and
 activation-safe.
 
-**Driver assistance — find, not just stage.** `composer drivers search dell
+**Driver assistance — find, not just stage.** `uplink drivers search dell
 "OptiPlex 7010"` (or `lenovo`/`hp` by model) pulls the vendor's own
 enterprise driver-pack catalog and lists the matching packs with versions,
 dates, sizes, and hashes; `--add` writes a pinned, self-describing manifest
 and downloads it. For hardware without a vendor feed — Intel NUCs, ASUS, a
-lone unknown NIC — `composer drivers search mscatalog "PCI\VEN_8086&DEV_15B8"`
+lone unknown NIC — `uplink drivers search mscatalog "PCI\VEN_8086&DEV_15B8"`
 queries the Microsoft Update Catalog by hardware ID and pulls the official
 signed driver cab. A recipe names the machines it serves in a
 `windows.hardware` block, and `compose` resolves and stages their packs
-automatically (`composer drivers resolve <recipe>` does it up front). The
+automatically (`uplink drivers resolve <recipe>` does it up front). The
 manual tools remain: `drivers inspect` reads INFs (ANSI or UTF-16) out of a
 directory/zip/cab and reports class, versions, and hardware IDs; `drivers
 add` stages a pack you already have; `drivers scan` lists the local
@@ -79,25 +79,25 @@ also catches counterfeit flash).
 Windows (PowerShell):
 
 ```
-irm https://raw.githubusercontent.com/DustanBaker/the-composer/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/DustanBaker/uplink-composer/main/install.ps1 | iex
 ```
 
 macOS / Linux:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/DustanBaker/the-composer/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/DustanBaker/uplink-composer/main/install.sh | sh
 ```
 
 Both fetch the latest release binary for your machine, verify its SHA-256
 against the release's checksum list, install it under your user profile
-(`%LOCALAPPDATA%\Programs\composer` or `~/.local/bin`), and put `composer`
+(`%LOCALAPPDATA%\Programs\uplink` or `~/.local/bin`), and put `uplink`
 plus the `compose` alias on your user PATH. Nothing touches system
 directories. (Private fork? Set `GITHUB_TOKEN` first.)
 
 ## Quick start — "compose this"
 
 ```
-composer init --org "Acme IT" acme-workspace
+uplink init --org "Acme IT" acme-workspace
 cd acme-workspace
 compose example-win11
 ```
@@ -114,30 +114,30 @@ attached.
 The long form is still there when you want the pieces:
 
 ```
-composer sources pull win11-iso        # or: sources import win11-iso <path>
-composer build example-win11
-composer devices
-composer flash example-win11 <device-id>
+uplink sources pull win11-iso        # or: sources import win11-iso <path>
+uplink build example-win11
+uplink devices
+uplink flash example-win11 <device-id>
 ```
 
 The only step that ever needs elevated rights is the raw write to the USB
 device itself, and that is one prompt per stick — installing and everything
 else runs as a normal user.
 
-`composer serve` opens the same workflow as a local web page (loopback-only,
+`uplink serve` opens the same workflow as a local web page (loopback-only,
 token-protected): recipes, devices, one-click builds, an arm-then-flash
 dialog with the typed-size interlock enforced server-side, and live progress
-over SSE. `composer capture <device>` reads a working stick (through its
+over SSE. `uplink capture <device>` reads a working stick (through its
 last partition) into the library as a master image — the generalized
 "capture the golden stick" workflow.
 
-`composer doctor` checks the host: on Windows and macOS the ISO/WIM tooling
+`uplink doctor` checks the host: on Windows and macOS the ISO/WIM tooling
 is built into the OS (Mount-DiskImage/hdiutil, DISM); Linux needs `7zz` and
 `wimlib`.
 
 ## Status
 
-Early but real: the FAT32 composer passes a native acid test (Windows mounts
+Early but real: the FAT32 uplink passes a native acid test (Windows mounts
 a composed image, `chkdsk` reports zero problems, 400+ files hash-identical
 through the Windows FAT driver, byte-reproducible builds), the full Windows
 pipeline — captured-master trees, ISO extraction, overlays, driver packs,
@@ -150,7 +150,7 @@ install are the next acceptance milestones.
 ## Development
 
 ```
-go build ./cmd/composer
+go build ./cmd/uplink
 go test ./... -short
 ```
 

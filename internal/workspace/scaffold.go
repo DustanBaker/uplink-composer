@@ -76,7 +76,7 @@ const scaffoldVarsLocal = `# Machine-local values referenced as ${var:name} in r
 # admin_password: "hunter2"
 # Ubuntu autoinstall password (SHA-512 crypt; openssl passwd -6 '...').
 # This default is the hash of "changeme" — replace it before real use.
-admin_password_hash: "$6$composer$5S/Z2ILVSvNrtVKzqEEs6y6XvT9KctshEw9erjQirY7oY.lT94jPlSUC.iapQs1.ENfJAnoaqHX4iXAqWN2l81"
+admin_password_hash: "$6$uplink$5S/Z2ILVSvNrtVKzqEEs6y6XvT9KctshEw9erjQirY7oY.lT94jPlSUC.iapQs1.ENfJAnoaqHX4iXAqWN2l81"
 `
 
 const scaffoldReadme = `# %s — Composer workspace
@@ -84,11 +84,11 @@ const scaffoldReadme = `# %s — Composer workspace
 Recipes, templates, and pinned-source manifests for building bootable
 installation USB media with The Uplink CompOSer.
 
-- ` + "`composer recipes list`" + ` — what can be built
-- ` + "`composer sources pull <id>`" + ` — fetch a pinned source into the local library
-- ` + "`composer sources import <id> <file>`" + ` — add a manually-downloaded file (e.g. a Windows ISO)
-- ` + "`composer build <recipe>`" + ` — compose a bootable image
-- ` + "`composer devices`" + ` / ` + "`composer flash <recipe> <device>`" + ` — write a USB stick
+- ` + "`uplink recipes list`" + ` — what can be built
+- ` + "`uplink sources pull <id>`" + ` — fetch a pinned source into the local library
+- ` + "`uplink sources import <id> <file>`" + ` — add a manually-downloaded file (e.g. a Windows ISO)
+- ` + "`uplink build <recipe>`" + ` — compose a bootable image
+- ` + "`uplink devices`" + ` / ` + "`uplink flash <recipe> <device>`" + ` — write a USB stick
 
 Multi-gigabyte binaries never live in this repo: manifests pin url + sha256
 so any machine can re-fetch them.
@@ -223,7 +223,7 @@ id: example-win11
 name: "Example Win11 Pro unattended stick"
 
 os:
-  # A manifest id (composer sources import example-win11-iso <path-to.iso>)
+  # A manifest id (uplink sources import example-win11-iso <path-to.iso>)
   # or switch to source_mode: tree with tree_path pointing at a captured
   # master stick directory.
   source: example-win11-iso

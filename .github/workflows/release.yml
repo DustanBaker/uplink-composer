@@ -19,13 +19,13 @@ jobs:
           set -eu
           mkdir -p dist
           VERSION="${GITHUB_REF_NAME}"
-          LDFLAGS="-s -w -X github.com/DustanBaker/the-composer/internal/buildinfo.Version=${VERSION}"
+          LDFLAGS="-s -w -X github.com/DustanBaker/uplink-composer/internal/buildinfo.Version=${VERSION}"
           for target in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
             GOOS="${target%/*}"; GOARCH="${target#*/}"
             ext=""; [ "$GOOS" = "windows" ] && ext=".exe"
-            out="dist/composer-${VERSION}-${GOOS}-${GOARCH}${ext}"
+            out="dist/uplink-${VERSION}-${GOOS}-${GOARCH}${ext}"
             CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-              go build -trimpath -ldflags "$LDFLAGS" -o "$out" ./cmd/composer
+              go build -trimpath -ldflags "$LDFLAGS" -o "$out" ./cmd/uplink
           done
           (cd dist && sha256sum * > SHA256SUMS.txt)
       - name: Create release

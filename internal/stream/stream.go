@@ -1,5 +1,5 @@
 // Package stream opens artifact/blob files with transparent xz, zstd, or
-// gzip decompression, shared by the flash engine and the composer.
+// gzip decompression, shared by the flash engine and the uplink.
 package stream
 
 import (

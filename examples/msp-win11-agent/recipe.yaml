@@ -4,7 +4,7 @@ name: "Small-form-factor PC — Win11 Pro, drivers, debloat, RMM agent at first 
 
 os:
   type: windows
-  # Official ISO fetched by `composer sources pull win11-iso` (provider: fido).
+  # Official ISO fetched by `uplink sources pull win11-iso` (provider: fido).
   # If a captured golden stick exists on this machine, tree mode is used
   # automatically; otherwise the ISO.
   source: win11-iso
@@ -33,7 +33,7 @@ windows:
 
   # Let The Uplink CompOSer find and pull the right driver packs for named
   # machines (Dell/Lenovo/HP by model, anything else by hardware ID).
-  # `compose` resolves these automatically; or run `composer drivers
+  # `compose` resolves these automatically; or run `uplink drivers
   # resolve sff-win11-agent` up front. Each install lays its INFs under
   # Scripts/Drivers/ where the first-boot pnputil sweep picks them up.
   hardware:

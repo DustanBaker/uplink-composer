@@ -15,9 +15,9 @@ import (
 	"github.com/diskfs/go-diskfs/filesystem/iso9660"
 	"github.com/diskfs/go-diskfs/partition/gpt"
 
-	"github.com/DustanBaker/the-composer/internal/library"
-	"github.com/DustanBaker/the-composer/internal/manifest"
-	"github.com/DustanBaker/the-composer/internal/workspace"
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
 // ubuntuGrubCfg is the byte-exact /boot/grub/grub.cfg from the Ubuntu
@@ -198,7 +198,7 @@ linux:
 		t.Fatalf("user-data: %v", err)
 	}
 	udb, _ := io.ReadAll(ud)
-	for _, want := range []string{"#cloud-config", "hostname: testbox", "username: user", "$6$composer$", "autoinstall:"} {
+	for _, want := range []string{"#cloud-config", "hostname: testbox", "username: user", "$6$uplink$", "autoinstall:"} {
 		if !bytes.Contains(udb, []byte(want)) {
 			t.Errorf("user-data missing %q:\n%s", want, udb)
 		}

@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-// Status describes one tool requirement for `composer doctor`.
+// Status describes one tool requirement for `uplink doctor`.
 type Status struct {
 	Name     string
 	Purpose  string
@@ -38,10 +38,10 @@ func run(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
-// Find7z locates a 7-Zip console binary: an explicit COMPOSER_7Z override,
+// Find7z locates a 7-Zip console binary: an explicit UPLINK_7Z override,
 // then PATH (7zz preferred, then 7z), then the library helpers dir.
 func Find7z(helpersDir string) (string, error) {
-	if env := os.Getenv("COMPOSER_7Z"); env != "" {
+	if env := os.Getenv("UPLINK_7Z"); env != "" {
 		return env, nil
 	}
 	for _, name := range []string{"7zz", "7z"} {
@@ -60,7 +60,7 @@ func Find7z(helpersDir string) (string, error) {
 
 // FindWimlib locates wimlib-imagex for non-Windows hosts.
 func FindWimlib(helpersDir string) (string, error) {
-	if env := os.Getenv("COMPOSER_WIMLIB"); env != "" {
+	if env := os.Getenv("UPLINK_WIMLIB"); env != "" {
 		return env, nil
 	}
 	for _, name := range []string{"wimlib-imagex", "wimsplit"} {
@@ -166,7 +166,7 @@ func ExpandCab(ctx context.Context, helpersDir, cabPath, destDir string) error {
 	return run(ctx, sevenZip, "x", "-y", "-o"+destDir, cabPath)
 }
 
-// Check reports the tool situation on this host for `composer doctor`.
+// Check reports the tool situation on this host for `uplink doctor`.
 func Check(helpersDir string) []Status {
 	var out []Status
 	switch runtime.GOOS {

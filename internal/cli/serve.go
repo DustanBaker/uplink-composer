@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/DustanBaker/the-composer/internal/jobs"
-	"github.com/DustanBaker/the-composer/internal/webui"
+	"github.com/DustanBaker/uplink-composer/internal/jobs"
+	"github.com/DustanBaker/uplink-composer/internal/webui"
 )
 
 func cmdServe(ctx context.Context, env *Env, args []string) error {

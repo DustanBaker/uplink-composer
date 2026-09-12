@@ -1,28 +1,28 @@
 # The Uplink CompOSer — no-admin installer for Windows.
 #
-#   irm https://raw.githubusercontent.com/DustanBaker/the-composer/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/DustanBaker/uplink-composer/main/install.ps1 | iex
 #
 # Downloads the latest release binary for this machine into
-# %LOCALAPPDATA%\Programs\composer, verifies its SHA-256 against the
+# %LOCALAPPDATA%\Programs\uplink, verifies its SHA-256 against the
 # release's SHA256SUMS.txt, and adds that folder to the USER PATH — no
-# administrator rights needed. Installs both `composer` and the `compose`
+# administrator rights needed. Installs both `uplink` and the `compose`
 # alias. Set GITHUB_TOKEN to install from a private repository.
 $ErrorActionPreference = 'Stop'
-$repo = 'DustanBaker/the-composer'
+$repo = 'DustanBaker/uplink-composer'
 
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
-$headers = @{ 'User-Agent' = 'the-composer-installer' }
+$headers = @{ 'User-Agent' = 'uplink-composer-installer' }
 if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
 
 $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
-$asset = $rel.assets | Where-Object { $_.name -like "composer-*-windows-$arch.exe" } | Select-Object -First 1
+$asset = $rel.assets | Where-Object { $_.name -like "uplink-*-windows-$arch.exe" } | Select-Object -First 1
 $sums  = $rel.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' } | Select-Object -First 1
 if (-not $asset) { throw "release $($rel.tag_name) has no windows-$arch build" }
 
-$dir = Join-Path $env:LOCALAPPDATA 'Programs\composer'
+$dir = Join-Path $env:LOCALAPPDATA 'Programs\uplink'
 New-Item -ItemType Directory -Force $dir | Out-Null
-$exe = Join-Path $dir 'composer.exe'
-$dl = @{ 'User-Agent' = 'the-composer-installer'; 'Accept' = 'application/octet-stream' }
+$exe = Join-Path $dir 'uplink.exe'
+$dl = @{ 'User-Agent' = 'uplink-composer-installer'; 'Accept' = 'application/octet-stream' }
 if ($env:GITHUB_TOKEN) { $dl['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
 
 Write-Host "Downloading $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB)..."
@@ -52,6 +52,6 @@ if (($userPath -split ';') -notcontains $dir) {
 $env:Path = "$env:Path;$dir"
 
 Write-Host ""
-Write-Host "Installed The Uplink CompOSer $($rel.tag_name) to $dir (composer, compose)."
+Write-Host "Installed The Uplink CompOSer $($rel.tag_name) to $dir (uplink, compose)."
 Write-Host "Open a NEW terminal, cd into a workspace, and run:  compose <recipe>"
-Write-Host "No workspace yet?  composer init --org `"Your Org`" my-workspace"
+Write-Host "No workspace yet?  uplink init --org `"Your Org`" my-workspace"

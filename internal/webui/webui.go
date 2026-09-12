@@ -20,12 +20,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DustanBaker/the-composer/internal/compose"
-	"github.com/DustanBaker/the-composer/internal/device"
-	"github.com/DustanBaker/the-composer/internal/flashrun"
-	"github.com/DustanBaker/the-composer/internal/jobs"
-	"github.com/DustanBaker/the-composer/internal/library"
-	"github.com/DustanBaker/the-composer/internal/workspace"
+	"github.com/DustanBaker/uplink-composer/internal/compose"
+	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/flashrun"
+	"github.com/DustanBaker/uplink-composer/internal/jobs"
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
 //go:embed index.html
@@ -110,9 +110,9 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tok := r.Header.Get("X-Composer-Token")
+		tok := r.Header.Get("X-Uplink-Token")
 		if subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) != 1 {
-			http.Error(w, "missing or wrong token — open the exact URL composer serve printed", http.StatusUnauthorized)
+			http.Error(w, "missing or wrong token — open the exact URL uplink serve printed", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)

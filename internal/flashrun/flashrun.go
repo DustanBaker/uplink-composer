@@ -12,10 +12,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/DustanBaker/the-composer/internal/compose"
-	"github.com/DustanBaker/the-composer/internal/device"
-	"github.com/DustanBaker/the-composer/internal/elevate"
-	"github.com/DustanBaker/the-composer/internal/flash"
+	"github.com/DustanBaker/uplink-composer/internal/compose"
+	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/elevate"
+	"github.com/DustanBaker/uplink-composer/internal/flash"
 )
 
 // Progress mirrors flash.Progress.

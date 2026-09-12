@@ -9,20 +9,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DustanBaker/the-composer/internal/compose"
-	"github.com/DustanBaker/the-composer/internal/device"
-	"github.com/DustanBaker/the-composer/internal/elevate"
-	"github.com/DustanBaker/the-composer/internal/flashrun"
-	"github.com/DustanBaker/the-composer/internal/helpers"
-	"github.com/DustanBaker/the-composer/internal/library"
-	"github.com/DustanBaker/the-composer/internal/manifest"
-	"github.com/DustanBaker/the-composer/internal/recipe"
-	"github.com/DustanBaker/the-composer/internal/workspace"
+	"github.com/DustanBaker/uplink-composer/internal/compose"
+	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/DustanBaker/uplink-composer/internal/elevate"
+	"github.com/DustanBaker/uplink-composer/internal/flashrun"
+	"github.com/DustanBaker/uplink-composer/internal/helpers"
+	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
 // cmdGo is the one-shot pipeline — "compose this": pull whatever pinned
 // sources are missing, build, pick the attached USB stick, arm, flash,
-// verify. `composer <recipe>` and a bare `composer` in a one-recipe
+// verify. `uplink <recipe>` and a bare `uplink` in a one-recipe
 // workspace both land here.
 func cmdGo(ctx context.Context, env *Env, args []string) error {
 	fs := flag.NewFlagSet("go", flag.ContinueOnError)
@@ -102,7 +102,7 @@ func pickDevice(ctx context.Context, arg string) (device.Device, error) {
 			return device.Device{}, err
 		}
 		if !dev.Flashable() {
-			return device.Device{}, fmt.Errorf("%s is not flashable (bus=%s, system=%v) — `composer devices` shows valid targets", dev.ID, dev.Bus, dev.System)
+			return device.Device{}, fmt.Errorf("%s is not flashable (bus=%s, system=%v) — `uplink devices` shows valid targets", dev.ID, dev.Bus, dev.System)
 		}
 		return dev, nil
 	}
@@ -116,7 +116,7 @@ func pickDevice(ctx context.Context, arg string) (device.Device, error) {
 	case 1:
 		return usable[0], nil
 	case 0:
-		return device.Device{}, fmt.Errorf("no USB stick attached — plug one in and re-run (`composer devices` lists targets)")
+		return device.Device{}, fmt.Errorf("no USB stick attached — plug one in and re-run (`uplink devices` lists targets)")
 	default:
 		var ids []string
 		for _, d := range usable {
@@ -149,10 +149,10 @@ func ensureSources(ctx context.Context, ws *workspace.Workspace, lib *library.Li
 		}
 		src, err := ws.Source(ref)
 		if err != nil {
-			return fmt.Errorf("%s is not in the library and has no manifest — add one, or `composer sources import %s <file>`", ref, ref)
+			return fmt.Errorf("%s is not in the library and has no manifest — add one, or `uplink sources import %s <file>`", ref, ref)
 		}
 		if src.URL == "" && src.Provider == "" {
-			return fmt.Errorf("%s is not in the library and its manifest has no url/provider — `composer sources import %s <file>`", ref, ref)
+			return fmt.Errorf("%s is not in the library and its manifest has no url/provider — `uplink sources import %s <file>`", ref, ref)
 		}
 		fmt.Printf("pulling %s...\n", ref)
 		prog := &stageProgress{}

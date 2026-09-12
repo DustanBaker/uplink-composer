@@ -1,4 +1,4 @@
-module github.com/DustanBaker/the-composer
+module github.com/DustanBaker/uplink-composer
 
 go 1.27.0
 

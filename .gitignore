@@ -1,6 +1,8 @@
 # Build outputs
-/composer
+/uplink
+/uplink.exe
 /composer.exe
+*.test.exe
 /dist/
 
 # Test artifacts (S1 media images are multi-hundred-MB)
