@@ -57,8 +57,11 @@ Building and flashing
   flash <recipe|.img> <device>  write and verify a stick (asks for typed size confirm)
   capture <device>          read a working stick into the library as a master image
 
-Other
+Pick an interface
+  tui                       full-screen terminal wizard (pick OS, options, stick)
   serve [--port 8931]       local web UI (recipes, devices, build, flash, live progress)
+
+Other
   doctor                    check this host's tooling and configuration
   version                   print version
 
@@ -180,6 +183,8 @@ func Main(args []string) int {
 		err = cmdGC(env)
 	case "serve":
 		err = cmdServe(ctx, env, cmdArgs)
+	case "tui":
+		err = cmdTUI(ctx, env, cmdArgs)
 	default:
 		// A recipe id (or artifact path) as the first word is the one-shot
 		// pipeline: `compose nuc-win11`.
