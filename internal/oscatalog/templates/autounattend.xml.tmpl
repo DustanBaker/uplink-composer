@@ -50,6 +50,63 @@
                publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       <ComputerName>{{.Vars.computer_name}}</ComputerName>
     </component>
+    {{if eq .Vars.domain_mode "offline"}}
+    <!-- Offline domain join. The computer account was created in advance by
+         `djoin /provision`, and this blob carries its machine-account password,
+         so no user credential appears here and no domain controller has to be
+         reachable while Setup runs.
+
+         Provisioning and Credentials are mutually exclusive — Provisioning
+         wins if both appear, so only one is ever emitted. The blob belongs to
+         exactly one machine.
+
+         AccountData must be the raw base64 on one line. `djoin /savefile`
+         writes UTF-16 with a byte-order mark, which Setup rejects as
+         "AccountData data could not be base64 decoded"; the composer strips it
+         before it reaches this file. -->
+    <component name="Microsoft-Windows-UnattendedJoin" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <Identification>
+        <Provisioning>
+          <AccountData>{{xml .Vars.domain_odj_blob}}</AccountData>
+        </Provisioning>
+      </Identification>
+    </component>
+    {{else if eq .Vars.domain_mode "credentialed"}}
+    <!-- Credentialed domain join.
+
+         The password below is CLEARTEXT and cannot be otherwise. The
+         PlainText/base64 obfuscation that local-account passwords can use is
+         not available for this element, and Microsoft says so plainly: only
+         local account passwords can be hidden in an answer file. Nothing
+         removes this file from the USB either — Setup copies it to Panther and
+         scrubs the copy, never the media. So this stick carries a live domain
+         credential for as long as it exists.
+
+         Use an account delegated "Create Computer Objects" on the target OU
+         and nothing else. An offline join (windows.domain.blob) avoids the
+         user credential entirely.
+
+         Credentials/Domain authenticates the account; JoinDomain is the domain
+         being joined. They are usually the same but need not be. Element order
+         follows what Windows SIM emits. -->
+    <component name="Microsoft-Windows-UnattendedJoin" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <Identification>
+        <Credentials>
+          <Domain>{{xml .Vars.domain_account_domain}}</Domain>
+          <Password>{{xml .Vars.domain_password}}</Password>
+          <Username>{{xml .Vars.domain_user}}</Username>
+        </Credentials>
+        <JoinDomain>{{xml .Vars.domain_join}}</JoinDomain>
+        {{if .Vars.domain_ou}}<MachineObjectOU>{{xml .Vars.domain_ou}}</MachineObjectOU>{{end}}
+        <!-- Writes %WINDIR%\Panther\UnattendGC\UnattendedJoinDCLocator.etl,
+             which is what tells you whether a failure was DNS or the DC. It
+             only breaks into a kernel debugger if one is attached. -->
+        <DebugJoin>true</DebugJoin>
+      </Identification>
+    </component>
+    {{end}}
   </settings>
 
   <settings pass="oobeSystem">

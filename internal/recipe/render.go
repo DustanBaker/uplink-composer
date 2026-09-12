@@ -112,6 +112,33 @@ func GenerateFirstboot(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref s
 	line("")
 	line(`echo [%%date%% %%time%%] first-boot script starting >> "%%LOG%%"`)
 
+	// Domain join is checked before anything else runs, and it is not optional
+	// or configurable.
+	//
+	// Windows Setup does not report a failed domain join. It carries on, and
+	// the machine finishes installing into a workgroup looking entirely
+	// correct — nobody inspects a fresh machine for domain membership, so this
+	// surfaces days later as a failed login, somewhere else, to someone who
+	// was not there. The one moment the evidence exists is now, so capture it
+	// now and leave it where a technician will trip over it.
+	if w.Domain.Enabled() {
+		line("")
+		line(`rem --- did the domain join actually happen? ---`)
+		line(`rem Setup does not report a failed join; it installs into a workgroup`)
+		line(`rem and says nothing. So check, and leave the logs somewhere obvious.`)
+		line(`set JOINED=`)
+		line(`for /f %%%%d in ('powershell -NoProfile -Command ` +
+			`"(Get-CimInstance Win32_ComputerSystem).PartOfDomain" 2^>nul') do set JOINED=%%%%d`)
+		line(`if /i "%%JOINED%%"=="True" (`)
+		line(`  echo [%%date%% %%time%%] domain join OK: %%USERDOMAIN%% >> "%%LOG%%"`)
+		line(`) else (`)
+		line(`  echo [%%date%% %%time%%] DOMAIN JOIN FAILED - this machine is in a workgroup >> "%%LOG%%"`)
+		line(`  copy /y C:\Windows\debug\netsetup.log C:\DOMAIN-JOIN-FAILED-netsetup.log >nul 2>&1`)
+		line(`  copy /y C:\Windows\Panther\UnattendGC\setuperr.log C:\DOMAIN-JOIN-FAILED-setuperr.log >nul 2>&1`)
+		line(`  copy /y C:\Windows\Panther\UnattendGC\setupact.log C:\DOMAIN-JOIN-FAILED-setupact.log >nul 2>&1`)
+		line(`)`)
+	}
+
 	steps := w.Firstboot.Steps
 	if len(steps) == 0 {
 		steps = []Step{{Drivers: true}}

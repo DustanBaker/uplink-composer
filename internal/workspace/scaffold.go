@@ -163,6 +163,50 @@ const scaffoldUnattend = `<?xml version="1.0" encoding="utf-8"?>
                publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       <ComputerName>{{.Vars.computer_name}}</ComputerName>
     </component>
+    {{if eq .Vars.domain_mode "offline"}}
+    <!-- Offline domain join (windows.domain.blob). The computer account was
+         created in advance by djoin /provision, and this blob carries its
+         machine-account password, so no user credential appears here and no
+         domain controller has to be reachable while Setup runs. The blob
+         belongs to exactly one machine, and is as sensitive as a password.
+
+         Provisioning and Credentials are mutually exclusive — Provisioning
+         wins if both appear, so only one is ever emitted. -->
+    <component name="Microsoft-Windows-UnattendedJoin" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <Identification>
+        <Provisioning>
+          <AccountData>{{xml .Vars.domain_odj_blob}}</AccountData>
+        </Provisioning>
+      </Identification>
+    </component>
+    {{else if eq .Vars.domain_mode "credentialed"}}
+    <!-- Credentialed domain join (windows.domain.join).
+
+         The password below is CLEARTEXT and cannot be otherwise: the
+         PlainText/base64 obfuscation local-account passwords can use does not
+         exist for this element. Nothing removes this file from the USB either
+         — Setup copies it to Panther and scrubs the copy, never the media. So
+         the stick carries a live domain credential for as long as it exists.
+         Use an account delegated "Create Computer Objects" on the target OU
+         and nothing more.
+
+         Credentials/Domain authenticates the account; JoinDomain is the domain
+         being joined. -->
+    <component name="Microsoft-Windows-UnattendedJoin" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <Identification>
+        <Credentials>
+          <Domain>{{xml .Vars.domain_account_domain}}</Domain>
+          <Password>{{xml .Vars.domain_password}}</Password>
+          <Username>{{xml .Vars.domain_user}}</Username>
+        </Credentials>
+        <JoinDomain>{{xml .Vars.domain_join}}</JoinDomain>
+        {{if .Vars.domain_ou}}<MachineObjectOU>{{xml .Vars.domain_ou}}</MachineObjectOU>{{end}}
+        <DebugJoin>true</DebugJoin>
+      </Identification>
+    </component>
+    {{end}}
   </settings>
 
   <settings pass="oobeSystem">

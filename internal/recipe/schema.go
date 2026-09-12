@@ -80,7 +80,84 @@ type WindowsSpec struct {
 	Payload      []PayloadItem  `yaml:"payload,omitempty"`
 	Debloat      *DebloatSpec   `yaml:"debloat,omitempty"`
 	Apps         *AppsSpec      `yaml:"apps,omitempty"`
+	Domain       *DomainSpec    `yaml:"domain,omitempty"`
 	Firstboot    FirstbootSpec  `yaml:"firstboot,omitempty"`
+}
+
+// DomainSpec joins the imaged machine to an Active Directory domain. There are
+// two ways, and they are not variations on one thing — they trade off
+// differently and suit different jobs.
+//
+// Offline (a blob from `djoin /provision`) puts no credential on the media at
+// all and needs no domain network while Setup runs, because the computer
+// account was created in advance and the blob carries its own secret. The cost
+// is that a blob belongs to exactly one machine, so it is the answer when you
+// have a list of machines, not when you image whatever arrives.
+//
+// Credentialed (a join account and its password) images any number of machines
+// from one stick. The cost is that the password is written into
+// autounattend.xml on a FAT32 volume that anyone who picks up the stick can
+// read — Windows scrubs it from the copy it keeps on the installed system, but
+// nothing scrubs the stick. Use an account delegated to create computer
+// objects in one OU, never a domain admin, and keep the value in
+// vars.local.yaml rather than in the recipe.
+type DomainSpec struct {
+	// Join is the domain to join, e.g. corp.example.com (credentialed path).
+	Join string `yaml:"join,omitempty"`
+	// OU is where the computer object is created, as a distinguished name.
+	// Only meaningful on the credentialed path: an offline blob already
+	// carries the OU chosen when it was provisioned.
+	OU string `yaml:"ou,omitempty"`
+	// Username may be user@domain.tld or DOMAIN\user.
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
+
+	// Blob is a workspace-relative file holding the base64 provisioning data
+	// from `djoin /provision`; BlobRef names one in the library instead.
+	// Either selects the offline path.
+	Blob    string `yaml:"blob,omitempty"`
+	BlobRef string `yaml:"blob_ref,omitempty"`
+}
+
+// validate checks the two paths are not mixed and that each has what it needs.
+// A half-configured join is worse than none: Setup carries on into a workgroup
+// and the machine looks fine until somebody tries to log in with a domain
+// account.
+func (d *DomainSpec) validate(fail func(string, ...any) error) error {
+	credentialed := d.Join != "" || d.Username != "" || d.Password != ""
+	switch {
+	case d.Offline() && credentialed:
+		return fail("windows.domain sets both an offline blob and join credentials — pick one; " +
+			"an offline blob already carries the computer account, so credentials are not used")
+	case d.Blob != "" && d.BlobRef != "":
+		return fail("windows.domain sets both blob and blob_ref — pick one")
+	case d.Offline() && d.OU != "":
+		return fail("windows.domain.ou has no effect on an offline join — the OU is fixed when " +
+			"`djoin /provision /machineou` creates the blob")
+	case d.Offline():
+		return nil
+	case !credentialed:
+		return nil // nothing configured at all
+	case d.Join == "":
+		return fail("windows.domain needs join (the domain to join), e.g. corp.example.com")
+	case d.Username == "":
+		return fail("windows.domain.join is set but no username — an account that may add " +
+			"computers to the domain is required")
+	case d.Password == "":
+		return fail("windows.domain.join is set but no password — use \"${var:domain_password}\" " +
+			"and put the value in vars.local.yaml (gitignored)")
+	}
+	return nil
+}
+
+// Offline reports whether this is an offline domain join.
+func (d *DomainSpec) Offline() bool {
+	return d != nil && (d.Blob != "" || d.BlobRef != "")
+}
+
+// Enabled reports whether any domain join is configured.
+func (d *DomainSpec) Enabled() bool {
+	return d != nil && (d.Join != "" || d.Offline())
 }
 
 // AppsSpec installs programs at first boot with winget, Windows' own package
@@ -419,6 +496,11 @@ func (r *Recipe) Validate() error {
 		}
 		if a := r.Windows.Apps; a != nil && a.Scope != "" && a.Scope != "machine" && a.Scope != "user" {
 			return fail("windows.apps.scope must be machine or user")
+		}
+		if d := r.Windows.Domain; d != nil {
+			if err := d.validate(fail); err != nil {
+				return err
+			}
 		}
 		if fb.Mode == "template" && fb.Template == "" {
 			return fail("windows.firstboot.mode template requires windows.firstboot.template")

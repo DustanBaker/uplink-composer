@@ -124,10 +124,19 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		if err != nil {
 			return nil, fmt.Errorf("compose: unattend vars: %w", err)
 		}
+		if err := domainVars(uvars, ws.Dir, w.Domain, vars, func(ref string) (string, error) {
+			f, err := materializeFile(req, ref)
+			return f.host, err
+		}); err != nil {
+			return nil, fmt.Errorf("compose: %w", err)
+		}
 		rendered, err := recipe.RenderTemplate(
 			filepath.Join(ws.Dir, filepath.FromSlash(w.Unattend.Template)),
 			recipe.Context{Org: ws.Org(), Vars: uvars, Recipe: r})
 		if err != nil {
+			return nil, err
+		}
+		if err := checkDomainRendered(rendered, w.Domain, w.Unattend.Template); err != nil {
 			return nil, err
 		}
 		p := filepath.Join(buildTmp, "autounattend.xml")
