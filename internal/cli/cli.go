@@ -19,11 +19,12 @@ import (
 const usage = `The Uplink CompOSer — build bootable installation USB media from recipes.
 
 Usage: uplink <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
+       uplink <file.iso> [device]  write any ISO or disk image you already have
        uplink                     same, in a workspace with a single recipe
        uplink <command> [args]
 
 One-shot
-  go <recipe|.img> [device]  pull missing sources, build, flash, verify (--yes, --build-only)
+  go <recipe|image> [device]  pull sources, build, flash, verify (--yes, --build-only)
 
 Quick install (no workspace needed)
   catalog                   list the operating systems on offer
@@ -59,8 +60,10 @@ Drivers
 Building and flashing
   build <recipe>            compose a bootable artifact into the library
   devices                   list candidate USB targets
-  flash <recipe|.img> <device> [<device> …]   write and verify sticks, all at once
+  flash <recipe|image> <device> [<device> …]  write and verify sticks, all at once
                             (--all for every attached stick; one elevation for the batch)
+                            image = any .iso/.img you have, compressed or not —
+                            it does not need to be in the catalog
   clone <device>            read a working stick into the library as a master image
                             (--to <device> … , or --to all, to write it straight to blanks)
 
@@ -259,7 +262,7 @@ func soleRecipe(env *Env) string {
 }
 
 func isRecipeOrArtifact(env *Env, word string) bool {
-	if strings.HasSuffix(strings.ToLower(word), ".img") {
+	if looksLikeImagePath(word) {
 		return true
 	}
 	ws, err := env.workspace()

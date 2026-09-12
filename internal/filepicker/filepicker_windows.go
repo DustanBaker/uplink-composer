@@ -31,6 +31,36 @@ $owner.Dispose()
 	return run(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
 }
 
+// pickImage drives the Windows shell's file browser. Same -STA requirement as
+// the folder chooser, and the same always-on-top owner so the dialog cannot
+// open behind the browser.
+func pickImage(ctx context.Context, title string) (string, error) {
+	if os.Getenv("SESSIONNAME") == "" && os.Getenv("USERNAME") == "" {
+		return "", ErrUnavailable
+	}
+	pats := make([]string, 0, len(ImageExts))
+	for _, e := range ImageExts {
+		pats = append(pats, "*."+e)
+	}
+	filter := "Disk images|" + strings.Join(pats, ";") + "|All files|*.*"
+	script := `
+Add-Type -AssemblyName System.Windows.Forms
+$dlg = New-Object System.Windows.Forms.OpenFileDialog
+$dlg.Title = '` + psQuote(title) + `'
+$dlg.Filter = '` + psQuote(filter) + `'
+$dlg.CheckFileExists = $true
+$dlg.Multiselect = $false
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+if ($dlg.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::Out.Write($dlg.FileName)
+}
+$owner.Dispose()
+`
+	// Deliberately not -NonInteractive: the whole point is to interact.
+	return run(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
+}
+
 // psQuote escapes a value for a PowerShell single-quoted string.
 func psQuote(s string) string {
 	return strings.ReplaceAll(s, "'", "''")

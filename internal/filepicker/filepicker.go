@@ -34,6 +34,21 @@ func PickFolder(ctx context.Context, title string) (string, error) {
 	return pickFolder(ctx, title)
 }
 
+// ImageExts are the extensions the image chooser offers to filter on. The
+// filter is a convenience only: every chooser here also allows any file,
+// because an image with an unusual name is still writable and refusing to
+// show it would be worse than showing too much.
+var ImageExts = []string{"iso", "img", "raw", "bin", "wic", "xz", "zst", "gz", "bz2"}
+
+// PickImage opens a native file chooser for a disk image and returns the
+// absolute path chosen. Same blocking contract as PickFolder.
+func PickImage(ctx context.Context, title string) (string, error) {
+	if title == "" {
+		title = "Select a disk image"
+	}
+	return pickImage(ctx, title)
+}
+
 // run executes a chooser and tidies its output. An empty result is a
 // cancellation: every chooser here prints the path only on OK.
 func run(ctx context.Context, name string, args ...string) (string, error) {

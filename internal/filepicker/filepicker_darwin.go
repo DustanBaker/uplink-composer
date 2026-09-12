@@ -18,6 +18,14 @@ func pickFolder(ctx context.Context, title string) (string, error) {
 	return strings.TrimSuffix(path, "/"), nil
 }
 
+// pickImage uses AppleScript's file chooser. No type filter: "choose file of
+// type" takes UTIs and extensions inconsistently across versions, and a
+// filter that hid the file someone wanted would be worse than none.
+func pickImage(ctx context.Context, title string) (string, error) {
+	script := `POSIX path of (choose file with prompt "` + osaQuote(title) + `" without invisibles)`
+	return run(ctx, "osascript", "-e", script)
+}
+
 func osaQuote(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`)
 }

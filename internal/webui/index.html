@@ -114,7 +114,7 @@
 </header>
 <main>
   <div style="display:flex;flex-direction:column;gap:16px">
-    <section id="catalogSec"><h2>Install an OS <span class="spacer"></span><span class="sub">pick, plug in a stick, go</span></h2>
+    <section id="catalogSec"><h2>Install an OS <span class="spacer"></span><button onclick="writeOwnImage()" title="Write an ISO or disk image from your own disk">Use your own ISO…</button></h2>
       <div class="rows" id="catalog"></div>
     </section>
     <section><h2>Workspace <span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
@@ -450,9 +450,45 @@ function openArm(dev, title, note, onGo) {
 function armFlash(what) {
   const dev = pickDevice(); if (!dev) return;
   openArm(dev, `Flash ${what.recipe || what.label || "artifact"}`,
-    "This <b>permanently erases</b> everything on the device, then writes and verifies the media.",
-    confirm => api("/api/flash", { ...what, label: undefined, device_id: dev.id, confirm })
+    "This <b>permanently erases</b> everything on the device, then writes and verifies the media." +
+      (what.note ? "<br><br>" + what.note : ""),
+    confirm => api("/api/flash",
+      { ...what, label: undefined, note: undefined, device_id: dev.id, confirm })
       .catch(e => showErr(e.message)));
+}
+
+// writeOwnImage writes an image the operator already has, which the catalog
+// will never cover: a distro not listed, a vendor firmware updater, an
+// in-house WinPE stick, a colleague's .img.
+//
+// The path comes from the desktop's own chooser rather than a file input,
+// because a browser hands over file *contents* and these are several
+// gigabytes — there is no reason to copy them through the browser when the
+// server is on the same machine.
+async function writeOwnImage() {
+  let info;
+  try {
+    info = await api("/api/browse/image", {});
+  } catch (e) {
+    // No chooser on this host (headless, or no dialog tool): typing the path
+    // still works, so that is not a dead end.
+    const typed = prompt("Full path to the .iso or disk image:");
+    if (!typed) return;
+    info = { path: typed.trim().replace(/^["']|["']$/g, "") };
+  }
+  if (!info.path) return; // chooser dismissed
+  const name = info.path.split(/[\\/]/).pop();
+  const bits = [];
+  if (info.size_mb) bits.push(info.size_mb + " MiB");
+  if (info.compress && info.compress !== "none") bits.push(info.compress + "-compressed");
+  armFlash({
+    artifact: info.path,
+    label: name + (bits.length ? ` (${bits.join(", ")})` : ""),
+    note: info.composed ? "" :
+      "This image is not from the catalog, so there is no published hash to " +
+      "check it against. The verify step after writing confirms the stick holds " +
+      "what was sent to it — not that the file itself is genuine.",
+  });
 }
 function armCapture(dev) {
   openArm(dev, "Capture device to image",

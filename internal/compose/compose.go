@@ -19,6 +19,7 @@ import (
 	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/DustanBaker/uplink-composer/internal/stream"
 	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
 
@@ -62,6 +63,72 @@ type Artifact struct {
 
 // MetaPath is the sidecar location for an artifact image path.
 func MetaPath(imgPath string) string { return imgPath + ".json" }
+
+// ArtifactForImage describes an image file this tool did not build, so it can
+// be written like anything else: a distro the catalog has never heard of, a
+// vendor's firmware updater, an in-house WinPE stick, a .img from a colleague.
+//
+// Nothing is copied and nothing is hashed up front. The flash engine hashes
+// what it writes as it writes and compares the readback against that, so
+// readback verification is as strong here as for a composed artifact — what
+// is missing is only a pinned hash saying the file was the right one to begin
+// with. That is the operator's business: they chose the file.
+//
+// Compression is sniffed from the magic bytes rather than the extension,
+// because a .img.xz renamed to .img is common and guessing from the name
+// would write the compressed bytes to the stick.
+func ArtifactForImage(path string) (*Artifact, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if st.IsDir() {
+		return nil, fmt.Errorf("%s is a directory, not an image file", path)
+	}
+	if st.Size() == 0 {
+		return nil, fmt.Errorf("%s is empty", path)
+	}
+	comp, err := stream.Detect(path)
+	if err != nil {
+		return nil, err
+	}
+	// A compressed image expands to an unknown size, so no useful minimum can
+	// be stated; the write fails cleanly on a too-small stick either way,
+	// because it checks as it goes rather than only up front.
+	var minStick int64
+	if comp == "" || comp == "none" {
+		minStick = st.Size()
+	}
+	return &Artifact{
+		RecipeID: filepath.Base(path), Kind: "raw", Path: path, Size: st.Size(),
+		Compress: comp, Verify: "readback-sha256", MinStick: minStick,
+		InputsKey: "", CreatedAt: nowUTC(), Tool: toolVersion(),
+	}, nil
+}
+
+// ResolveImage turns a path on disk into something flashable, and reports
+// whether it came from a sidecar this tool wrote.
+//
+// A sidecar is preferred when present: it carries the recipe's minimum stick
+// size and verification choice, which a bare file cannot state. Otherwise the
+// file is described on its own terms, which is what lets any image be written.
+//
+// One implementation for every caller on purpose — the CLI, the one-shot and
+// the portal must agree about what a given path means, and about the size
+// interlock that comes with it.
+func ResolveImage(path string) (a *Artifact, composed bool, err error) {
+	if a, err := LoadArtifact(MetaPath(path)); err == nil {
+		return a, true, nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, fmt.Errorf("no such file: %s", path)
+		}
+		return nil, false, err
+	}
+	a, err = ArtifactForImage(path)
+	return a, false, err
+}
 
 // LoadArtifact reads a sidecar.
 func LoadArtifact(metaPath string) (*Artifact, error) {

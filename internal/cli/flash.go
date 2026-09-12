@@ -36,10 +36,14 @@ func cmdFlash(ctx context.Context, env *Env, args []string) error {
 	}
 
 	var art *compose.Artifact
-	if strings.HasSuffix(strings.ToLower(what), ".img") {
-		art, err = compose.LoadArtifact(compose.MetaPath(what))
+	if looksLikeImagePath(what) {
+		var composed bool
+		art, composed, err = artifactForPath(what)
 		if err != nil {
-			return fmt.Errorf("no artifact metadata next to %s (build it with `uplink build`): %w", what, err)
+			return err
+		}
+		if !composed {
+			describeForeignImage(art)
 		}
 	} else {
 		ws, err := env.workspace()

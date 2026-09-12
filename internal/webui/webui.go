@@ -131,6 +131,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/state", s.auth(s.handleState))
 	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
 	mux.HandleFunc("POST /api/browse", s.auth(s.handleBrowse))
+	mux.HandleFunc("POST /api/browse/image", s.auth(s.handleBrowseImage))
 	mux.HandleFunc("GET /api/workspace/defaults", s.auth(s.handleWorkspaceDefaults))
 	mux.HandleFunc("POST /api/workspace/new", s.auth(s.handleNewWorkspace))
 	mux.HandleFunc("GET /api/disks", s.auth(s.handleDisks))
@@ -492,7 +493,10 @@ func (s *Server) handleFlash(w http.ResponseWriter, r *http.Request) {
 		var art *compose.Artifact
 		var err error
 		if req.Artifact != "" {
-			art, err = compose.LoadArtifact(compose.MetaPath(req.Artifact))
+			// Any image the operator points at, not only one this tool built:
+			// same resolution the CLI uses, so the two cannot disagree about
+			// compression or the minimum stick size.
+			art, _, err = compose.ResolveImage(req.Artifact)
 		} else {
 			art, err = s.build(context.Background(), req.Recipe, progressFor(job))
 		}
@@ -686,6 +690,38 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 // handleBrowse opens the host's own folder chooser and returns what was
 // picked. The browser cannot produce an absolute path itself, and the server
 // is on the same machine as the person clicking, so it asks the desktop.
+// handleBrowseImage asks the desktop for an image file. A browser cannot hand
+// a server an absolute path, and this tool needs one — it streams the file
+// from disk rather than through an upload, because these are several
+// gigabytes and copying them through the browser would be pure waste.
+func (s *Server) handleBrowseImage(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	path, err := filepicker.PickImage(ctx, "Select an ISO or disk image")
+	switch {
+	case errors.Is(err, filepicker.ErrCancelled):
+		writeJSON(w, 200, map[string]string{"path": ""})
+		return
+	case errors.Is(err, filepicker.ErrUnavailable):
+		httpErr(w, 501, "no file chooser on this host — type the path instead")
+		return
+	case err != nil:
+		httpErr(w, 500, "%v", err)
+		return
+	}
+	// Described here rather than at flash time so the page can show the size
+	// and whether it is compressed before anyone arms a device.
+	art, composed, err := compose.ResolveImage(path)
+	if err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"path": path, "size_mb": art.Size >> 20,
+		"compress": art.Compress, "composed": composed,
+	})
+}
+
 func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	// Generous: this blocks while a person reads a dialog.
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)

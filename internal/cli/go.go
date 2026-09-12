@@ -53,10 +53,13 @@ func cmdGo(ctx context.Context, env *Env, args []string) error {
 	}
 
 	var art *compose.Artifact
-	if strings.HasSuffix(strings.ToLower(what), ".img") {
-		a, err := compose.LoadArtifact(compose.MetaPath(what))
+	if looksLikeImagePath(what) {
+		a, composed, err := artifactForPath(what)
 		if err != nil {
-			return fmt.Errorf("no artifact metadata next to %s: %w", what, err)
+			return err
+		}
+		if !composed {
+			describeForeignImage(a)
 		}
 		art = a
 	} else {
