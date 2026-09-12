@@ -68,6 +68,8 @@ Pick an interface
 
 Other
   update [--check]          replace this binary with the newest release
+  uninstall [--purge]       remove the installed program (--purge also deletes
+                            the downloaded-image library; workspaces are never touched)
   doctor                    check this host's tooling and configuration
   version                   print version
 
@@ -167,6 +169,8 @@ func Main(args []string) int {
 		err = cmdDoctor(ctx, env)
 	case "update":
 		err = cmdUpdate(ctx, env, cmdArgs)
+	case "uninstall":
+		err = cmdUninstall(ctx, env, cmdArgs)
 	case "devices":
 		err = cmdDevices(ctx)
 	case "sources":
