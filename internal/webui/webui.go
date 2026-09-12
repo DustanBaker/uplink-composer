@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
 	"github.com/DustanBaker/uplink-composer/internal/appconfig"
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/device"
@@ -192,7 +193,15 @@ type stateResp struct {
 	Devices      []deviceInfo   `json:"devices"`
 	Artifacts    []artifactInfo `json:"artifacts"`
 	Catalog      []catalogEntry `json:"catalog"`
+	Apps         []appEntry     `json:"apps"`
 	LibraryRoot  string         `json:"library_root"`
+}
+
+// appEntry is one program the install picker can offer.
+type appEntry struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
 }
 
 type catalogEntry struct {
@@ -246,7 +255,15 @@ type artifactInfo struct {
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	resp := stateResp{
 		Recent: []recentWS{}, Recipes: []recipeInfo{}, Sources: []sourceInfo{},
-		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, Catalog: []catalogEntry{}, LibraryRoot: s.Lib.Root,
+		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, Catalog: []catalogEntry{},
+		Apps: []appEntry{}, LibraryRoot: s.Lib.Root,
+	}
+	// Only programs with a Windows package: that is all Quick Install can do
+	// for now, and an option that cannot run is worse than no option.
+	for _, a := range appcatalog.Catalog() {
+		if a.Winget != "" {
+			resp.Apps = append(resp.Apps, appEntry{ID: a.ID, Name: a.Name, Category: a.Category})
+		}
 	}
 	for _, e := range oscatalog.Catalog() {
 		resp.Catalog = append(resp.Catalog, catalogEntry{
@@ -466,14 +483,15 @@ func (s *Server) handleFlash(w http.ResponseWriter, r *http.Request) {
 // flash it to the chosen stick — no workspace required.
 func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		OSID              string `json:"os_id"`
-		Edition           string `json:"edition"`
-		AccountMode       string `json:"account_mode"`
-		Debloat           string `json:"debloat"`
-		BypassRequirement bool   `json:"bypass_requirement"`
-		Drivers           bool   `json:"drivers"`
-		DeviceID          string `json:"device_id"`
-		Confirm           string `json:"confirm"`
+		OSID              string   `json:"os_id"`
+		Edition           string   `json:"edition"`
+		AccountMode       string   `json:"account_mode"`
+		Debloat           string   `json:"debloat"`
+		BypassRequirement bool     `json:"bypass_requirement"`
+		Drivers           bool     `json:"drivers"`
+		Apps              []string `json:"apps"`
+		DeviceID          string   `json:"device_id"`
+		Confirm           string   `json:"confirm"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.OSID == "" || req.DeviceID == "" {
 		httpErr(w, 400, "body must include os_id, device_id, and confirm")
@@ -510,10 +528,16 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if len(req.Apps) > 0 {
+		if _, err := appcatalog.WingetIDs(req.Apps); err != nil {
+			httpErr(w, 400, "%v", err)
+			return
+		}
+	}
 	opts := oscatalog.Options{
 		Edition: req.Edition, AccountMode: req.AccountMode,
 		Debloat: req.Debloat, BypassRequirement: req.BypassRequirement,
-		Hardware: hw,
+		Hardware: hw, Apps: req.Apps,
 	}
 	job := s.Reg.New("install", fmt.Sprintf("%s → %s", e.Name, dev.ID))
 	go func() {

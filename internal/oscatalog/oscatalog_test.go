@@ -127,6 +127,66 @@ func TestHardwareBlockRoundTrips(t *testing.T) {
 	}
 }
 
+// TestAppsReachTheRecipe checks the program picker's ids survive into the
+// synthesized recipe as winget package ids with a step to run them — and that
+// asking for a program that does not exist fails the build rather than
+// quietly producing media without it.
+func TestAppsReachTheRecipe(t *testing.T) {
+	lib, err := library.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := Get("windows-11")
+	if !ok {
+		t.Fatal("windows-11 missing from the catalog")
+	}
+	opts := Options{Edition: "Pro", Apps: []string{"chrome", "7zip"}}
+	dir, err := scaffoldQuickWorkspace(lib, e, opts, nil)
+	if err != nil {
+		t.Fatalf("scaffold: %v", err)
+	}
+	r := assertLoads(t, dir, e.ID)
+	if r == nil || r.Windows == nil {
+		t.Fatal("recipe did not load")
+	}
+	if !r.Windows.Apps.Enabled() {
+		t.Fatal("windows.apps is empty")
+	}
+	want := []string{"Google.Chrome", "7zip.7zip"}
+	got := r.Windows.Apps.Winget
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("package %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	hasApps := false
+	for _, s := range r.Windows.Firstboot.Steps {
+		if s.Apps {
+			hasApps = true
+		}
+	}
+	if !hasApps {
+		t.Error("recipe has apps but no `apps` firstboot step — they would never install")
+	}
+	for _, f := range r.Lint() {
+		if f.Severity == "error" {
+			t.Errorf("lint error: %s", f.Message)
+		}
+	}
+
+	// No apps selected must leave the block (and the step) out entirely.
+	bare, err := scaffoldQuickWorkspace(lib, e, Options{Edition: "Pro"}, nil)
+	if err != nil {
+		t.Fatalf("scaffold without apps: %v", err)
+	}
+	if rb := assertLoads(t, bare, e.ID); rb != nil && rb.Windows.Apps.Enabled() {
+		t.Error("expected no apps block")
+	}
+}
+
 // TestGenericKeysComplete makes sure every Windows edition option has a key
 // and an ei.cfg name.
 func TestGenericKeysComplete(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
 	"github.com/DustanBaker/uplink-composer/internal/helpers"
@@ -64,6 +65,9 @@ type Options struct {
 	// machines (windows only) — normally what hwdetect found on this box,
 	// via driverresolve.SpecsFor. Entries no catalog covers are dropped.
 	Hardware []recipe.HardwareSpec
+	// Apps are appcatalog picker ids to install at first boot (windows only,
+	// via winget). Resolved to package ids by the caller.
+	Apps []string
 }
 
 // DriverOS is the driver-catalog OS token for this entry ("win11"/"win10").
@@ -72,6 +76,14 @@ func (e Entry) DriverOS() string {
 		return "win10"
 	}
 	return "win11"
+}
+
+// wingetPkgs resolves the picker ids to winget package ids. The error is
+// dropped on purpose: BuildQuick validates the same list up front and refuses
+// the build, so by the time the recipe is rendered these all resolve.
+func (o Options) wingetPkgs() []string {
+	pkgs, _ := appcatalog.WingetIDs(o.Apps)
+	return pkgs
 }
 
 func (o *Options) defaults(e Entry) {
@@ -115,6 +127,15 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 	opts.defaults(e)
 	if e.Family == Windows && genericKeys[opts.Edition] == "" {
 		return nil, fmt.Errorf("unknown Windows edition %q (have: %s)", opts.Edition, strings.Join(e.Editions, ", "))
+	}
+	if len(opts.Apps) > 0 {
+		if e.Family != Windows {
+			return nil, fmt.Errorf("installing programs alongside %s is not supported yet — it needs an autoinstall recipe", e.Name)
+		}
+		// Fail before downloading gigabytes, not after.
+		if _, err := appcatalog.WingetIDs(opts.Apps); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := ensureSource(ctx, lib, e, progress); err != nil {
@@ -347,6 +368,16 @@ flash:
 	if preset != "off" {
 		steps += "      - debloat\n"
 	}
+	appsBlock := ""
+	if pkgs := opts.wingetPkgs(); len(pkgs) > 0 {
+		var b strings.Builder
+		b.WriteString("  apps:\n    winget:\n")
+		for _, p := range pkgs {
+			fmt.Fprintf(&b, "      - %s\n", p)
+		}
+		appsBlock = b.String()
+		steps += "      - apps\n"
+	}
 	// Staged GPU driver packages run past a gigabyte each, so driver media
 	// outgrows the 8 GiB stick a bare Windows ISO fits on.
 	minStick := "8GiB"
@@ -382,14 +413,14 @@ windows:
       bypass_requirements: "%s"
 %s  debloat:
     preset: %s
-  firstboot:
+%s  firstboot:
     mode: generate
     steps:
 %s
 flash:
   verify: readback-sha256
 `, e.ID, e.Name, e.ID, minStick, editionName(opts.Edition), genericKeys[opts.Edition],
-		opts.AccountMode, bypass, hardwareYAML(hw), preset, steps)
+		opts.AccountMode, bypass, hardwareYAML(hw), preset, appsBlock, steps)
 }
 
 // editionName maps the option to the ei.cfg EditionID (drops the "N"/space).

@@ -135,6 +135,26 @@ func GenerateFirstboot(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref s
 			steps = append(steps[:at:at], append([]Step{{Debloat: true}}, steps[at:]...)...)
 		}
 	}
+	// Programs install after drivers (they need the network the NIC driver
+	// just enabled) and after debloat (so app removal cannot race a fresh
+	// install), but before agents.
+	if w.Apps.Enabled() {
+		has := false
+		for _, s := range steps {
+			if s.Apps {
+				has = true
+			}
+		}
+		if !has {
+			at := 0
+			for i, s := range steps {
+				if s.Drivers || s.Debloat {
+					at = i + 1
+				}
+			}
+			steps = append(steps[:at:at], append([]Step{{Apps: true}}, steps[at:]...)...)
+		}
+	}
 	for _, s := range steps {
 		line("")
 		switch {
@@ -183,6 +203,10 @@ func GenerateFirstboot(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref s
 			line(`rem --- debloat: strip consumer apps, ads, Copilot, widgets (preset %s) ---`, w.Debloat.Preset)
 			line(`powershell -NoProfile -ExecutionPolicy Bypass -File "%%SCRIPTS%%\debloat.ps1" >> "%%LOG%%" 2>&1`)
 			logNote("debloat")
+		case s.Apps:
+			line(`rem --- install %d program(s) with winget; needs the network, see apps.log ---`, len(w.Apps.Winget))
+			line(`powershell -NoProfile -ExecutionPolicy Bypass -File "%%SCRIPTS%%\apps.ps1" >> "%%LOG%%" 2>&1`)
+			logNote("apps")
 		case s.Wait > 0:
 			secs := int(s.Wait.Seconds())
 			line(`rem --- settle for %ds (freshly-driver'd NICs need a moment before agents) ---`, secs)

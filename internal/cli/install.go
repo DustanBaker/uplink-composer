@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
 	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
 	"github.com/DustanBaker/uplink-composer/internal/hwdetect"
 	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
@@ -25,6 +26,29 @@ func cmdCatalog(_ *Env, _ []string) error {
 	return nil
 }
 
+// cmdApps lists the programs Quick Install can add, grouped by category.
+func cmdApps(_ *Env, _ []string) error {
+	fmt.Println("Programs `uplink install --apps` can add (comma-separated ids):")
+	for _, cat := range appcatalog.Categories() {
+		fmt.Printf("\n  %s\n", cat)
+		for _, a := range appcatalog.Catalog() {
+			if a.Category != cat {
+				continue
+			}
+			where := ""
+			if a.Winget == "" {
+				where = "  (no Windows package)"
+			}
+			fmt.Printf("    %-18s %s%s\n", a.ID, a.Name, where)
+		}
+	}
+	fmt.Println("\nExample:")
+	fmt.Println("  uplink install windows-11 --drivers --apps chrome,7zip,vlc")
+	fmt.Println("\nThese install at first boot with winget, so the machine needs to be")
+	fmt.Println("online then — staging its network driver (--drivers) helps.")
+	return nil
+}
+
 // cmdInstall is Quick Install from the CLI: pick a catalog OS, build media
 // with a few options, and flash the attached stick.
 func cmdInstall(ctx context.Context, env *Env, args []string) error {
@@ -34,6 +58,7 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	debloat := fs.String("debloat", "standard", "Windows debloat: off | standard | aggressive")
 	bypass := fs.Bool("bypass-checks", false, "Windows: skip TPM/Secure Boot/RAM checks")
 	withDrivers := fs.Bool("drivers", false, "Windows: detect this machine and stage its drivers")
+	apps := fs.String("apps", "", "Windows: programs to install at first boot (see `uplink apps`)")
 	yes := fs.Bool("yes", false, "skip the typed size confirmation")
 	buildOnly := fs.Bool("build-only", false, "stop after building; do not flash")
 	if err := parseFlags(fs, args); err != nil {
@@ -68,11 +93,21 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 		}
 	}
 
+	var appIDs []string
+	if strings.TrimSpace(*apps) != "" {
+		appIDs = strings.Split(*apps, ",")
+		pkgs, err := appcatalog.WingetIDs(appIDs)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Will install %d program(s) at first boot: %s\n", len(pkgs), strings.Join(pkgs, ", "))
+	}
+
 	fmt.Printf("Building %s installer media...\n", e.Name)
 	prog := &stageProgress{}
 	art, err := oscatalog.BuildQuick(ctx, lib, e, oscatalog.Options{
 		Edition: *edition, AccountMode: *account, Debloat: *debloat, BypassRequirement: *bypass,
-		Hardware: hw,
+		Hardware: hw, Apps: appIDs,
 	}, prog.report)
 	prog.finish()
 	if err != nil {

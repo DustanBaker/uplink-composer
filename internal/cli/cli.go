@@ -26,8 +26,10 @@ Quick install (no workspace needed)
   catalog                   list the built-in operating systems
   install <os-id> [device]  build + flash an OS from the catalog
                             (--edition, --account local|oobe, --debloat, --bypass-checks,
-                             --drivers to detect this machine and stage its drivers)
+                             --drivers to detect this machine and stage its drivers,
+                             --apps chrome,7zip,... to install programs at first boot)
   detect                    what this computer is, and the drivers it needs
+  apps                      programs --apps can install
 
 Workspace
   init --org <name> [dir]   scaffold a new org workspace
@@ -158,6 +160,8 @@ func Main(args []string) int {
 		err = cmdRecipes(env, cmdArgs)
 	case "catalog":
 		err = cmdCatalog(env, cmdArgs)
+	case "apps":
+		err = cmdApps(env, cmdArgs)
 	case "install":
 		err = cmdInstall(ctx, env, cmdArgs)
 	case "detect":

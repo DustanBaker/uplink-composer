@@ -19,9 +19,9 @@ import (
 type OSType string
 
 const (
-	OSWindows  OSType = "windows"  // extracted/staged FAT32 install media
+	OSWindows  OSType = "windows"   // extracted/staged FAT32 install media
 	OSLinuxISO OSType = "linux-iso" // hybrid ISO, raw-written
-	OSRawImg   OSType = "raw-img"  // appliance image, raw-written (may be compressed)
+	OSRawImg   OSType = "raw-img"   // appliance image, raw-written (may be compressed)
 )
 
 // SourceMode says how a Windows OS source is interpreted.
@@ -72,15 +72,30 @@ type TargetSpec struct {
 }
 
 type WindowsSpec struct {
-	EICfg        *EICfg        `yaml:"ei_cfg,omitempty"`
-	Unattend     *UnattendSpec `yaml:"unattend,omitempty"`
+	EICfg        *EICfg         `yaml:"ei_cfg,omitempty"`
+	Unattend     *UnattendSpec  `yaml:"unattend,omitempty"`
 	WinPEDrivers []string       `yaml:"winpe_drivers,omitempty"` // source refs → $WinpeDriver$/
 	DriverPacks  []DriverPack   `yaml:"driver_packs,omitempty"`
 	Hardware     []HardwareSpec `yaml:"hardware,omitempty"` // machines whose packs are resolved from catalogs
 	Payload      []PayloadItem  `yaml:"payload,omitempty"`
 	Debloat      *DebloatSpec   `yaml:"debloat,omitempty"`
-	Firstboot    FirstbootSpec `yaml:"firstboot,omitempty"`
+	Apps         *AppsSpec      `yaml:"apps,omitempty"`
+	Firstboot    FirstbootSpec  `yaml:"firstboot,omitempty"`
 }
+
+// AppsSpec installs programs at first boot with winget, Windows' own package
+// manager, so nothing large is staged on the media and every installer comes
+// from the vendor. It needs the machine to be online at first boot — which is
+// what the staged network drivers are for.
+type AppsSpec struct {
+	Winget []string `yaml:"winget,omitempty"` // package ids, e.g. Google.Chrome
+	// Scope "machine" installs for all users where the package allows it
+	// (default); "user" installs only for the first account.
+	Scope string `yaml:"scope,omitempty"`
+}
+
+// Enabled reports whether the spec actually installs anything.
+func (a *AppsSpec) Enabled() bool { return a != nil && len(a.Winget) > 0 }
 
 // DebloatSpec strips consumer junk at first boot while keeping the media
 // itself official (update- and activation-safe): provisioned-app removal
@@ -169,15 +184,17 @@ type FirstbootSpec struct {
 
 // Step is one ordered first-boot action. YAML forms:
 //
-//	- drivers                      # expand cabs, pnputil sweep, run driver exes
-//	- debloat                      # run the generated debloat pass (requires windows.debloat)
-//	- wait: 10s
-//	- msi: { ref: x, args: ["/qn"], log: x.log }
-//	- exe: { ref: x, args: ["-s"], log: x.log }
-//	- cmd: "raw command line"
+//   - drivers                      # expand cabs, pnputil sweep, run driver exes
+//   - debloat                      # run the generated debloat pass (requires windows.debloat)
+//   - apps                         # winget-install windows.apps (needs network)
+//   - wait: 10s
+//   - msi: { ref: x, args: ["/qn"], log: x.log }
+//   - exe: { ref: x, args: ["-s"], log: x.log }
+//   - cmd: "raw command line"
 type Step struct {
 	Drivers bool
 	Debloat bool
+	Apps    bool
 	Wait    time.Duration
 	MSI     *RunItem
 	Exe     *RunItem
@@ -199,8 +216,11 @@ func (s *Step) UnmarshalYAML(node *yaml.Node) error {
 		case "debloat":
 			s.Debloat = true
 			return nil
+		case "apps":
+			s.Apps = true
+			return nil
 		}
-		return fmt.Errorf("line %d: unknown firstboot step %q (scalar steps: drivers, debloat)", node.Line, node.Value)
+		return fmt.Errorf("line %d: unknown firstboot step %q (scalar steps: drivers, debloat, apps)", node.Line, node.Value)
 	}
 	if node.Kind != yaml.MappingNode || len(node.Content) != 2 {
 		return fmt.Errorf("line %d: a firstboot step is either a scalar or a single-key map", node.Line)
@@ -393,6 +413,12 @@ func (r *Recipe) Validate() error {
 			if s.Debloat && !r.Windows.Debloat.Enabled() {
 				return fail("windows.firstboot.steps[%d] is `debloat` but windows.debloat is off/absent", i)
 			}
+			if s.Apps && !r.Windows.Apps.Enabled() {
+				return fail("windows.firstboot.steps[%d] is `apps` but windows.apps lists no packages", i)
+			}
+		}
+		if a := r.Windows.Apps; a != nil && a.Scope != "" && a.Scope != "machine" && a.Scope != "user" {
+			return fail("windows.apps.scope must be machine or user")
 		}
 		if fb.Mode == "template" && fb.Template == "" {
 			return fail("windows.firstboot.mode template requires windows.firstboot.template")
