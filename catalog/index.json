@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "serial": 1789240373,
-  "generated": "2026-09-12T19:12:53Z",
+  "serial": 1789240807,
+  "generated": "2026-09-12T19:20:07Z",
   "entries": [
     {
       "id": "windows-11",
@@ -245,6 +245,17 @@
       "url": "https://iso.builds.garudalinux.org/iso/garuda/dr460nized/260819/garuda-dr460nized-linux-garuda-260819.iso",
       "sha256": "3dac6b04225fe9577ea0143a1c712e13316dff26985c2c4417f8c5e4af77f7f7",
       "filename": "garuda-dr460nized-linux-garuda-260819.iso"
+    },
+    {
+      "id": "pikaos-4",
+      "name": "PikaOS 4 (Nest, GNOME)",
+      "family": "linux",
+      "version": "4.0 Nest, build 26.08.20-4",
+      "notes": "Debian Sid tuned for gaming. GNOME desktop; a separate NVIDIA build exists upstream.",
+      "firmware_notes": "UEFI boot. Needs an x86-64-v3 CPU (Haswell/Excavator or newer). Unsigned — Secure Boot must be off.",
+      "url": "https://iso.pika-os.com/PikaOS-Nest-GNOME-4.0-amd64-v3-26.08.20-4.iso",
+      "sha256": "ce26e89ee468ae146e2c7cefc6fd3a022face03316ccfa58caadb3090019a1ea",
+      "filename": "PikaOS-Nest-GNOME-4.0-amd64-v3-26.08.20-4.iso"
     },
     {
       "id": "opensuse-tumbleweed",

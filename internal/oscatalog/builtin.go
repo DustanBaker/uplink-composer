@@ -276,6 +276,25 @@ var builtin = []Entry{
 		FirmwareNotes: "UEFI boot. No signed shim in the image — Secure Boot must be off to boot this stick.",
 	},
 	{
+		ID:      "pikaos-4",
+		Name:    "PikaOS 4 (Nest, GNOME)",
+		Family:  Linux,
+		Version: "4.0 Nest, build 26.08.20-4",
+		// PikaOS publishes only an MD5 — its builder runs md5sum and nothing
+		// else — so the pin below is a SHA-256 computed from a download, with
+		// their MD5 checked against the same stream in the same pass. It
+		// matched, which is what makes this hash trustworthy rather than
+		// merely ours. The URL embeds the build date with no "latest" alias,
+		// so every release needs a fresh entry.
+		URL:      "https://iso.pika-os.com/PikaOS-Nest-GNOME-4.0-amd64-v3-26.08.20-4.iso",
+		SHA256:   "ce26e89ee468ae146e2c7cefc6fd3a022face03316ccfa58caadb3090019a1ea",
+		Filename: "PikaOS-Nest-GNOME-4.0-amd64-v3-26.08.20-4.iso",
+		Notes:    "Debian Sid tuned for gaming. GNOME desktop; a separate NVIDIA build exists upstream.",
+		// x86-64-v3 is not a detail to bury: it needs AVX2, so this will not
+		// boot anything older than Haswell or Excavator at all.
+		FirmwareNotes: "UEFI boot. Needs an x86-64-v3 CPU (Haswell/Excavator or newer). Unsigned — Secure Boot must be off.",
+	},
+	{
 		ID:     "opensuse-tumbleweed",
 		Name:   "openSUSE Tumbleweed",
 		Family: Linux,
