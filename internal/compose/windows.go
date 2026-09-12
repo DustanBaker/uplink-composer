@@ -298,6 +298,15 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		stage.AddFile(apPath, path.Join(scriptsImg, "apps.ps1"))
 	}
 
+	// The post-install check. Generated because only this build knows what it
+	// promised, and staged beside the scripts that deliver it so the imaged
+	// machine can be checked without installing anything on it.
+	vfPath := filepath.Join(buildTmp, "verify.ps1")
+	if err := os.WriteFile(vfPath, []byte(recipe.GenerateVerifyPS(r, drivers, resolveRef)), 0o644); err != nil {
+		return nil, err
+	}
+	stage.AddFile(vfPath, path.Join(scriptsImg, "verify.ps1"))
+
 	// ── Size and build ───────────────────────────────────────────────────
 	contentBytes, entries, err := stage.Stats()
 	if err != nil {

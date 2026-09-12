@@ -293,6 +293,13 @@ func cmdBuild(ctx context.Context, env *Env, args []string) error {
 	}
 	fmt.Printf("artifact: %s\n", art.Path)
 	fmt.Printf("  kind=%s size=%d MiB sha256=%s\n", art.Kind, art.Size>>20, art.SHA256)
+	// The check only exists for Windows media, and only the person holding the
+	// imaged machine can run it — so it is worth naming here rather than
+	// leaving them to find a file they did not know was written.
+	if r, rerr := ws.Recipe(fs.Arg(0)); rerr == nil && r.Windows != nil {
+		fmt.Println("\nAfter imaging a machine, check it matches this build:")
+		fmt.Println(`  powershell -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\verify.ps1`)
+	}
 	return nil
 }
 
