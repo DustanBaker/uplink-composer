@@ -31,7 +31,7 @@ windows:
       # a real license.
       edition_key: VK7JG-NPHTM-C97JM-9MPGT-3V66T
 
-  # Let The Composer find and pull the right driver packs for named
+  # Let The Uplink CompOSer find and pull the right driver packs for named
   # machines (Dell/Lenovo/HP by model, anything else by hardware ID).
   # `compose` resolves these automatically; or run `composer drivers
   # resolve sff-win11-agent` up front. Each install lays its INFs under

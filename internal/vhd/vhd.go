@@ -23,7 +23,7 @@ const (
 
 	cookie     = "conectix"
 	diskFixed  = 2
-	creatorApp = "cmpr" // The Composer
+	creatorApp = "cmpr" // The Uplink CompOSer
 	creatorOS  = "Wi2k"
 )
 

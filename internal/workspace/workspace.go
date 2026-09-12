@@ -1,6 +1,6 @@
 // Package workspace loads an org's composition workspace: a git-friendly
 // directory of workspace.yaml, manifests/, recipes/, templates/, payload/,
-// and gitignored vars.local.yaml. The Composer is org-agnostic; everything
+// and gitignored vars.local.yaml. The Uplink CompOSer is org-agnostic; everything
 // org-specific lives here.
 package workspace
 

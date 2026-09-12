@@ -33,5 +33,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/* \
-            --title "The Composer ${GITHUB_REF_NAME}" \
+            --title "The Uplink CompOSer ${GITHUB_REF_NAME}" \
             --notes "Cross-platform builds. Verify with SHA256SUMS.txt. Binaries are unsigned for now — Windows SmartScreen/Smart App Control may object until code signing lands."

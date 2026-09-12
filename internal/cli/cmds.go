@@ -45,7 +45,7 @@ func cmdDoctor(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("The Composer — doctor")
+	fmt.Println("The Uplink CompOSer — doctor")
 	fmt.Println()
 	fmt.Printf("library root:  %s\n", lib.Root)
 	if strings.Contains(strings.ToLower(lib.Root), "onedrive") {

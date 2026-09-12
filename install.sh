@@ -1,5 +1,5 @@
 #!/bin/sh
-# The Composer — no-root installer for macOS and Linux.
+# The Uplink CompOSer — no-root installer for macOS and Linux.
 #
 #   curl -fsSL https://raw.githubusercontent.com/DustanBaker/the-composer/main/install.sh | sh
 #
@@ -53,7 +53,7 @@ chmod +x "$BIN/composer"
 ln -sf composer "$BIN/compose"
 
 echo ""
-echo "Installed The Composer $TAG to $BIN (composer, compose)."
+echo "Installed The Uplink CompOSer $TAG to $BIN (composer, compose)."
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *) echo "Add it to your PATH:  export PATH=\"$BIN:\$PATH\"   (put that in your shell profile)" ;;

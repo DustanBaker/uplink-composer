@@ -40,7 +40,7 @@ func cmdServe(ctx context.Context, env *Env, args []string) error {
 	}
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	url := fmt.Sprintf("http://%s/#t=%s", addr, s.Token)
-	fmt.Printf("The Composer — workspace %q (%s)\n", ws.Config.Org.Name, ws.Dir)
+	fmt.Printf("The Uplink CompOSer — workspace %q (%s)\n", ws.Config.Org.Name, ws.Dir)
 	fmt.Printf("Open:  %s\n", url)
 	fmt.Println("The token in the URL is this session's key — the page needs it. Ctrl-C stops the server.")
 	if *open {

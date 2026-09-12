@@ -13,7 +13,7 @@ import (
 	"github.com/DustanBaker/the-composer/internal/workspace"
 )
 
-const usage = `The Composer — build bootable installation USB media from recipes.
+const usage = `The Uplink CompOSer — build bootable installation USB media from recipes.
 
 Usage: composer <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
        composer                     same, in a workspace with a single recipe

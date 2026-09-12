@@ -1,4 +1,4 @@
-# The Composer — no-admin installer for Windows.
+# The Uplink CompOSer — no-admin installer for Windows.
 #
 #   irm https://raw.githubusercontent.com/DustanBaker/the-composer/main/install.ps1 | iex
 #
@@ -52,6 +52,6 @@ if (($userPath -split ';') -notcontains $dir) {
 $env:Path = "$env:Path;$dir"
 
 Write-Host ""
-Write-Host "Installed The Composer $($rel.tag_name) to $dir (composer, compose)."
+Write-Host "Installed The Uplink CompOSer $($rel.tag_name) to $dir (composer, compose)."
 Write-Host "Open a NEW terminal, cd into a workspace, and run:  compose <recipe>"
 Write-Host "No workspace yet?  composer init --org `"Your Org`" my-workspace"

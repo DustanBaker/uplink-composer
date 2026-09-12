@@ -1,4 +1,4 @@
-# The Composer
+# The Uplink CompOSer
 
 One tool to build bootable installation USB media for a fleet: pull and store
 OS images, keep per-hardware driver packs, compose unattended install media

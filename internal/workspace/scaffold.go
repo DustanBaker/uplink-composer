@@ -82,7 +82,7 @@ admin_password_hash: "$6$composer$5S/Z2ILVSvNrtVKzqEEs6y6XvT9KctshEw9erjQirY7oY.
 const scaffoldReadme = `# %s — Composer workspace
 
 Recipes, templates, and pinned-source manifests for building bootable
-installation USB media with The Composer.
+installation USB media with The Uplink CompOSer.
 
 - ` + "`composer recipes list`" + ` — what can be built
 - ` + "`composer sources pull <id>`" + ` — fetch a pinned source into the local library
@@ -278,7 +278,7 @@ notes: "Ubuntu 24.04 LTS live server; hybrid ISO"
 // installs unattended: hostname/user from vars, SSH server, whole-disk
 // direct layout, then reboots. The password is a SHA-512 crypt hash.
 const scaffoldAutoinstall = `#cloud-config
-# Ubuntu autoinstall (subiquity). Rendered by The Composer into the CIDATA
+# Ubuntu autoinstall (subiquity). Rendered by The Uplink CompOSer into the CIDATA
 # partition; the GRUB menu is patched so this runs with nobody present.
 autoinstall:
   version: 1
@@ -299,7 +299,7 @@ autoinstall:
   packages:
     - openssh-server
   late-commands:
-    - echo "provisioned by The Composer ({{.Org.Name}})" > /target/etc/composer-provisioned
+    - echo "provisioned by The Uplink CompOSer ({{.Org.Name}})" > /target/etc/composer-provisioned
   shutdown: reboot
 `
 
