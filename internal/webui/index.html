@@ -83,7 +83,10 @@
     letter-spacing: .04em; margin: 8px 0 2px; }
   .appitem { display: flex; align-items: center; gap: 8px; padding: 2px 0;
     font-size: 13px; cursor: pointer; }
-  .appitem input { width: auto; }
+  /* Outranks `dialog .opt input { width: 100% }` above, which otherwise
+     stretches each checkbox across the row and pushes its name to the edge. */
+  .opt .appitem input { width: auto; flex: none; }
+  .appitem span { flex: 1; }
   .opt.check { display: flex; align-items: center; gap: 8px; }
   .opt.check input { width: auto; }
   .opt.check label { margin: 0; color: var(--text); }
