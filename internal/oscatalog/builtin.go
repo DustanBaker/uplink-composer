@@ -258,6 +258,24 @@ var builtin = []Entry{
 		FirmwareNotes: "UEFI boot. Unsigned kernel — Secure Boot must be off.",
 	},
 	{
+		ID:      "garuda-dr460nized",
+		Name:    "Garuda Linux (Dr460nized)",
+		Family:  Linux,
+		Version: "build 260819",
+		// garudalinux.org's download page is a JavaScript mirror-selector and
+		// its SourceForge links serve an HTML interstitial; this host is a
+		// plain index that serves the bytes. The dated path is the build that
+		// latest.iso currently redirects to — i.e. the promoted one, not a
+		// nightly. Garuda keeps no permanent archive and prunes old build
+		// directories, so this URL will eventually 404 and want re-pinning:
+		// cheap now that the catalog is published rather than compiled in.
+		URL:           "https://iso.builds.garudalinux.org/iso/garuda/dr460nized/260819/garuda-dr460nized-linux-garuda-260819.iso",
+		SHA256:        "3dac6b04225fe9577ea0143a1c712e13316dff26985c2c4417f8c5e4af77f7f7",
+		Filename:      "garuda-dr460nized-linux-garuda-260819.iso",
+		Notes:         "Arch made comfortable: a heavily themed KDE Plasma desktop with its own installer and maintenance tools.",
+		FirmwareNotes: "UEFI boot. No signed shim in the image — Secure Boot must be off to boot this stick.",
+	},
+	{
 		ID:     "opensuse-tumbleweed",
 		Name:   "openSUSE Tumbleweed",
 		Family: Linux,
@@ -294,6 +312,52 @@ var builtin = []Entry{
 		Filename:      "TrueNAS-SCALE-25.10.7.iso",
 		Notes:         "Storage appliance OS — ZFS, shares and apps. Installs to its own boot device, separate from the pool disks.",
 		FirmwareNotes: "UEFI boot. Wants a dedicated boot drive; your data disks stay untouched.",
+	},
+	// Red Hat Enterprise Linux cannot be pinned: its downloads sit behind an
+	// account and expiring signed URLs, so no address stays fetchable. It is
+	// listed anyway, as import-only, because being told where to get the ISO
+	// and how to hand it over beats not finding Red Hat in the list at all.
+	{
+		ID:         "rhel-10",
+		Name:       "Red Hat Enterprise Linux 10",
+		Family:     Linux,
+		Category:   Server,
+		Version:    "10",
+		Requires:   []string{FeatureImportOnly},
+		ImportFrom: "https://access.redhat.com/downloads (a no-cost Developer subscription covers it)",
+		Notes: "Download it yourself — Red Hat puts its images behind an account, so there is no link to pin. " +
+			"For the same packages with no account, see AlmaLinux or Rocky Linux.",
+		FirmwareNotes: "UEFI boot. Signed shim, so Secure Boot works.",
+	},
+	// The RHEL-compatible rebuilds: same packages and versions, free to
+	// download, and pinnable.
+	{
+		ID:       "almalinux-10",
+		Name:     "AlmaLinux 10.2",
+		Family:   Linux,
+		Category: Server,
+		Version:  "10.2",
+		// The minimal image rather than the 9.4 GB DVD: both install with no
+		// network, this one fits an 8 GB stick like every other server entry
+		// here. Pinned to the dated path, not the "latest" alias, so the hash
+		// stays true; the project's CHECKSUM file gives both.
+		URL:           "https://repo.almalinux.org/almalinux/10/isos/x86_64/AlmaLinux-10.2-x86_64-minimal.iso",
+		SHA256:        "1b532f534231da0d1cd0ccae622bea6cd588d8a0d7b259f1f131501a6eed41a4",
+		Filename:      "AlmaLinux-10.2-x86_64-minimal.iso",
+		Notes:         "RHEL 10, rebuilt and free. Minimal install set — extra package groups want a network or the DVD image.",
+		FirmwareNotes: "UEFI boot. Signed shim, so Secure Boot generally works.",
+	},
+	{
+		ID:            "rocky-10",
+		Name:          "Rocky Linux 10.2",
+		Family:        Linux,
+		Category:      Server,
+		Version:       "10.2",
+		URL:           "https://download.rockylinux.org/pub/rocky/10/isos/x86_64/Rocky-10.2-x86_64-minimal.iso",
+		SHA256:        "aac6ac3ce781b91a91ce78463405f66c611a5dca4b3840c79e5e01d97302f6c8",
+		Filename:      "Rocky-10.2-x86_64-minimal.iso",
+		Notes:         "The other RHEL 10 rebuild, under community governance. Minimal install set, same as AlmaLinux above.",
+		FirmwareNotes: "UEFI boot. Signed shim, so Secure Boot generally works.",
 	},
 	{
 		ID:            "linuxmint-22.1-cinnamon",

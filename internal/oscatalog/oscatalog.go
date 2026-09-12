@@ -80,6 +80,13 @@ type Entry struct {
 	ChecksumsURL string             `json:"checksums_url,omitempty"` // fetch + verify when SHA256 is empty
 	Filename     string             `json:"filename,omitempty"`
 
+	// ImportFrom is where a person goes to download this image by hand, for
+	// the entries that have no URL anything can fetch — an account-walled
+	// vendor portal, typically. Such entries also carry
+	// Requires: ["import-only"], so a build that predates this feature skips
+	// them instead of offering a download that cannot happen.
+	ImportFrom string `json:"import_from,omitempty"`
+
 	// Requires names capabilities an entry needs from the program reading
 	// it. A build that does not know one of them skips the entry rather
 	// than offering something it cannot build — this is what lets a newer
@@ -121,6 +128,39 @@ func (e Entry) recipeOSType() string {
 		return "raw-img"
 	}
 	return "linux-iso"
+}
+
+// FeatureImportOnly marks an entry with no URL this tool can fetch: the
+// operator downloads the ISO themselves and hands it over. Red Hat
+// Enterprise Linux is the case that forced it — its images sit behind an
+// account and expiring signed URLs, so nothing stays pinnable — and Windows
+// Server is the same shape. Naming it as a required feature means a binary
+// built before this existed skips the entry rather than offering a download
+// that cannot happen.
+const FeatureImportOnly = "import-only"
+
+// ImportOnly reports whether this entry can only be supplied by hand. It
+// reads the feature list rather than inferring from an empty URL, because
+// that list is also what older builds gate on: the two must agree.
+func (e Entry) ImportOnly() bool {
+	for _, f := range e.Requires {
+		if f == FeatureImportOnly {
+			return true
+		}
+	}
+	return false
+}
+
+// ImportOnlyError explains how to supply an image this tool cannot fetch.
+// One wording, used by the CLI, the portal and the wizard alike, because
+// this is the error most likely to be someone's first surprise.
+func (e Entry) ImportOnlyError() error {
+	where := e.ImportFrom
+	if where == "" {
+		where = "the vendor"
+	}
+	return fmt.Errorf("%s cannot be downloaded automatically — get the ISO from %s, then: uplink install %s --iso <file>",
+		e.Name, where, e.ID)
 }
 
 // ImageKind is the entry's image kind, defaulting to a hybrid ISO.
@@ -319,6 +359,11 @@ func PlanDrivers(ctx context.Context, lib *library.Library, e Entry, hw []recipe
 func ensureSource(ctx context.Context, lib *library.Library, e Entry, progress func(string, int64, int64)) error {
 	if _, err := lib.Resolve(e.ID); err == nil {
 		return nil
+	}
+	// Nothing to fetch, and a confusing failure deep in the downloader is the
+	// wrong way to learn that: say what to do instead.
+	if e.ImportOnly() {
+		return e.ImportOnlyError()
 	}
 	src := &manifest.Source{
 		ID: e.ID, Kind: manifest.KindOSImage, Format: e.sourceFormat(),

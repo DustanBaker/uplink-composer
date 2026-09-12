@@ -221,6 +221,39 @@ func TestCommittedIndexMatchesBuiltin(t *testing.T) {
 	}
 }
 
+// TestImportOnlyEntriesAreFeatureGated: an entry with no fetchable URL is
+// only safe to publish because older builds skip it. If the feature name ever
+// came off an import-only entry, those builds would offer it and then fail
+// somewhere inside the downloader with nothing useful to say.
+func TestImportOnlyEntriesAreFeatureGated(t *testing.T) {
+	for _, e := range builtin {
+		hasSource := e.URL != "" || e.Provider != "" || e.ChecksumsURL != ""
+		switch {
+		case !hasSource && !e.ImportOnly():
+			t.Errorf("%s has nothing to download and is not marked %q — an older build would offer it and fail",
+				e.ID, FeatureImportOnly)
+		case e.ImportOnly() && hasSource:
+			t.Errorf("%s is marked import-only but has a source; one of the two is wrong", e.ID)
+		case e.ImportOnly() && e.ImportFrom == "":
+			t.Errorf("%s cannot be downloaded and does not say where to get it", e.ID)
+		}
+	}
+}
+
+// TestImportOnlyRefusalSaysWhatToDo: this is the error most likely to be
+// someone's first surprise, so it has to name the OS, the place to get it and
+// the command that takes it.
+func TestImportOnlyRefusalSaysWhatToDo(t *testing.T) {
+	e := Entry{ID: "rhel-10", Name: "Red Hat Enterprise Linux 10",
+		Requires: []string{FeatureImportOnly}, ImportFrom: "https://access.redhat.com/downloads"}
+	msg := e.ImportOnlyError().Error()
+	for _, want := range []string{e.Name, e.ImportFrom, "--iso", "uplink install rhel-10"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not mention %q: %s", want, msg)
+		}
+	}
+}
+
 // resetActive puts the package back to "nothing adopted" between tests.
 func resetActive(t *testing.T) {
 	t.Helper()

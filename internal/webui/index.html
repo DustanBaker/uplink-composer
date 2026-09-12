@@ -546,10 +546,17 @@ function appsOpt() {
   return { wrap, get: () => [...chosen] };
 }
 
-// isoOpt offers a downloaded ISO for Windows, whose media Microsoft fetches on
-// demand and rate-limits to roughly one request per address per day. Linux
-// images come from mirrors that do not, so the field would only be clutter.
+// isoOpt asks for an ISO the operator downloaded. Required for the import-only
+// entries, which have no link to fetch at all; optional for Windows, whose
+// media Microsoft fetches on demand but rate-limits to roughly one request per
+// address per day. Other Linux images come from mirrors that do not, so there
+// the field would only be clutter.
 function isoOpt(os) {
+  if (os.import_only) {
+    return textOpt("ISO file (required)", "C:\\Users\\you\\Downloads\\rhel-10.2-x86_64-dvd.iso",
+      (os.import_from ? "Download it from " + os.import_from + ". " : "") +
+      "There is no link to fetch automatically. Filed under this OS, so later builds reuse it.");
+  }
   if (os.family !== "windows") return null;
   return textOpt("Use an ISO you downloaded (optional)", "C:\\Users\\you\\Downloads\\Win11.iso",
     "Only needed if Microsoft refuses the download. Filed under this OS, so later builds reuse it.");
@@ -579,7 +586,13 @@ function openInstall(os) {
       bypass_requirement: bp.get(), iso: iso ? iso.get() : "",
     });
   } else {
-    opts.append(el("div", "sub", "Boots the installer — nothing to configure here."));
+    const iso = isoOpt(os);
+    if (iso) {
+      opts.append(iso.wrap);
+      getOpts = () => ({ iso: iso.get() });
+    } else {
+      opts.append(el("div", "sub", "Boots the installer — nothing to configure here."));
+    }
   }
   $("instTarget").textContent = `${dev.model || dev.id} — ${dev.id} — ${dev.size_gib} GiB` +
     (dev.mounts && dev.mounts.length ? ` (mounted: ${dev.mounts.join(", ")})` : "");

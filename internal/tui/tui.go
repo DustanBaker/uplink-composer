@@ -94,6 +94,9 @@ type model struct {
 	// image has to be fetched — the point at which offering a downloaded one
 	// is useful rather than clutter.
 	needISO bool
+	// mustISO is set for an import-only entry: the path is not optional,
+	// because there is no download to fall back on.
+	mustISO bool
 	isoPath string
 
 	opts    []*choice
@@ -302,12 +305,17 @@ func (m *model) keyOS(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		m.buildOptions()
-		if m.entry().Family != oscatalog.Windows {
+		e := m.entry()
+		// An import-only entry has nothing to download, so it goes through the
+		// ISO step whatever family it is — and there the path is required
+		// rather than merely offered.
+		m.needISO = !oscatalog.InLibrary(m.lib, e)
+		m.mustISO = m.needISO && e.ImportOnly()
+		if e.Family != oscatalog.Windows && !m.mustISO {
 			m.stage = stageDevice
 			return m, listDevices(m.ctx)
 		}
 		m.cursor = 0
-		m.needISO = !oscatalog.InLibrary(m.lib, m.entry())
 		m.stage = stageOptions
 		if m.needISO {
 			m.stage, m.isoPath = stageISO, ""
@@ -333,6 +341,10 @@ func (m *model) keyISO(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		// Pasted paths often arrive wrapped in quotes.
 		m.isoPath = strings.Trim(strings.TrimSpace(m.isoPath), `"'`)
+		if m.isoPath == "" && m.mustISO {
+			m.err = m.entry().ImportOnlyError()
+			return m, nil
+		}
 		if m.isoPath != "" {
 			if err := oscatalog.CheckISO(m.isoPath); err != nil {
 				m.err = err
@@ -340,6 +352,12 @@ func (m *model) keyISO(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.err = nil
+		// Linux entries have no options to set, so skipping the empty screen
+		// goes straight to picking the stick.
+		if len(m.opts) == 0 {
+			m.stage = stageDevice
+			return m, listDevices(m.ctx)
+		}
 		m.stage = stageOptions
 	}
 	return m, nil
@@ -546,19 +564,33 @@ func (m *model) viewOS() string {
 			cur = cSel.Render("> ")
 			name = cSel.Render(name)
 		}
-		b.WriteString(fmt.Sprintf("%s%-28s %s\n", cur, name, cDim.Render(e.Version)))
+		detail := e.Version
+		if e.ImportOnly() {
+			detail += "  (bring your own ISO)"
+		}
+		b.WriteString(fmt.Sprintf("%s%-28s %s\n", cur, name, cDim.Render(detail)))
 	}
 	b.WriteString("\n" + cDim.Render("↑/↓ choose · enter continue · q quit") + "\n")
 	return b.String()
 }
 
 func (m *model) viewISO() string {
+	e := m.entry()
 	var b strings.Builder
-	b.WriteString(cSel.Render(m.entry().Name) + " is not in the library yet.\n\n")
-	b.WriteString("  It can be fetched from Microsoft, but that is rate-limited to\n")
-	b.WriteString("  roughly one download per day per address, and is often refused.\n\n")
-	b.WriteString("  If you already have an ISO, give its path. Leave it blank to try\n")
-	b.WriteString("  the download.\n\n")
+	b.WriteString(cSel.Render(e.Name) + " is not in the library yet.\n\n")
+	if m.mustISO {
+		b.WriteString("  There is no link to fetch — the vendor puts its images behind an\n")
+		b.WriteString("  account, so you supply the ISO.\n\n")
+		if e.ImportFrom != "" {
+			b.WriteString("  Download it from " + cSel.Render(e.ImportFrom) + "\n\n")
+		}
+		b.WriteString("  Then give the path to the file:\n\n")
+	} else {
+		b.WriteString("  It can be fetched from Microsoft, but that is rate-limited to\n")
+		b.WriteString("  roughly one download per day per address, and is often refused.\n\n")
+		b.WriteString("  If you already have an ISO, give its path. Leave it blank to try\n")
+		b.WriteString("  the download.\n\n")
+	}
 	b.WriteString("  " + cSel.Render(m.isoPath+"▌") + "\n")
 	b.WriteString("\n" + cDim.Render("enter to continue · esc back") + "\n")
 	return b.String()

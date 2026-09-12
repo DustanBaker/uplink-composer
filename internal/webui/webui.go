@@ -230,6 +230,10 @@ type catalogEntry struct {
 	Notes         string   `json:"notes"`
 	FirmwareNotes string   `json:"firmware_notes,omitempty"`
 	Editions      []string `json:"editions,omitempty"`
+	// ImportOnly entries have no download; the page must ask for a path
+	// instead of offering a button that cannot work.
+	ImportOnly bool   `json:"import_only,omitempty"`
+	ImportFrom string `json:"import_from,omitempty"`
 }
 
 type recentWS struct {
@@ -299,6 +303,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 			ID: e.ID, Name: e.Name, Family: string(e.Family),
 			Category: string(e.Group()), Arch: e.CPUArch(), Version: e.Version,
 			Notes: e.Notes, FirmwareNotes: e.FirmwareNotes, Editions: e.Editions,
+			ImportOnly: e.ImportOnly(), ImportFrom: e.ImportFrom,
 		})
 	}
 	if s.Cfg != nil {
@@ -541,6 +546,12 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Confirm) != dev.SizeConfirmation() {
 		httpErr(w, 400, "confirmation mismatch: device %s is %s GiB — type exactly %q to arm",
 			dev.ID, dev.SizeConfirmation(), dev.SizeConfirmation())
+		return
+	}
+	// Refused before the device is armed: an import-only entry has nothing to
+	// download, so no later step can make up for a missing path.
+	if e.ImportOnly() && strings.TrimSpace(req.ISO) == "" && !oscatalog.InLibrary(s.Lib, e) {
+		httpErr(w, 400, "%v", e.ImportOnlyError())
 		return
 	}
 	// An ISO the operator downloaded themselves, filed before the build so the

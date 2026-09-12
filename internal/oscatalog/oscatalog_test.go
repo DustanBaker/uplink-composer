@@ -208,6 +208,12 @@ func TestCatalogEntriesWellFormed(t *testing.T) {
 		if e.Name == "" || e.Notes == "" {
 			t.Errorf("%s: needs a name and notes — they are all the picker shows", e.ID)
 		}
+		// An import-only entry is a pointer to a vendor portal, not a download:
+		// the pinning rules below are about fetching, so they do not apply. What
+		// it must have instead is checked by TestImportOnlyEntriesAreFeatureGated.
+		if e.ImportOnly() {
+			continue
+		}
 		switch e.Family {
 		case Windows:
 			if e.Provider != "fido" || e.Fido == nil {

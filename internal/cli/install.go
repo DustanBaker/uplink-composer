@@ -38,12 +38,18 @@ func cmdCatalog(ctx context.Context, env *Env, _ []string) error {
 			if a := e.CPUArch(); a != "amd64" {
 				tags += "/" + a
 			}
+			if e.ImportOnly() {
+				tags += " (bring your own ISO)"
+			}
 			fmt.Printf("    %-24s %-13s %s\n", e.ID, tags, e.Name)
 			detail := fmt.Sprintf("%s — %s", e.Version, e.Notes)
 			if len(e.Editions) > 0 {
 				detail += "  editions: " + strings.Join(e.Editions, ", ")
 			}
 			fmt.Printf("      %s\n", detail)
+			if e.ImportFrom != "" {
+				fmt.Printf("      download it from %s\n", e.ImportFrom)
+			}
 		}
 	}
 	return nil
@@ -102,6 +108,11 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	lib, err := env.library()
 	if err != nil {
 		return err
+	}
+	// Said now rather than after the device has been chosen and armed: there
+	// is no download to attempt, so nothing later can rescue this.
+	if e.ImportOnly() && *iso == "" && !oscatalog.InLibrary(lib, e) {
+		return e.ImportOnlyError()
 	}
 
 	devArg := ""

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "serial": 1789239799,
-  "generated": "2026-09-12T19:03:19Z",
+  "serial": 1789240373,
+  "generated": "2026-09-12T19:12:53Z",
   "entries": [
     {
       "id": "windows-11",
@@ -236,6 +236,17 @@
       "filename": "Nobara-44-Official-2026-09-02.iso"
     },
     {
+      "id": "garuda-dr460nized",
+      "name": "Garuda Linux (Dr460nized)",
+      "family": "linux",
+      "version": "build 260819",
+      "notes": "Arch made comfortable: a heavily themed KDE Plasma desktop with its own installer and maintenance tools.",
+      "firmware_notes": "UEFI boot. No signed shim in the image — Secure Boot must be off to boot this stick.",
+      "url": "https://iso.builds.garudalinux.org/iso/garuda/dr460nized/260819/garuda-dr460nized-linux-garuda-260819.iso",
+      "sha256": "3dac6b04225fe9577ea0143a1c712e13316dff26985c2c4417f8c5e4af77f7f7",
+      "filename": "garuda-dr460nized-linux-garuda-260819.iso"
+    },
+    {
       "id": "opensuse-tumbleweed",
       "name": "openSUSE Tumbleweed",
       "family": "linux",
@@ -269,6 +280,43 @@
       "url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso",
       "sha256": "54ce9441ce66966a392e28f63604ca3c2c083d0bec4db7bb5af2f74f7a007c8e",
       "filename": "TrueNAS-SCALE-25.10.7.iso"
+    },
+    {
+      "id": "rhel-10",
+      "name": "Red Hat Enterprise Linux 10",
+      "family": "linux",
+      "category": "server",
+      "version": "10",
+      "notes": "Download it yourself — Red Hat puts its images behind an account, so there is no link to pin. For the same packages with no account, see AlmaLinux or Rocky Linux.",
+      "firmware_notes": "UEFI boot. Signed shim, so Secure Boot works.",
+      "import_from": "https://access.redhat.com/downloads (a no-cost Developer subscription covers it)",
+      "requires": [
+        "import-only"
+      ]
+    },
+    {
+      "id": "almalinux-10",
+      "name": "AlmaLinux 10.2",
+      "family": "linux",
+      "category": "server",
+      "version": "10.2",
+      "notes": "RHEL 10, rebuilt and free. Minimal install set — extra package groups want a network or the DVD image.",
+      "firmware_notes": "UEFI boot. Signed shim, so Secure Boot generally works.",
+      "url": "https://repo.almalinux.org/almalinux/10/isos/x86_64/AlmaLinux-10.2-x86_64-minimal.iso",
+      "sha256": "1b532f534231da0d1cd0ccae622bea6cd588d8a0d7b259f1f131501a6eed41a4",
+      "filename": "AlmaLinux-10.2-x86_64-minimal.iso"
+    },
+    {
+      "id": "rocky-10",
+      "name": "Rocky Linux 10.2",
+      "family": "linux",
+      "category": "server",
+      "version": "10.2",
+      "notes": "The other RHEL 10 rebuild, under community governance. Minimal install set, same as AlmaLinux above.",
+      "firmware_notes": "UEFI boot. Signed shim, so Secure Boot generally works.",
+      "url": "https://download.rockylinux.org/pub/rocky/10/isos/x86_64/Rocky-10.2-x86_64-minimal.iso",
+      "sha256": "aac6ac3ce781b91a91ce78463405f66c611a5dca4b3840c79e5e01d97302f6c8",
+      "filename": "Rocky-10.2-x86_64-minimal.iso"
     },
     {
       "id": "linuxmint-22.1-cinnamon",
