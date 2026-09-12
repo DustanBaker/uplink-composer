@@ -54,32 +54,40 @@ const (
 	ImageRaw ImageKind = "raw"
 )
 
-// Entry is one installable OS in the built-in catalog.
+// Entry is one installable OS. The json tags are load-bearing: the same
+// struct is serialised into the signed catalog index, so the shipped list
+// and the published one cannot drift apart.
 type Entry struct {
-	ID            string
-	Name          string
-	Family        Family
-	Category      Category
-	Version       string
-	Notes         string
-	FirmwareNotes string
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Family        Family   `json:"family"`
+	Category      Category `json:"category,omitempty"`
+	Version       string   `json:"version,omitempty"`
+	Notes         string   `json:"notes,omitempty"`
+	FirmwareNotes string   `json:"firmware_notes,omitempty"`
 
 	// Image defaults to ImageISO. Arch defaults to amd64 and exists so an
 	// arm64 board image is never offered as if it would boot a PC.
-	Image ImageKind
-	Arch  string
+	Image ImageKind `json:"image,omitempty"`
+	Arch  string    `json:"arch,omitempty"`
 
 	// Windows sources resolve their ISO at pull time via Fido; Linux
 	// sources pin url + sha256 (or a ChecksumsURL to verify against).
-	Provider     string
-	Fido         *manifest.FidoSpec
-	URL          string
-	SHA256       string
-	ChecksumsURL string // fetch + verify when SHA256 is empty
-	Filename     string
+	Provider     string             `json:"provider,omitempty"`
+	Fido         *manifest.FidoSpec `json:"fido,omitempty"`
+	URL          string             `json:"url,omitempty"`
+	SHA256       string             `json:"sha256,omitempty"`
+	ChecksumsURL string             `json:"checksums_url,omitempty"` // fetch + verify when SHA256 is empty
+	Filename     string             `json:"filename,omitempty"`
+
+	// Requires names capabilities an entry needs from the program reading
+	// it. A build that does not know one of them skips the entry rather
+	// than offering something it cannot build — this is what lets a newer
+	// catalog stay safe to read on an older binary.
+	Requires []string `json:"requires,omitempty"`
 
 	// Windows-only options.
-	Editions []string // e.g. Pro, Home
+	Editions []string `json:"editions,omitempty"` // e.g. Pro, Home
 }
 
 // Options are the Quick-Install choices.
@@ -178,18 +186,9 @@ var genericKeys = map[string]string{
 	"Enterprise": "XGVPP-NMH47-7TTHJ-W3FW7-8HV2C",
 }
 
-// Catalog returns the built-in OS list.
-func Catalog() []Entry { return builtin }
-
-// Get returns the entry with id, or false.
-func Get(id string) (Entry, bool) {
-	for _, e := range builtin {
-		if e.ID == id {
-			return e, true
-		}
-	}
-	return Entry{}, false
-}
+// Builtin is the list compiled into this program — the fallback when no
+// published index has been verified. Catalog() is what callers want.
+func Builtin() []Entry { return builtin }
 
 // BuildQuick pulls the OS (if needed), synthesizes an ephemeral workspace and
 // recipe from the entry + options, and composes flashable media.

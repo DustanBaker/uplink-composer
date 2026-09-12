@@ -16,8 +16,9 @@ import (
 	"github.com/DustanBaker/uplink-composer/internal/recipe"
 )
 
-func cmdCatalog(_ *Env, _ []string) error {
-	fmt.Println("Built-in operating systems (uplink install <id>):")
+func cmdCatalog(ctx context.Context, env *Env, _ []string) error {
+	refreshCatalog(ctx, env)
+	fmt.Printf("Operating systems (uplink install <id>) — list: %s\n", oscatalog.Source())
 	headings := map[oscatalog.Category]string{
 		oscatalog.Desktop:   "Desktop",
 		oscatalog.Server:    "Server",
@@ -93,6 +94,7 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	if fs.NArg() < 1 || fs.NArg() > 2 {
 		return fmt.Errorf("install <os-id> [device] [--edition …] [--account local|oobe] [--debloat …]")
 	}
+	refreshCatalog(ctx, env)
 	e, ok := oscatalog.Get(fs.Arg(0))
 	if !ok {
 		return fmt.Errorf("unknown OS %q — see `uplink catalog`", fs.Arg(0))

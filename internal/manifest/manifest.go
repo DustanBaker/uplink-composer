@@ -52,12 +52,14 @@ var (
 // FidoSpec selects an official Microsoft consumer ISO via the Fido helper
 // (Microsoft's direct links are ephemeral, so the URL is resolved at pull
 // time). Zero values default to Win 11 / Latest / Pro / English / x64.
+// The json tags matter as well as the yaml ones: this struct is carried in
+// the published catalog index, which is a format other builds have to read.
 type FidoSpec struct {
-	Win      string `yaml:"win,omitempty"`      // "11" | "10"
-	Release  string `yaml:"release,omitempty"`  // "Latest" | "24H2" | ...
-	Edition  string `yaml:"edition,omitempty"`  // "Pro" | "Home" | ...
-	Language string `yaml:"language,omitempty"` // "English" | ...
-	Arch     string `yaml:"arch,omitempty"`     // "x64" | "arm64"
+	Win      string `yaml:"win,omitempty" json:"win,omitempty"`           // "11" | "10"
+	Release  string `yaml:"release,omitempty" json:"release,omitempty"`   // "Latest" | "24H2" | ...
+	Edition  string `yaml:"edition,omitempty" json:"edition,omitempty"`   // "Pro" | "Home" | ...
+	Language string `yaml:"language,omitempty" json:"language,omitempty"` // "English" | ...
+	Arch     string `yaml:"arch,omitempty" json:"arch,omitempty"`         // "x64" | "arm64"
 }
 
 // Source is one pinned download.

@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
 	"github.com/DustanBaker/uplink-composer/internal/selfupdate"
 	"github.com/DustanBaker/uplink-composer/internal/workspace"
 )
@@ -24,7 +26,7 @@ One-shot
   go <recipe|.img> [device]  pull missing sources, build, flash, verify (--yes, --build-only)
 
 Quick install (no workspace needed)
-  catalog                   list the built-in operating systems
+  catalog                   list the operating systems on offer
   install <os-id> [device]  build + flash an OS from the catalog
                             (--edition, --account local|oobe, --debloat, --bypass-checks,
                              --drivers to detect this machine and stage its drivers,
@@ -92,12 +94,24 @@ type Env struct {
 	Vars         map[string]string
 }
 
-func (e *Env) library() (*library.Library, error) {
-	root := e.LibraryRoot
-	if root == "" {
-		root = library.DefaultRoot()
+func (e *Env) libraryRoot() string {
+	if e.LibraryRoot != "" {
+		return e.LibraryRoot
 	}
-	return library.Open(root)
+	return library.DefaultRoot()
+}
+
+func (e *Env) library() (*library.Library, error) {
+	return library.Open(e.libraryRoot())
+}
+
+// refreshCatalog pulls the published OS list before a command that shows or
+// uses it. Kept short and non-fatal: a bench with no network still works
+// from the cached index, or the one compiled in.
+func refreshCatalog(ctx context.Context, env *Env) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	_ = oscatalog.Refresh(ctx, env.libraryRoot())
 }
 
 func (e *Env) workspace() (*workspace.Workspace, error) {
@@ -150,6 +164,11 @@ func Main(args []string) int {
 	// an update leaves it behind for the next run to clear.
 	selfupdate.CleanupOld()
 
+	// Adopt the last verified catalog index. No network, so every command
+	// starts with a current OS list even offline; commands that actually use
+	// the catalog refresh it themselves.
+	oscatalog.LoadCached(env.libraryRoot())
+
 	// "compose this": no arguments in a one-recipe workspace runs it.
 	if len(rest) == 0 {
 		if id := soleRecipe(env); id != "" {
@@ -186,7 +205,7 @@ func Main(args []string) int {
 	case "recipes":
 		err = cmdRecipes(env, cmdArgs)
 	case "catalog":
-		err = cmdCatalog(env, cmdArgs)
+		err = cmdCatalog(ctx, env, cmdArgs)
 	case "apps":
 		err = cmdApps(env, cmdArgs)
 	case "install":
