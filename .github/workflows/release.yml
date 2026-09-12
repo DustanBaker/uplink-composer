@@ -81,3 +81,48 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" dist/* --title "$title" --notes-file "$notes"
           fi
+
+  # A real click-to-install download for the product page. Runs after the
+  # release exists so it only has to add one asset to it.
+  installer:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Build the Windows binaries the installer packages
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p dist
+          LDFLAGS="-s -w -X github.com/DustanBaker/uplink-composer/internal/buildinfo.Version=${GITHUB_REF_NAME}"
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -ldflags "$LDFLAGS" -o dist/uplink.exe ./cmd/uplink
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -ldflags "$LDFLAGS -H=windowsgui" -o dist/uplink-app.exe ./cmd/uplink-app
+      - name: Compile the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            # Not every runner image ships it; install rather than fail.
+            choco install innosetup --no-progress -y
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc /DAppVersion=$env:GITHUB_REF_NAME installer\uplink.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+          Get-Item dist\uplink-setup-amd64.exe | ForEach-Object { "built {0} ({1:N1} MB)" -f $_.Name, ($_.Length/1MB) }
+      - name: Attach it to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # The product page links to releases/latest/download/uplink-setup-amd64.exe,
+          # so this name must stay version-free and must land on every release.
+          sha=$(sha256sum dist/uplink-setup-amd64.exe | cut -d' ' -f1)
+          echo "$sha  uplink-setup-amd64.exe" > dist/uplink-setup-amd64.exe.sha256
+          gh release upload "${GITHUB_REF_NAME}" \
+            dist/uplink-setup-amd64.exe dist/uplink-setup-amd64.exe.sha256 --clobber
