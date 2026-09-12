@@ -25,6 +25,7 @@ import (
 	"github.com/DustanBaker/uplink-composer/internal/compose"
 	"github.com/DustanBaker/uplink-composer/internal/device"
 	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
+	"github.com/DustanBaker/uplink-composer/internal/filepicker"
 	"github.com/DustanBaker/uplink-composer/internal/flashrun"
 	"github.com/DustanBaker/uplink-composer/internal/hwdetect"
 	"github.com/DustanBaker/uplink-composer/internal/jobs"
@@ -121,6 +122,7 @@ func (s *Server) handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/state", s.auth(s.handleState))
 	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
+	mux.HandleFunc("POST /api/browse", s.auth(s.handleBrowse))
 	mux.HandleFunc("POST /api/build", s.auth(s.handleBuild))
 	mux.HandleFunc("POST /api/flash", s.auth(s.handleFlash))
 	mux.HandleFunc("POST /api/install", s.auth(s.handleInstall))
@@ -589,6 +591,28 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]string{"job_id": job.ID})
 }
 
+// handleBrowse opens the host's own folder chooser and returns what was
+// picked. The browser cannot produce an absolute path itself, and the server
+// is on the same machine as the person clicking, so it asks the desktop.
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	// Generous: this blocks while a person reads a dialog.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	path, err := filepicker.PickFolder(ctx, "Select a workspace folder")
+	switch {
+	case errors.Is(err, filepicker.ErrCancelled):
+		writeJSON(w, 200, map[string]string{"path": ""})
+		return
+	case errors.Is(err, filepicker.ErrUnavailable):
+		httpErr(w, 501, "no folder chooser on this host — type the path instead")
+		return
+	case err != nil:
+		httpErr(w, 500, "%v", err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"path": path})
+}
+
 // handleDetect profiles the machine the server runs on, so the page can offer
 // "include drivers for this computer" with the actual hardware named.
 func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
@@ -646,12 +670,12 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, "confirmation mismatch: device is %s GiB", dev.SizeConfirmation())
 		return
 	}
-	outPath := filepath.Join(s.Lib.ArtifactsDir(), fmt.Sprintf("capture-%s.img", time.Now().Format("20060102-150405")))
-	job := s.Reg.New("capture", fmt.Sprintf("%s → %s", dev.ID, filepath.Base(outPath)))
+	outPath := filepath.Join(s.Lib.ArtifactsDir(), fmt.Sprintf("clone-%s.img", time.Now().Format("20060102-150405")))
+	job := s.Reg.New("clone", fmt.Sprintf("%s → %s", dev.ID, filepath.Base(outPath)))
 	go func() {
 		s.deviceMu.Lock()
 		defer s.deviceMu.Unlock()
-		result, err := flashrun.RunCapture(context.Background(), dev, outPath, progressFor(job))
+		result, err := flashrun.RunClone(context.Background(), dev, outPath, progressFor(job))
 		if err != nil {
 			job.Fail(err)
 			return

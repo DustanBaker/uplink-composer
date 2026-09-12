@@ -56,8 +56,10 @@ Drivers
 Building and flashing
   build <recipe>            compose a bootable artifact into the library
   devices                   list candidate USB targets
-  flash <recipe|.img> <device>  write and verify a stick (asks for typed size confirm)
-  capture <device>          read a working stick into the library as a master image
+  flash <recipe|.img> <device> [<device> …]   write and verify sticks, all at once
+                            (--all for every attached stick; one elevation for the batch)
+  clone <device>            read a working stick into the library as a master image
+                            (--to <device> … , or --to all, to write it straight to blanks)
 
 Pick an interface
   tui                       full-screen terminal wizard (pick OS, options, stick)
@@ -177,8 +179,8 @@ func Main(args []string) int {
 		err = cmdBuild(ctx, env, cmdArgs)
 	case "flash":
 		err = cmdFlash(ctx, env, cmdArgs)
-	case "capture":
-		err = cmdCapture(ctx, env, cmdArgs)
+	case "clone", "capture": // capture was the old name for this
+		err = cmdClone(ctx, env, cmdArgs)
 	case "flash-worker":
 		return cmdFlashWorker(ctx, cmdArgs)
 	case "gc":

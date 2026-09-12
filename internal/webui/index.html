@@ -226,9 +226,11 @@ function render() {
   const orow = el("div", "row wsrow");
   const input = el("input"); input.placeholder = "path to a workspace folder…"; input.id = "wsInput";
   input.onkeydown = e => { if (e.key === "Enter") openWorkspace(input.value.trim()); };
+  const browseBtn = el("button", "", "Browse…");
+  browseBtn.onclick = () => browseWorkspace(browseBtn, input);
   const openBtn = el("button", "primary", "Open folder");
   openBtn.onclick = () => openWorkspace(input.value.trim());
-  orow.append(input, openBtn);
+  orow.append(input, browseBtn, openBtn);
   wp.append(orow);
 
   const rr = $("recipes"); rr.replaceChildren();
@@ -525,6 +527,22 @@ async function streamEvents() {
       }
     } catch (e) { /* server restarting or network blip */ }
     await new Promise(res => setTimeout(res, 1500));
+  }
+}
+
+// browseWorkspace asks the server to open the host's folder chooser, since a
+// browser cannot give us an absolute path. The dialog blocks until answered,
+// so the button says so rather than looking dead.
+async function browseWorkspace(btn, input) {
+  const was = btn.textContent;
+  btn.textContent = "Choose…"; btn.disabled = true;
+  try {
+    const r = await api("/api/browse", {});
+    if (r.path) { input.value = r.path; await openWorkspace(r.path); }
+  } catch (e) {
+    showErr(e.message);
+  } finally {
+    btn.textContent = was; btn.disabled = false;
   }
 }
 

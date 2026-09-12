@@ -20,16 +20,17 @@ func cmdFlash(ctx context.Context, env *Env, args []string) error {
 	fs := flag.NewFlagSet("flash", flag.ContinueOnError)
 	yes := fs.Bool("yes", false, "skip the typed size confirmation (scripted use)")
 	rebuild := fs.Bool("rebuild", false, "ignore the artifact cache")
+	all := fs.Bool("all", false, "write every attached USB stick at once")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 2 {
-		return fmt.Errorf("flash <recipe-id|artifact.img> <device> [--yes]")
+	if fs.NArg() < 1 {
+		return fmt.Errorf("flash <recipe-id|artifact.img> <device> [<device> …] [--all] [--yes]")
 	}
-	what, devArg := fs.Arg(0), fs.Arg(1)
+	what := fs.Arg(0)
 
-	// Resolve the device first — no point composing for a bad target.
-	dev, err := pickDevice(ctx, devArg)
+	// Resolve targets first — no point composing for a bad one.
+	devs, err := pickDevices(ctx, fs.Args()[1:], *all)
 	if err != nil {
 		return err
 	}
@@ -54,18 +55,23 @@ func cmdFlash(ctx context.Context, env *Env, args []string) error {
 			return err
 		}
 	}
-	return armAndFlash(ctx, art, dev, *yes)
+	return armAndFlashMany(ctx, art, devs, *yes)
 }
 
-func cmdCapture(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("capture", flag.ContinueOnError)
+// cmdClone reads a working stick into an image, and optionally writes that
+// image straight back out to a batch of blanks — the "make twenty of this
+// one" workflow, which is why it is worth having as a single command.
+func cmdClone(ctx context.Context, env *Env, args []string) error {
+	fs := flag.NewFlagSet("clone", flag.ContinueOnError)
 	out := fs.String("out", "", "output image path (default: library artifacts dir)")
+	var to stringList
+	fs.Var(&to, "to", "after reading, write the image to this stick (repeatable, or --to all)")
 	yes := fs.Bool("yes", false, "skip the typed size confirmation")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("capture <device> [--out file.img]")
+		return fmt.Errorf("clone <device> [--out file.img] [--to <device> …]")
 	}
 	devs, err := device.List(ctx)
 	if err != nil {
@@ -76,7 +82,7 @@ func cmdCapture(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if dev.System {
-		return fmt.Errorf("refusing to capture the system disk")
+		return fmt.Errorf("refusing to clone the system disk")
 	}
 	outPath := *out
 	if outPath == "" {
@@ -90,26 +96,74 @@ func cmdCapture(ctx context.Context, env *Env, args []string) error {
 			}
 			return '-'
 		}, dev.Model)
-		outPath = filepath.Join(lib.ArtifactsDir(), fmt.Sprintf("capture-%s-%s.img", name, time.Now().Format("20060102-150405")))
+		outPath = filepath.Join(lib.ArtifactsDir(), fmt.Sprintf("clone-%s-%s.img", name, time.Now().Format("20060102-150405")))
 	}
 
-	fmt.Println("About to CAPTURE this device (read-only, through its last partition):")
+	// Resolve the write targets before reading anything: a typo in --to
+	// should not cost the operator a full read of the master first. The
+	// source is excluded so a stray "all" cannot overwrite what it just read.
+	var targets []device.Device
+	if len(to) > 0 {
+		targets, err = cloneTargets(ctx, to, dev)
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Println("About to READ this device (read-only, through its last partition):")
 	fmt.Println(" ", dev.String())
 	fmt.Println("  to:", outPath)
 	if err := confirmSize(dev, *yes); err != nil {
 		return err
 	}
 	if !elevate.IsElevated() {
-		fmt.Println("elevating capture worker —", elevate.Hint())
+		fmt.Println("elevating clone worker —", elevate.Hint())
 	}
 	prog := &stageProgress{}
-	result, err := flashrun.RunCapture(ctx, dev, outPath, prog.report)
+	result, err := flashrun.RunClone(ctx, dev, outPath, prog.report)
 	prog.finish()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Captured to %s (%s)\n", outPath, result)
-	return nil
+	fmt.Printf("Read into %s (%s)\n", outPath, result)
+	if len(targets) == 0 {
+		fmt.Printf("\nWrite it to blanks with:\n  uplink flash %s <device> [<device> …]\n", filepath.Base(outPath))
+		return nil
+	}
+
+	art, err := compose.LoadArtifact(compose.MetaPath(outPath))
+	if err != nil {
+		return fmt.Errorf("no artifact metadata beside the image: %w", err)
+	}
+	return armAndFlashMany(ctx, art, targets, *yes)
+}
+
+// cloneTargets resolves --to, refusing the source so a clone cannot eat the
+// master it was taken from.
+func cloneTargets(ctx context.Context, to []string, src device.Device) ([]device.Device, error) {
+	all := len(to) == 1 && strings.EqualFold(to[0], "all")
+	args := to
+	if all {
+		args = nil
+	}
+	devs, err := pickDevices(ctx, args, all)
+	if err != nil {
+		return nil, err
+	}
+	var out []device.Device
+	for _, d := range devs {
+		if d.ID == src.ID {
+			if !all {
+				return nil, fmt.Errorf("%s is the device being cloned — it cannot also be a target", d.ID)
+			}
+			continue // --all: quietly leave the master out
+		}
+		out = append(out, d)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no target sticks left after excluding the source")
+	}
+	return out, nil
 }
 
 // confirmSize is the typed-size interlock: the operator must type the

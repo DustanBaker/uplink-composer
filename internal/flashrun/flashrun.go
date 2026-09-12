@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/DustanBaker/uplink-composer/internal/compose"
@@ -21,44 +23,110 @@ import (
 // Progress mirrors flash.Progress.
 type Progress func(stage string, done, total int64)
 
-// Job is the file handed to the elevated worker.
+// Job is the file handed to the elevated worker. Several devices are written
+// in one job on purpose: each would otherwise need its own elevation, and
+// twenty UAC prompts to image twenty sticks is not a workflow anyone would
+// use.
 type Job struct {
-	Op       string            `json:"op"` // "flash" | "capture"
+	Op       string            `json:"op"` // "flash" | "clone"
 	Artifact *compose.Artifact `json:"artifact,omitempty"`
-	Device   device.Device     `json:"device"`
-	OutPath  string            `json:"out_path,omitempty"` // capture
+	Devices  []device.Device   `json:"devices"`
+	OutPath  string            `json:"out_path,omitempty"` // clone
 }
 
-// event is one progress-file line.
+// event is one progress-file line. Device tags which target it came from, so
+// the parent can render a row per stick.
 type event struct {
 	Stage  string `json:"stage"`
+	Device string `json:"device,omitempty"`
 	Done   int64  `json:"done"`
 	Total  int64  `json:"total"`
 	Error  string `json:"error,omitempty"`
 	Result string `json:"result,omitempty"`
 }
 
+// DeviceProgress reports progress for one target among several.
+type DeviceProgress func(deviceID, stage string, done, total int64)
+
 // RunFlash writes art to dev, elevating as needed.
 func RunFlash(ctx context.Context, art *compose.Artifact, dev device.Device, progress Progress) error {
-	if elevate.IsElevated() {
-		return flash.Flash(ctx, art, dev, flash.Progress(progress))
+	return RunFlashMany(ctx, art, []device.Device{dev}, func(_, stage string, done, total int64) {
+		if progress != nil {
+			progress(stage, done, total)
+		}
+	})
+}
+
+// RunFlashMany writes art to every device, in parallel, under a single
+// elevation. A stick that fails does not stop the others: the returned error
+// names every target that did not make it, and progress keeps reporting for
+// the rest.
+func RunFlashMany(ctx context.Context, art *compose.Artifact, devs []device.Device, progress DeviceProgress) error {
+	if len(devs) == 0 {
+		return fmt.Errorf("no devices to write")
 	}
-	_, err := runElevated(ctx, Job{Op: "flash", Artifact: art, Device: dev}, progress)
+	if elevate.IsElevated() {
+		return flashAll(ctx, art, devs, func(id, stage string, done, total int64) {
+			if progress != nil {
+				progress(id, stage, done, total)
+			}
+		})
+	}
+	_, err := runElevated(ctx, Job{Op: "flash", Artifact: art, Devices: devs}, progress)
 	return err
 }
 
-// RunCapture reads dev into outPath (through the end of its last partition),
-// elevating as needed. Returns the capture result summary (sha256:size).
-func RunCapture(ctx context.Context, dev device.Device, outPath string, progress Progress) (string, error) {
+// RunClone reads dev into outPath (through the end of its last partition),
+// elevating as needed. Returns the result summary (sha256:size).
+func RunClone(ctx context.Context, dev device.Device, outPath string, progress Progress) (string, error) {
 	if elevate.IsElevated() {
 		return flash.Capture(ctx, dev, outPath, flash.Progress(progress))
 	}
-	return runElevated(ctx, Job{Op: "capture", Device: dev, OutPath: outPath}, progress)
+	return runElevated(ctx, Job{Op: "clone", Devices: []device.Device{dev}, OutPath: outPath},
+		func(_, stage string, done, total int64) {
+			if progress != nil {
+				progress(stage, done, total)
+			}
+		})
+}
+
+// flashAll writes to every device concurrently. Each target is independent —
+// its own handle, its own readback verify — so one slow or dead stick only
+// holds up itself.
+func flashAll(ctx context.Context, art *compose.Artifact, devs []device.Device, progress DeviceProgress) error {
+	var wg sync.WaitGroup
+	errs := make([]error, len(devs))
+	for i, dev := range devs {
+		wg.Add(1)
+		go func(i int, dev device.Device) {
+			defer wg.Done()
+			errs[i] = flash.Flash(ctx, art, dev, func(stage string, done, total int64) {
+				progress(dev.ID, stage, done, total)
+			})
+			if errs[i] != nil {
+				progress(dev.ID, "error: "+errs[i].Error(), 0, -1)
+			} else {
+				progress(dev.ID, "done", 1, 1)
+			}
+		}(i, dev)
+	}
+	wg.Wait()
+
+	var failed []string
+	for i, err := range errs {
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", devs[i].ID, err))
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%d of %d failed:\n  %s", len(failed), len(devs), strings.Join(failed, "\n  "))
+	}
+	return nil
 }
 
 // runElevated hands the job to a UAC/pkexec-relaunched worker and tails its
 // progress file, forwarding events to progress. Returns the worker's Result.
-func runElevated(ctx context.Context, job Job, progress Progress) (string, error) {
+func runElevated(ctx context.Context, job Job, progress DeviceProgress) (string, error) {
 	jobFile, err := os.CreateTemp("", "composer-job-*.json")
 	if err != nil {
 		return "", err
@@ -76,17 +144,19 @@ func runElevated(ctx context.Context, job Job, progress Progress) (string, error
 	}
 
 	if progress != nil {
-		progress("waiting for elevation approval", 0, -1)
+		progress("", "waiting for elevation approval", 0, -1)
 	}
 	done := make(chan struct{})
 	var result string
 	var workerErr string
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		result, workerErr = tail(ctx, progPath, done, progress)
 	}()
 	code, err := elevate.RunElevated([]string{"flash-worker", "--job", jobPath, "--progress", progPath})
 	close(done)
-	time.Sleep(200 * time.Millisecond) // let the tailer drain the final lines
+	<-finished // the tailer drains the final lines, then publishes result/workerErr
 	if err != nil {
 		return "", err
 	}
@@ -100,7 +170,7 @@ func runElevated(ctx context.Context, job Job, progress Progress) (string, error
 }
 
 // tail reads progress-file lines until done closes; returns result/error seen.
-func tail(ctx context.Context, path string, done <-chan struct{}, progress Progress) (result, workerErr string) {
+func tail(ctx context.Context, path string, done <-chan struct{}, progress DeviceProgress) (result, workerErr string) {
 	var offset int64
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
@@ -128,7 +198,7 @@ func tail(ctx context.Context, path string, done <-chan struct{}, progress Progr
 				result = ev.Result
 			}
 			if progress != nil && ev.Stage != "" {
-				progress(ev.Stage, ev.Done, ev.Total)
+				progress(ev.Device, ev.Stage, ev.Done, ev.Total)
 			}
 		}
 	}
@@ -162,29 +232,47 @@ func Worker(ctx context.Context, jobPath, progPath string) int {
 	}
 	defer prog.Close()
 	enc := json.NewEncoder(prog)
-	last := time.Now()
-	emit := func(ev event) { enc.Encode(ev) }
-	report := func(stage string, done, total int64) {
-		if stage == "done" || time.Since(last) > 250*time.Millisecond {
-			emit(event{Stage: stage, Done: done, Total: total})
-			last = time.Now()
+	// Targets are written concurrently, so the shared encoder and the
+	// throttle clock both need guarding.
+	var mu sync.Mutex
+	emit := func(ev event) {
+		mu.Lock()
+		defer mu.Unlock()
+		enc.Encode(ev)
+	}
+	last := map[string]time.Time{}
+	report := func(devID, stage string, done, total int64) {
+		mu.Lock()
+		fresh := stage == "done" || strings.HasPrefix(stage, "error") || time.Since(last[devID]) > 250*time.Millisecond
+		if fresh {
+			last[devID] = time.Now()
+		}
+		mu.Unlock()
+		if fresh {
+			emit(event{Stage: stage, Device: devID, Done: done, Total: total})
 		}
 	}
 
+	if len(job.Devices) == 0 {
+		emit(event{Error: "job has no devices"})
+		return 2
+	}
 	switch job.Op {
 	case "flash":
 		if job.Artifact == nil {
 			emit(event{Error: "job has no artifact"})
 			return 2
 		}
-		if err := flash.Flash(ctx, job.Artifact, job.Device, report); err != nil {
+		if err := flashAll(ctx, job.Artifact, job.Devices, report); err != nil {
 			emit(event{Stage: "error", Error: err.Error()})
 			return 1
 		}
-		emit(event{Stage: "done", Result: "flashed"})
+		emit(event{Stage: "done", Result: fmt.Sprintf("flashed %d", len(job.Devices))})
 		return 0
-	case "capture":
-		result, err := flash.Capture(ctx, job.Device, job.OutPath, report)
+	case "clone":
+		result, err := flash.Capture(ctx, job.Devices[0], job.OutPath, func(stage string, done, total int64) {
+			report(job.Devices[0].ID, stage, done, total)
+		})
 		if err != nil {
 			emit(event{Stage: "error", Error: err.Error()})
 			return 1

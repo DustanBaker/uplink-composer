@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -126,6 +127,62 @@ func pickDevice(ctx context.Context, arg string) (device.Device, error) {
 	}
 }
 
+// pickDevices resolves the targets for a write: named devices, every attached
+// stick with --all, or — the common case — the single one plugged in.
+func pickDevices(ctx context.Context, args []string, all bool) ([]device.Device, error) {
+	if all && len(args) > 0 {
+		return nil, fmt.Errorf("--all writes every attached stick; do not also name devices")
+	}
+	if all {
+		devs, err := device.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var usable []device.Device
+		for _, d := range devs {
+			if d.Flashable() {
+				usable = append(usable, d)
+			}
+		}
+		if len(usable) == 0 {
+			return nil, fmt.Errorf("no USB sticks attached")
+		}
+		return usable, nil
+	}
+	if len(args) <= 1 {
+		arg := ""
+		if len(args) == 1 {
+			arg = args[0]
+		}
+		d, err := pickDevice(ctx, arg)
+		if err != nil {
+			return nil, err
+		}
+		return []device.Device{d}, nil
+	}
+	devs, err := device.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []device.Device
+	seen := map[string]bool{}
+	for _, a := range args {
+		d, err := matchDevice(devs, a)
+		if err != nil {
+			return nil, err
+		}
+		if !d.Flashable() {
+			return nil, fmt.Errorf("%s is not flashable (bus=%s, system=%v)", d.ID, d.Bus, d.System)
+		}
+		if seen[d.ID] {
+			return nil, fmt.Errorf("%s named twice", d.ID)
+		}
+		seen[d.ID] = true
+		out = append(out, d)
+	}
+	return out, nil
+}
+
 // ensureSources pulls every pinned source the recipe needs that is not in
 // the library yet. Windows tree-mode builds skip the ISO when the master
 // tree is present on this machine.
@@ -182,25 +239,66 @@ func ensureSources(ctx context.Context, ws *workspace.Workspace, lib *library.Li
 // armAndFlash shows the target, takes the typed-size confirmation, and
 // runs the (elevated) flash with progress.
 func armAndFlash(ctx context.Context, art *compose.Artifact, dev device.Device, yes bool) error {
+	return armAndFlashMany(ctx, art, []device.Device{dev}, yes)
+}
+
+// armAndFlashMany arms and writes one or more sticks under a single
+// elevation. One stick keeps the familiar typed-size interlock; several are
+// confirmed by typing how many, since making someone type twenty sizes would
+// only teach them to reach for --yes.
+func armAndFlashMany(ctx context.Context, art *compose.Artifact, devs []device.Device, yes bool) error {
 	fmt.Println()
-	fmt.Println("About to WIPE this device:")
-	fmt.Println(" ", dev.String())
-	if len(dev.Mounts) > 0 {
-		fmt.Println("  currently mounted at:", strings.Join(dev.Mounts, ", "))
+	if len(devs) == 1 {
+		fmt.Println("About to WIPE this device:")
+	} else {
+		fmt.Printf("About to WIPE these %d devices:\n", len(devs))
+	}
+	for _, d := range devs {
+		fmt.Println(" ", d.String())
+		if len(d.Mounts) > 0 {
+			fmt.Println("    currently mounted at:", strings.Join(d.Mounts, ", "))
+		}
 	}
 	fmt.Printf("  writing: %s (%d MiB, verify %s)\n", filepath.Base(art.Path), art.Size>>20, art.Verify)
-	if err := confirmSize(dev, yes); err != nil {
+
+	if len(devs) == 1 {
+		if err := confirmSize(devs[0], yes); err != nil {
+			return err
+		}
+	} else if err := confirmCount(len(devs), yes); err != nil {
 		return err
 	}
+
 	if !elevate.IsElevated() {
 		fmt.Println("elevating flash worker —", elevate.Hint())
 	}
-	prog := &stageProgress{}
-	err := flashrun.RunFlash(ctx, art, dev, prog.report)
+	prog := newMultiProgress(devs)
+	err := flashrun.RunFlashMany(ctx, art, devs, prog.report)
 	prog.finish()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Done. %s is written and verified — safe to remove.\n", dev.ID)
+	if len(devs) == 1 {
+		fmt.Printf("Done. %s is written and verified — safe to remove.\n", devs[0].ID)
+	} else {
+		fmt.Printf("Done. All %d are written and verified — safe to remove.\n", len(devs))
+	}
+	return nil
+}
+
+// confirmCount is the multi-stick interlock: the operator has just been shown
+// every target and types how many they meant.
+func confirmCount(n int, yes bool) error {
+	if yes {
+		return nil
+	}
+	fmt.Printf("\nThis PERMANENTLY ERASES all %d. Type %d to confirm: ", n, n)
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("reading confirmation: %w", err)
+	}
+	if strings.TrimSpace(line) != fmt.Sprint(n) {
+		return fmt.Errorf("confirmation mismatch — nothing was written")
+	}
 	return nil
 }
