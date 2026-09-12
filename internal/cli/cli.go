@@ -35,8 +35,11 @@ Library (machine-local, multi-GB safe)
   gc                        drop unreferenced blobs and tmp files
 
 Drivers
+  drivers search <dell|lenovo|hp> "<model>"   find the vendor's driver pack for a model (--add)
+  drivers search mscatalog "<hardware-id>"     find a driver in the Microsoft Update Catalog (--add)
+  drivers resolve <recipe>  fetch packs for every windows.hardware entry (compose does this itself)
   drivers inspect <pack>    what a dir/.zip/.cab/.inf covers (class, versions, hardware IDs)
-  drivers add --id <n> <pack>  stage a pack (workspace or library+manifest) + recipe snippet
+  drivers add --id <n> <pack>  stage a pack you already have + recipe snippet
   drivers scan              list this machine's devices that still need drivers (Windows)
 
 Building and flashing

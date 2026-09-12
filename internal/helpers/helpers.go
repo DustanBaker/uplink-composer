@@ -150,9 +150,21 @@ func SplitWIM(ctx context.Context, helpersDir, wimPath, swmPath string, chunkMB 
 	return run(ctx, wimlib, "split", wimPath, swmPath, fmt.Sprintf("%d", chunkMB))
 }
 
-// ExpandZip extracts a .zip driver pack into destDir (pure Go, used by the
-// compose pipeline for inf-dir packs).
-// Implemented in zip.go.
+// ExpandCab extracts a Microsoft cabinet into destDir: expand.exe on
+// Windows, 7-Zip elsewhere.
+func ExpandCab(ctx context.Context, helpersDir, cabPath, destDir string) error {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		return run(ctx, "expand", cabPath, "-F:*", destDir)
+	}
+	sevenZip, err := Find7z(helpersDir)
+	if err != nil {
+		return err
+	}
+	return run(ctx, sevenZip, "x", "-y", "-o"+destDir, cabPath)
+}
 
 // Check reports the tool situation on this host for `composer doctor`.
 func Check(helpersDir string) []Status {

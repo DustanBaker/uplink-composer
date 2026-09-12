@@ -72,8 +72,16 @@ type ResolvedDrivers struct {
 		File string // e.g. intel-sst-10.29.0.12571.cab
 		Dir  string // e.g. intel-sst
 	}
+	// Extracts are vendor self-extracting packs (Dell/Lenovo/HP): the exe
+	// staged under Scripts/, unpacked into Scripts/Drivers/<Dir>/ at boot
+	// with Args ({dir} substituted), then swept.
+	Extracts []struct {
+		File string
+		Dir  string
+		Args []string
+	}
 	// HasSweepable is true when any INF material lands under
-	// Scripts/Drivers/ (inf-dir packs or expanded cabs).
+	// Scripts/Drivers/ (inf-dir packs, expanded cabs, extracted packs).
 	HasSweepable bool
 	// Exes are vendor silent installers staged under Scripts/.
 	Exes []struct {
@@ -137,6 +145,19 @@ func GenerateFirstboot(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref s
 				line(`  mkdir "%%SCRIPTS%%\Drivers\%s" 2>nul`, cab.Dir)
 				line(`  expand "%%SCRIPTS%%\%s" -F:* "%%SCRIPTS%%\Drivers\%s" > nul`, cab.File, cab.Dir)
 				line(`  echo [%%date%% %%time%%] %s expand exited with %%errorlevel%% >> "%%LOG%%"`, cab.Dir)
+				line(`)`)
+			}
+			for _, ex := range drivers.Extracts {
+				dest := `%SCRIPTS%\Drivers\` + ex.Dir
+				args := make([]string, len(ex.Args))
+				for i, a := range ex.Args {
+					args[i] = strings.ReplaceAll(a, "{dir}", dest)
+				}
+				line(`rem --- unpack vendor driver pack %s so the pnputil sweep installs it ---`, ex.File)
+				line(`if exist "%%SCRIPTS%%\%s" (`, ex.File)
+				line(`  mkdir "%s" 2>nul`, dest)
+				line(`  "%%SCRIPTS%%\%s" %s`, ex.File, strings.Join(args, " "))
+				line(`  echo [%%date%% %%time%%] %s extract exited with %%errorlevel%% >> "%%LOG%%"`, ex.Dir)
 				line(`)`)
 			}
 			if drivers.HasSweepable {

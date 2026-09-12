@@ -29,10 +29,14 @@ func cmdDrivers(ctx context.Context, env *Env, args []string) error {
 		return driversInspect(ctx, env, args[1])
 	case "add":
 		return driversAdd(ctx, env, args[1:])
+	case "search":
+		return driversSearch(ctx, env, args[1:])
+	case "resolve":
+		return driversResolve(ctx, env, args[1:])
 	case "scan":
 		return driversScan(ctx)
 	default:
-		return fmt.Errorf("drivers: unknown subcommand %q", args[0])
+		return fmt.Errorf("drivers: unknown subcommand %q (inspect, add, search, resolve, scan)", args[0])
 	}
 }
 
@@ -254,9 +258,10 @@ func driversScan(ctx context.Context) error {
 		fmt.Println("No devices with driver problems — this machine is fully driven.")
 		return nil
 	}
-	fmt.Printf("\n%d device(s) need drivers. Find packs covering these hardware IDs\n", problems)
-	fmt.Println("(vendor support pages, or catalog.update.microsoft.com — search the ID),")
-	fmt.Println("then: composer drivers inspect <pack> && composer drivers add --id <name> <pack>")
+	fmt.Printf("\n%d device(s) need drivers. Look each hardware ID up in the Microsoft Update Catalog:\n", problems)
+	fmt.Println("  composer drivers search mscatalog \"<hardware-id>\" --add")
+	fmt.Println("or, for Dell/Lenovo/HP machines, take the whole vendor pack:")
+	fmt.Println("  composer drivers search dell \"<model>\" --add")
 	return nil
 }
 

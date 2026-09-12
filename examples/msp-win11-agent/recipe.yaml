@@ -31,14 +31,23 @@ windows:
       # a real license.
       edition_key: VK7JG-NPHTM-C97JM-9MPGT-3V66T
 
+  # Let The Composer find and pull the right driver packs for named
+  # machines (Dell/Lenovo/HP by model, anything else by hardware ID).
+  # `compose` resolves these automatically; or run `composer drivers
+  # resolve sff-win11-agent` up front. Each install lays its INFs under
+  # Scripts/Drivers/ where the first-boot pnputil sweep picks them up.
+  hardware:
+    - { vendor: dell, model: "OptiPlex 7010" }
+    # - { vendor: lenovo, model: "ThinkCentre M70q Gen 3" }
+    # - { vendor: hp, model: "EliteDesk 800 G6" }
+    # - { hwids: ["PCI\\VEN_8086&DEV_15B8"] }   # Microsoft Update Catalog
+
   driver_packs:
-    # INF packs for every model this stick serves; pnputil installs only
-    # what matches the hardware it boots on.
-    - { path: Drivers/vendor-lan, install: pnputil-sweep }
-    # A vendor .cab (expanded at first boot, then swept).
-    - { ref: audio-cab, install: expand-then-sweep }
-    # A vendor silent installer.
-    - { ref: wifi-exe, install: exe, args: ["-q", "-s", "-l", "{log}"], log: wifi-install.log }
+    # You can also add packs by hand: INF dirs kept in the repo, or a
+    # vendor cab/exe you downloaded yourself.
+    # - { path: Drivers/vendor-lan, install: pnputil-sweep }
+    # - { ref: audio-cab, install: expand-then-sweep }
+    # - { ref: wifi-exe, install: exe, args: ["-q", "-s", "-l", "{log}"], log: wifi-install.log }
 
   payload:
     - { ref: rmm-agent-msi }

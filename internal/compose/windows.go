@@ -10,7 +10,9 @@ import (
 
 	"github.com/DustanBaker/the-composer/internal/fsimg"
 	"github.com/DustanBaker/the-composer/internal/helpers"
+	"github.com/DustanBaker/the-composer/internal/manifest"
 	"github.com/DustanBaker/the-composer/internal/recipe"
+	"github.com/DustanBaker/the-composer/internal/workspace"
 )
 
 // scriptsImg is where $OEM$ payload lands on the stick; Windows Setup copies
@@ -144,9 +146,16 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		stage.AddFile(p, "/sources/ei.cfg")
 	}
 
-	// Driver packs.
+	// Driver packs: explicit ones, then packs resolved for windows.hardware
+	// entries (manifests carrying a matching `hardware:` block).
 	var drivers recipe.ResolvedDrivers
-	for _, pack := range w.DriverPacks {
+	packs := append([]recipe.DriverPack(nil), w.DriverPacks...)
+	hwPacks, err := hardwarePacks(ws, w.Hardware)
+	if err != nil {
+		return nil, err
+	}
+	packs = append(packs, hwPacks...)
+	for _, pack := range packs {
 		switch pack.Install {
 		case recipe.InstallSweep:
 			dir, err := materializeDir(ctx, req, buildTmp, pack)
@@ -168,6 +177,22 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 				File string
 				Dir  string
 			}{File: file.name, Dir: pack.Name()})
+			drivers.HasSweepable = true
+		case recipe.InstallExtractSweep:
+			file, err := materializeFile(req, pack.Ref)
+			if err != nil {
+				return nil, err
+			}
+			if len(pack.Extract) == 0 {
+				return nil, fmt.Errorf("compose: driver pack %s uses extract-then-sweep but has no extract args (e.g. Dell: /s /e={dir})", pack.Ref)
+			}
+			stage.AddFile(file.host, path.Join(scriptsImg, file.name))
+			refFiles[pack.Ref] = file.name
+			drivers.Extracts = append(drivers.Extracts, struct {
+				File string
+				Dir  string
+				Args []string
+			}{File: file.name, Dir: pack.Name(), Args: pack.Extract})
 			drivers.HasSweepable = true
 		case recipe.InstallExe:
 			file, err := materializeFile(req, pack.Ref)
@@ -303,6 +328,60 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		CreatedAt: nowUTC(), Tool: toolVersion(),
 	}
 	return a, a.save()
+}
+
+// hardwarePacks turns windows.hardware entries into driver packs by finding
+// workspace manifests whose `hardware:` block matches (written by
+// `composer drivers resolve`). Each entry must have at least one pack.
+func hardwarePacks(ws *workspace.Workspace, hw []recipe.HardwareSpec) ([]recipe.DriverPack, error) {
+	if len(hw) == 0 {
+		return nil, nil
+	}
+	sources, err := ws.Sources()
+	if err != nil {
+		return nil, err
+	}
+	var out []recipe.DriverPack
+	seen := map[string]bool{}
+	for _, h := range hw {
+		targets := []struct{ vendor, model, hwid string }{}
+		if h.Vendor != "" {
+			targets = append(targets, struct{ vendor, model, hwid string }{h.Vendor, h.Model, ""})
+		}
+		for _, id := range h.HWIDs {
+			targets = append(targets, struct{ vendor, model, hwid string }{"", "", id})
+		}
+		for _, t := range targets {
+			found := 0
+			for _, src := range sources {
+				if !src.Hardware.Matches(t.vendor, t.model, t.hwid) || seen[src.ID] {
+					continue
+				}
+				seen[src.ID] = true
+				found++
+				install := recipe.InstallMethod(src.Install)
+				if install == "" {
+					switch src.Format {
+					case manifest.FormatCab:
+						install = recipe.InstallExpandSweep
+					case manifest.FormatExe:
+						install = recipe.InstallExtractSweep
+					default:
+						install = recipe.InstallSweep
+					}
+				}
+				out = append(out, recipe.DriverPack{Ref: src.ID, Install: install, Extract: src.Extract})
+			}
+			if found == 0 {
+				what := t.hwid
+				if what == "" {
+					what = t.vendor + " " + t.model
+				}
+				return nil, fmt.Errorf("compose: no driver-pack manifest for hardware %q — run `composer drivers resolve %s`", what, ws.Dir)
+			}
+		}
+	}
+	return out, nil
 }
 
 // overlayVars expands ${var:...} in overlay values against base, then merges

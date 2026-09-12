@@ -53,13 +53,20 @@ promotions and Start suggestions, and sets telemetry to the Pro floor — while
 the installed media itself stays official, fully updatable, and
 activation-safe.
 
-**Driver assistance.** `composer drivers inspect <pack>` reads INFs (ANSI or
-UTF-16) out of a directory, zip, or cab and reports device class, provider,
-versions, resolved device names, and hardware IDs; `drivers add` stages the
-pack correctly for its type (INF dir → workspace, zip/cab/exe → library +
-pinned manifest) and prints the recipe snippet; `drivers scan` lists the
-local machine's devices that still need drivers, with the hardware IDs to
-hunt for.
+**Driver assistance — find, not just stage.** `composer drivers search dell
+"OptiPlex 7010"` (or `lenovo`/`hp` by model) pulls the vendor's own
+enterprise driver-pack catalog and lists the matching packs with versions,
+dates, sizes, and hashes; `--add` writes a pinned, self-describing manifest
+and downloads it. For hardware without a vendor feed — Intel NUCs, ASUS, a
+lone unknown NIC — `composer drivers search mscatalog "PCI\VEN_8086&DEV_15B8"`
+queries the Microsoft Update Catalog by hardware ID and pulls the official
+signed driver cab. A recipe names the machines it serves in a
+`windows.hardware` block, and `compose` resolves and stages their packs
+automatically (`composer drivers resolve <recipe>` does it up front). The
+manual tools remain: `drivers inspect` reads INFs (ANSI or UTF-16) out of a
+directory/zip/cab and reports class, versions, and hardware IDs; `drivers
+add` stages a pack you already have; `drivers scan` lists the local
+machine's devices that still need drivers, with the IDs to search for.
 
 Safety, inherited from the shell script this tool generalizes: only
 removable USB devices are ever flashable, the disk hosting the OS is

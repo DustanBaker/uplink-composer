@@ -74,10 +74,11 @@ type TargetSpec struct {
 type WindowsSpec struct {
 	EICfg        *EICfg        `yaml:"ei_cfg,omitempty"`
 	Unattend     *UnattendSpec `yaml:"unattend,omitempty"`
-	WinPEDrivers []string      `yaml:"winpe_drivers,omitempty"` // source refs → $WinpeDriver$/
-	DriverPacks  []DriverPack  `yaml:"driver_packs,omitempty"`
-	Payload      []PayloadItem `yaml:"payload,omitempty"`
-	Debloat      *DebloatSpec  `yaml:"debloat,omitempty"`
+	WinPEDrivers []string       `yaml:"winpe_drivers,omitempty"` // source refs → $WinpeDriver$/
+	DriverPacks  []DriverPack   `yaml:"driver_packs,omitempty"`
+	Hardware     []HardwareSpec `yaml:"hardware,omitempty"` // machines whose packs are resolved from catalogs
+	Payload      []PayloadItem  `yaml:"payload,omitempty"`
+	Debloat      *DebloatSpec   `yaml:"debloat,omitempty"`
 	Firstboot    FirstbootSpec `yaml:"firstboot,omitempty"`
 }
 
@@ -113,11 +114,22 @@ type UnattendSpec struct {
 type InstallMethod string
 
 const (
-	InstallSweep         InstallMethod = "pnputil-sweep"     // INF dir under Scripts/Drivers/, swept by pnputil
-	InstallExpandSweep   InstallMethod = "expand-then-sweep" // .cab expanded first, then swept
-	InstallExe           InstallMethod = "exe"               // vendor silent installer
-	InstallWinPEOnlyNote InstallMethod = ""                  // zero value: validated away
+	InstallSweep        InstallMethod = "pnputil-sweep"      // INF dir under Scripts/Drivers/, swept by pnputil
+	InstallExpandSweep  InstallMethod = "expand-then-sweep"  // .cab expanded first, then swept
+	InstallExtractSweep InstallMethod = "extract-then-sweep" // vendor self-extracting exe unpacked first, then swept
+	InstallExe          InstallMethod = "exe"                // vendor silent installer
 )
+
+// HardwareSpec names a machine whose driver packs the composer should find
+// and stage automatically (`composer drivers resolve`): a vendor model from
+// the Dell/Lenovo/HP catalogs, or hardware IDs looked up in the Microsoft
+// Update Catalog.
+type HardwareSpec struct {
+	Vendor string   `yaml:"vendor,omitempty"` // dell | lenovo | hp
+	Model  string   `yaml:"model,omitempty"`
+	HWIDs  []string `yaml:"hwids,omitempty"`
+	OS     string   `yaml:"os,omitempty"` // default win11
+}
 
 // DriverPack references driver material by library/manifest Ref or by a
 // workspace-relative Path (a directory of INFs kept in the workspace repo).
@@ -126,8 +138,9 @@ type DriverPack struct {
 	Ref     string        `yaml:"ref,omitempty"`
 	Path    string        `yaml:"path,omitempty"`
 	Install InstallMethod `yaml:"install"`
-	Args    []string      `yaml:"args,omitempty"` // exe only
-	Log     string        `yaml:"log,omitempty"`  // exe only; log filename
+	Args    []string      `yaml:"args,omitempty"`    // exe only
+	Log     string        `yaml:"log,omitempty"`     // exe only; log filename
+	Extract []string      `yaml:"extract,omitempty"` // extract-then-sweep: silent-extract args, {dir} = destination
 }
 
 // Name is the pack's staging directory name.
@@ -394,9 +407,22 @@ func (r *Recipe) Validate() error {
 				return fail("windows.driver_packs[%d] needs exactly one of ref or path", i)
 			}
 			switch d.Install {
-			case InstallSweep, InstallExpandSweep, InstallExe:
+			case InstallSweep, InstallExpandSweep, InstallExtractSweep, InstallExe:
 			default:
-				return fail("windows.driver_packs[%d] install must be pnputil-sweep, expand-then-sweep, or exe", i)
+				return fail("windows.driver_packs[%d] install must be pnputil-sweep, expand-then-sweep, extract-then-sweep, or exe", i)
+			}
+		}
+		for i, h := range r.Windows.Hardware {
+			byModel := h.Vendor != "" && h.Model != ""
+			if !byModel && len(h.HWIDs) == 0 {
+				return fail("windows.hardware[%d] needs vendor+model or hwids", i)
+			}
+			if h.Vendor != "" {
+				switch strings.ToLower(h.Vendor) {
+				case "dell", "lenovo", "hp":
+				default:
+					return fail("windows.hardware[%d] vendor must be dell, lenovo, or hp (use hwids for others)", i)
+				}
 			}
 		}
 	} else {

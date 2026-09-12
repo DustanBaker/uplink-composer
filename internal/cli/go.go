@@ -71,6 +71,9 @@ func cmdGo(ctx context.Context, env *Env, args []string) error {
 		if err != nil {
 			return err
 		}
+		if err := resolveHardware(ctx, ws, lib, r); err != nil {
+			return err
+		}
 		if err := ensureSources(ctx, ws, lib, r, *tofu); err != nil {
 			return err
 		}

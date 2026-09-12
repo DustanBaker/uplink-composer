@@ -78,6 +78,33 @@ type Source struct {
 	Size     int64  `yaml:"size,omitempty"`
 	Filename string `yaml:"filename,omitempty"`
 	Notes    string `yaml:"notes,omitempty"`
+
+	// Driver packs found by `composer drivers search/resolve` describe the
+	// machine they serve and how to install them, so a recipe's
+	// windows.hardware entries pick them up without naming them.
+	Hardware *HardwareRef `yaml:"hardware,omitempty"`
+	Install  string       `yaml:"install,omitempty"` // pnputil-sweep | expand-then-sweep | extract-then-sweep
+	Extract  []string     `yaml:"extract,omitempty"` // extract-then-sweep args; {dir} = destination
+}
+
+// HardwareRef ties a driver pack to a vendor model or a hardware ID.
+type HardwareRef struct {
+	Vendor string `yaml:"vendor,omitempty"`
+	Model  string `yaml:"model,omitempty"`
+	HWID   string `yaml:"hwid,omitempty"`
+	OS     string `yaml:"os,omitempty"`
+}
+
+// Matches reports whether this pack serves the given machine.
+func (h *HardwareRef) Matches(vendor, model, hwid string) bool {
+	if h == nil {
+		return false
+	}
+	if hwid != "" {
+		return strings.EqualFold(strings.TrimSpace(h.HWID), strings.TrimSpace(hwid))
+	}
+	return strings.EqualFold(strings.TrimSpace(h.Vendor), strings.TrimSpace(vendor)) &&
+		strings.EqualFold(strings.Join(strings.Fields(h.Model), " "), strings.Join(strings.Fields(model), " "))
 }
 
 // Validate checks internal consistency; path is used in error messages.
