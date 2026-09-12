@@ -336,7 +336,7 @@ func CheckISO(path string) error {
 // per address) that "download it yourself once" is a normal path, not a
 // fallback — and there is otherwise no way to hand Quick Install an ISO,
 // since `sources import` needs a workspace and a manifest.
-func ImportISO(lib *library.Library, e Entry, path string) (library.Entry, error) {
+func ImportISO(lib *library.Library, e Entry, path string, progress func(stage string, done, total int64)) (library.Entry, error) {
 	if err := CheckISO(path); err != nil {
 		return library.Entry{}, err
 	}
@@ -344,7 +344,9 @@ func ImportISO(lib *library.Library, e Entry, path string) (library.Entry, error
 		ID: e.ID, Kind: manifest.KindOSImage, Format: manifest.FormatISO,
 		Filename: filepath.Base(path),
 	}
-	return lib.Import(src, path)
+	// With progress: a Windows ISO is read twice here, once to hash and once
+	// to copy, and ten gigabytes of silence is indistinguishable from a hang.
+	return lib.ImportWithProgress(src, path, progress)
 }
 
 // PlanDrivers finds and downloads the driver packs a machine needs without

@@ -503,7 +503,7 @@ func (m *model) start() tea.Cmd {
 			}
 			if isoPath != "" && !oscatalog.InLibrary(lib, e) {
 				progress("importing "+filepath.Base(isoPath), 0, -1)
-				if _, err := oscatalog.ImportISO(lib, e, isoPath); err != nil {
+				if _, err := oscatalog.ImportISO(lib, e, isoPath, progress); err != nil {
 					ch <- doneMsg{err: err}
 					return
 				}

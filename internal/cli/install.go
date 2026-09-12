@@ -194,9 +194,8 @@ func hardwareForModel(spec string, e oscatalog.Entry) (recipe.HardwareSpec, erro
 	return h, nil
 }
 
-// importISO files a downloaded ISO under the catalog entry's id. Hashing and
-// copying several gigabytes takes a while, so say so, and skip the work when
-// the image is already there.
+// importISO files a downloaded ISO under the catalog entry's id, skipping the
+// work when the image is already there.
 func importISO(lib *library.Library, e oscatalog.Entry, path string) error {
 	if oscatalog.InLibrary(lib, e) {
 		fmt.Printf("%s is already in the library — using that, ignoring --iso.\n", e.ID)
@@ -206,8 +205,9 @@ func importISO(lib *library.Library, e oscatalog.Entry, path string) error {
 	if err := oscatalog.CheckISO(path); err != nil {
 		return err
 	}
-	fmt.Printf("Importing %s (hashing and copying several GB, this takes a minute)...\n", filepath.Base(path))
-	entry, err := oscatalog.ImportISO(lib, e, path)
+	prog := &stageProgress{}
+	entry, err := oscatalog.ImportISO(lib, e, path, prog.report)
+	prog.finish()
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,8 @@ package library
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -83,8 +85,8 @@ func Open(root string) (*Library, error) {
 	return l, nil
 }
 
-func (l *Library) blobDir() string      { return filepath.Join(l.Root, "blobs", "sha256") }
-func (l *Library) catalogPath() string  { return filepath.Join(l.Root, "catalog.json") }
+func (l *Library) blobDir() string     { return filepath.Join(l.Root, "blobs", "sha256") }
+func (l *Library) catalogPath() string { return filepath.Join(l.Root, "catalog.json") }
 
 // TmpDir holds in-progress downloads and staging trees; same volume as blobs
 // so finalizing is a rename.
@@ -153,7 +155,22 @@ func (l *Library) storeBlob(path, sha string) error {
 // Import copies a local file (e.g. a manually downloaded Windows ISO) into
 // the store under the given source metadata and returns its entry.
 func (l *Library) Import(src *manifest.Source, filePath string) (Entry, error) {
-	sum, err := fetch.SHA256File(filePath)
+	return l.ImportWithProgress(src, filePath, nil)
+}
+
+// ImportWithProgress is Import with something to watch.
+//
+// Importing reads the file twice — once to hash it, once to copy it — and for
+// a Windows ISO that is ten gigabytes of work. Without progress the tool sits
+// silent for minutes on a step the operator just asked for, which is
+// indistinguishable from being hung. progress may be nil.
+func (l *Library) ImportWithProgress(src *manifest.Source, filePath string, progress func(stage string, done, total int64)) (Entry, error) {
+	st, err := os.Stat(filePath)
+	if err != nil {
+		return Entry{}, err
+	}
+	name := filepath.Base(filePath)
+	sum, err := hashFile(filePath, st.Size(), "checking "+name, progress)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -161,13 +178,9 @@ func (l *Library) Import(src *manifest.Source, filePath string) (Entry, error) {
 		return Entry{}, fmt.Errorf("library: %s has sha256 %s, manifest %s pins %s — wrong file or corrupted download",
 			filePath, sum, src.ID, src.SHA256)
 	}
-	st, err := os.Stat(filePath)
-	if err != nil {
-		return Entry{}, err
-	}
 	// Copy into tmp first so the original file is never consumed.
 	tmp := filepath.Join(l.TmpDir(), "import-"+sum)
-	if err := copyFile(filePath, tmp); err != nil {
+	if err := copyFileProgress(filePath, tmp, st.Size(), "filing "+name, progress); err != nil {
 		return Entry{}, err
 	}
 	if err := l.storeBlob(tmp, sum); err != nil {
@@ -350,6 +363,55 @@ func urlBasename(u string) string {
 }
 
 func copyFile(src, dst string) error {
+	return copyFileProgress(src, dst, 0, "", nil)
+}
+
+// counter reports bytes as they pass, so hashing and copying can be watched
+// without reading the file a third time.
+type counter struct {
+	w        io.Writer
+	done     int64
+	total    int64
+	stage    string
+	progress func(string, int64, int64)
+	// Reported on a byte interval rather than per write: a 4 MiB copy loop
+	// would otherwise call back thousands of times a second for a display
+	// that changes ten times a second.
+	next int64
+}
+
+func (c *counter) Write(b []byte) (int, error) {
+	n, err := c.w.Write(b)
+	c.done += int64(n)
+	if c.progress != nil && (c.done >= c.next || c.done == c.total) {
+		c.next = c.done + 4<<20
+		c.progress(c.stage, c.done, c.total)
+	}
+	return n, err
+}
+
+func newCounter(w io.Writer, total int64, stage string, progress func(string, int64, int64)) *counter {
+	if progress != nil {
+		progress(stage, 0, total) // draw the stage before the first chunk lands
+	}
+	return &counter{w: w, total: total, stage: stage, progress: progress}
+}
+
+// hashFile is fetch.SHA256File with progress.
+func hashFile(path string, total int64, stage string, progress func(string, int64, int64)) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(newCounter(h, total, stage, progress), f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func copyFileProgress(src, dst string, total int64, stage string, progress func(string, int64, int64)) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -362,7 +424,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := io.Copy(newCounter(out, total, stage, progress), in); err != nil {
 		out.Close()
 		os.Remove(dst)
 		return err

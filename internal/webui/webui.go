@@ -576,7 +576,7 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, 400, "%v", err)
 			return
 		}
-		if _, err := oscatalog.ImportISO(s.Lib, e, iso); err != nil {
+		if _, err := oscatalog.ImportISO(s.Lib, e, iso, nil); err != nil {
 			httpErr(w, 400, "importing %s: %v", filepath.Base(iso), err)
 			return
 		}

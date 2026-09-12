@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/klauspost/compress v1.20.0
+	github.com/mattn/go-isatty v0.0.20
 	github.com/ulikunitz/xz v0.5.16
 	github.com/yusufpapurcu/wmi v1.2.4
 	golang.org/x/sys v0.48.0
@@ -27,7 +28,6 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect

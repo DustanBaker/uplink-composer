@@ -105,12 +105,12 @@ func appsAdd(env *Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	prog := &stageProgress{}
 	c, err := appcatalog.AddInstaller(env.libraryRoot(), lib, appcatalog.Installer{
 		Path: fs.Arg(0), ID: *id, Name: *name,
 		Args: *argsFlag, Category: *category, Replace: *replace,
-	}, func(name string) {
-		fmt.Printf("Filing %s in the library...\n", name)
-	})
+	}, prog.report)
+	prog.finish()
 	if err != nil {
 		return err
 	}

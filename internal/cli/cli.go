@@ -286,31 +286,4 @@ func isRecipeOrArtifact(env *Env, word string) bool {
 	return err == nil
 }
 
-// stageProgress renders coarse progress on one console line.
-type stageProgress struct {
-	lastStage string
-	lastPct   int
-}
-
-func (p *stageProgress) report(stage string, done, total int64) {
-	if stage != p.lastStage {
-		if p.lastStage != "" {
-			fmt.Println()
-		}
-		fmt.Printf("%s...", stage)
-		p.lastStage, p.lastPct = stage, -1
-	}
-	if total > 0 {
-		pct := int(done * 100 / total)
-		if pct/5 > p.lastPct/5 {
-			fmt.Printf(" %d%%", pct)
-			p.lastPct = pct
-		}
-	}
-}
-
-func (p *stageProgress) finish() {
-	if p.lastStage != "" {
-		fmt.Println()
-	}
-}
+// stageProgress lives in progress.go.

@@ -351,10 +351,10 @@ type Installer struct {
 // would waste it, and recording before the copy would leave a program
 // pointing at nothing.
 //
-// onImport, if given, is called just before the copy starts and only if it is
-// going to happen, so a caller can say "this takes a moment" without saying it
-// on the way to a refusal.
-func AddInstaller(root string, lib blobStore, in Installer, onImport func(filename string)) (Custom, error) {
+// progress, if given, is called while the installer is hashed and copied, and
+// only once that is actually going to happen — so a caller shows a bar for
+// real work rather than on the way to a refusal.
+func AddInstaller(root string, lib blobStore, in Installer, progress func(stage string, done, total int64)) (Custom, error) {
 	format, err := FormatForFile(in.Path)
 	if err != nil {
 		return Custom{}, err
@@ -385,15 +385,12 @@ func AddInstaller(root string, lib blobStore, in Installer, onImport func(filena
 			c.ID, existing.Filename)
 	}
 
-	if onImport != nil {
-		onImport(c.Filename)
-	}
-	entry, err := lib.Import(&manifest.Source{
+	entry, err := lib.ImportWithProgress(&manifest.Source{
 		ID:       c.SourceID(),
 		Kind:     manifest.KindPayload,
 		Format:   manifest.Format(c.Format),
 		Filename: c.Filename,
-	}, in.Path)
+	}, in.Path, progress)
 	if err != nil {
 		return Custom{}, err
 	}
@@ -413,8 +410,13 @@ func AddInstaller(root string, lib blobStore, in Installer, onImport func(filena
 
 // blobStore is the slice of the library this package needs, kept narrow so
 // the dependency is obvious and the tests need no real library.
+//
+// The progress form, because an installer can be several hundred megabytes
+// and is read twice — once to hash, once to copy — which is long enough that
+// silence reads as a hang.
 type blobStore interface {
-	Import(src *manifest.Source, filePath string) (library.Entry, error)
+	ImportWithProgress(src *manifest.Source, filePath string,
+		progress func(stage string, done, total int64)) (library.Entry, error)
 }
 
 func firstNonEmpty(vals ...string) string {

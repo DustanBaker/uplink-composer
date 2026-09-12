@@ -437,13 +437,48 @@ async function checkUpdate(explicit) {
   const bar = el("div", "updbar"); bar.id = "updbar";
   bar.append(el("span", null, `${u.latest} is available — you are running ${u.current}.`));
   const go = el("button", "primary", "Update now");
-  go.onclick = async () => {
-    go.disabled = true; go.textContent = "Updating…";
-    try { await api("/api/update", {}); }
-    catch (e) { showErr(e.message); go.disabled = false; go.textContent = "Update now"; }
-  };
   const note = el("span", "sub", "Installs over this copy; restart to run it.");
   note.style.color = "var(--dim)";
+
+  const reset = msg => {
+    if (msg) showErr(msg);
+    go.disabled = false;
+    go.textContent = "Update now";
+    note.textContent = "Installs over this copy; restart to run it.";
+  };
+  go.onclick = async () => {
+    go.disabled = true;
+    go.textContent = "Updating…";
+    note.textContent = "Downloading — progress is in Activity.";
+    let jobId;
+    try {
+      ({ job_id: jobId } = await api("/api/update", {}));
+    } catch (e) {
+      reset(e.message);
+      return;
+    }
+    // The request only says the job was accepted; the download and replace
+    // happen behind it. Wait for the job itself, or this button sits on
+    // "Updating…" forever whatever the outcome.
+    const giveUp = setTimeout(() => {
+      jobWaiters.delete(jobId);
+      reset("Lost track of the update — check Activity for how it ended.");
+    }, 10 * 60 * 1000);
+
+    onJobFinished(jobId, ev => {
+      clearTimeout(giveUp);
+      if (ev.error) {
+        reset("Update failed: " + ev.error);
+        return;
+      }
+      // Succeeded: this page is still served by the old binary, so the only
+      // thing left to say is that a restart is needed.
+      go.remove();
+      bar.replaceChildren(el("span", null, `Updated to ${u.latest} — restart to run it.`));
+      ver.textContent = `${u.current} → ${u.latest} (restart)`;
+      showOk(`Updated to ${u.latest}. Restart the app to run the new version.`);
+    });
+  };
   bar.append(go, note);
   document.body.insertBefore(bar, document.body.firstChild);
 }
@@ -831,6 +866,18 @@ function openInstall(os) {
 
 // ── jobs / SSE ──────────────────────────────────────────────────────────────
 const jobEls = new Map();
+
+// Callbacks waiting on one job to actually finish.
+//
+// The mutating endpoints return 202 as soon as the work is accepted, not when
+// it is done — so a button that only awaits the request learns nothing about
+// the outcome. Anything that changes its own label ("Updating…") has to wait
+// for the job, or it sits there forever looking stuck.
+const jobWaiters = new Map();
+function onJobFinished(jobId, fn) {
+  if (!jobId) return;
+  jobWaiters.set(jobId, fn);
+}
 function upsertJob(ev) {
   const jobs = $("jobs");
   const emptyEl = jobs.querySelector(".empty"); if (emptyEl) emptyEl.remove();
@@ -868,6 +915,10 @@ function upsertJob(ev) {
     j.pct.textContent = "";
   }
   if (ev.final && ev.error) { j.bar.classList.remove("indet"); loadState(); }
+  if (ev.final) {
+    const waiter = jobWaiters.get(ev.job_id);
+    if (waiter) { jobWaiters.delete(ev.job_id); waiter(ev); }
+  }
 }
 
 async function streamEvents() {

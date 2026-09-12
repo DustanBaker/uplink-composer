@@ -167,9 +167,21 @@ func TestCustomAppearsInPickers(t *testing.T) {
 
 // fakeStore stands in for the library: AddInstaller only needs somewhere to
 // put the file, and a real library would mean copying bytes for no reason.
-type fakeStore struct{ sum string }
+type fakeStore struct {
+	sum    string
+	stages *[]string // stages the caller was told about, when it cares
+}
 
-func (f fakeStore) Import(src *manifest.Source, path string) (library.Entry, error) {
+func (f fakeStore) ImportWithProgress(src *manifest.Source, path string,
+	progress func(stage string, done, total int64)) (library.Entry, error) {
+	if progress != nil {
+		progress("checking "+src.Filename, 0, 2048)
+		progress("checking "+src.Filename, 2048, 2048)
+		progress("filing "+src.Filename, 2048, 2048)
+	}
+	if f.stages != nil {
+		*f.stages = append(*f.stages, "imported")
+	}
 	return library.Entry{ID: src.ID, SHA256: f.sum, Filename: src.Filename, Size: 2048}, nil
 }
 
@@ -217,30 +229,62 @@ func TestAddInstallerRefusesBeforeCopying(t *testing.T) {
 	txt := filepath.Join(dir, "Thing.txt")
 	os.WriteFile(txt, []byte("x"), 0o644)
 
-	copied := false
-	watch := func(string) { copied = true }
+	// The store records every import it is asked to do, so "did the expensive
+	// part run?" is answered by the store rather than by the progress
+	// callback — which is only a display.
+	var imports []string
+	watching := fakeStore{sum: strings.Repeat("f", 64), stages: &imports}
 
-	if _, err := AddInstaller(root, fakeStore{}, Installer{Path: txt}, watch); err == nil {
+	if _, err := AddInstaller(root, watching, Installer{Path: txt}, nil); err == nil {
 		t.Error("a .txt was accepted as an installer")
 	}
-	if _, err := AddInstaller(root, fakeStore{}, Installer{Path: msi, ID: "chrome"}, watch); err == nil {
+	if _, err := AddInstaller(root, watching, Installer{Path: msi, ID: "chrome"}, nil); err == nil {
 		t.Error("an id colliding with a built-in was accepted")
 	}
-	if copied {
+	if len(imports) != 0 {
 		t.Error("the installer was copied before the record was found invalid")
 	}
 
 	// And a duplicate must also refuse before copying.
-	if _, err := AddInstaller(root, fakeStore{sum: strings.Repeat("f", 64)},
-		Installer{Path: msi, ID: "thing"}, nil); err != nil {
+	if _, err := AddInstaller(root, watching, Installer{Path: msi, ID: "thing"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	copied = false
-	if _, err := AddInstaller(root, fakeStore{}, Installer{Path: msi, ID: "thing"}, watch); err == nil {
+	if len(imports) != 1 {
+		t.Fatalf("a valid add did not import: %v", imports)
+	}
+	if _, err := AddInstaller(root, watching, Installer{Path: msi, ID: "thing"}, nil); err == nil {
 		t.Error("a duplicate id was accepted without replace")
 	}
-	if copied {
+	if len(imports) != 1 {
 		t.Error("a duplicate add copied the installer before refusing")
+	}
+}
+
+// TestAddInstallerReportsProgress: an installer is read twice, once to hash
+// and once to copy, and for a few hundred megabytes that is long enough that
+// silence reads as a hang.
+func TestAddInstallerReportsProgress(t *testing.T) {
+	root := freshStore(t)
+	dir := t.TempDir()
+	msi := filepath.Join(dir, "Agent.msi")
+	if err := os.WriteFile(msi, []byte("installer"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stages []string
+	_, err := AddInstaller(root, fakeStore{sum: strings.Repeat("a", 64)},
+		Installer{Path: msi, ID: "agent"},
+		func(stage string, done, total int64) { stages = append(stages, stage) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stages) == 0 {
+		t.Fatal("the import reported no progress at all")
+	}
+	joined := strings.Join(stages, " ")
+	for _, want := range []string{"checking", "filing"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("progress never mentioned %q: %v", want, stages)
+		}
 	}
 }
 
