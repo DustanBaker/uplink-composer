@@ -152,25 +152,16 @@ func (s *stringList) Set(v string) error {
 	return nil
 }
 
-// hardwareForModel parses a "vendor:model" target into a hardware entry. The
-// vendor is required because only Dell, Lenovo and HP publish a per-model
-// driver pack; anything else is found per device, which needs the machine
-// itself rather than its name.
+// hardwareForModel parses a --drivers-for target into a hardware entry.
 func hardwareForModel(spec string, e oscatalog.Entry) (recipe.HardwareSpec, error) {
 	if e.Family != oscatalog.Windows {
 		return recipe.HardwareSpec{}, fmt.Errorf("--drivers-for is a Windows option — Linux ships its drivers in the kernel")
 	}
-	vendor, model, ok := strings.Cut(spec, ":")
-	vendor = strings.ToLower(strings.TrimSpace(vendor))
-	model = strings.TrimSpace(model)
-	switch {
-	case !ok || model == "":
-		return recipe.HardwareSpec{}, fmt.Errorf("--drivers-for wants \"vendor:model\", e.g. \"dell:OptiPlex 7010\" (got %q)", spec)
-	case vendor != "dell" && vendor != "lenovo" && vendor != "hp":
-		return recipe.HardwareSpec{}, fmt.Errorf("--drivers-for vendor must be dell, lenovo, or hp (got %q).\n"+
-			"Other makers have no per-model feed — build on the machine itself and use --drivers", vendor)
+	h, err := driverresolve.SpecForModel(spec, e.DriverOS())
+	if err != nil {
+		return recipe.HardwareSpec{}, fmt.Errorf("--drivers-for %v", err)
 	}
-	return recipe.HardwareSpec{Vendor: vendor, Model: model, OS: e.DriverOS()}, nil
+	return h, nil
 }
 
 // importISO files a downloaded ISO under the catalog entry's id. Hashing and

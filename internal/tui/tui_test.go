@@ -65,8 +65,74 @@ func selectWindows(t *testing.T, m *model) {
 		}
 	}
 	press(t, m, "enter")
+	// A fresh library holds no Windows image, so the wizard asks for one
+	// before anything else; blank means "try the download".
+	if m.stage == stageISO {
+		press(t, m, "enter")
+	}
 	if m.stage != stageOptions {
 		t.Fatalf("expected the options stage, got %v", m.stage)
+	}
+}
+
+// TestISOStageOnlyWhenNeeded: the prompt is worth showing when the image has
+// to be fetched and is noise otherwise, so it must not appear for Linux
+// (whose mirrors are not rate-limited) at all.
+func TestISOStageOnlyWhenNeeded(t *testing.T) {
+	m := newTestModel(t)
+	for i, e := range m.entries {
+		if e.Family == oscatalog.Windows {
+			m.osIdx = i
+			break
+		}
+	}
+	press(t, m, "enter")
+	if m.stage != stageISO {
+		t.Fatalf("Windows with an empty library should ask for an ISO, got stage %v", m.stage)
+	}
+
+	// A path that is not an ISO is refused, and the wizard stays put.
+	typeText(t, m, "not-an.iso")
+	press(t, m, "enter")
+	if m.stage != stageISO || m.err == nil {
+		t.Errorf("a bad ISO path was accepted (stage %v, err %v)", m.stage, m.err)
+	}
+
+	// Blank continues to the options, leaving the fetch to the build.
+	for range len([]rune(m.isoPath)) {
+		press(t, m, "backspace")
+	}
+	press(t, m, "enter")
+	if m.stage != stageOptions || m.isoPath != "" {
+		t.Errorf("blank ISO did not continue (stage %v, path %q)", m.stage, m.isoPath)
+	}
+
+	// Linux never sees the prompt.
+	l := newTestModel(t)
+	for i, e := range l.entries {
+		if e.Family == oscatalog.Linux {
+			l.osIdx = i
+			break
+		}
+	}
+	press(t, l, "enter")
+	if l.stage == stageISO {
+		t.Error("Linux should not be asked for an ISO")
+	}
+}
+
+// TestISOPasteAndQuotes: paths get pasted, which a terminal delivers as one
+// multi-rune event, and they often arrive wrapped in quotes.
+func TestISOPasteAndQuotes(t *testing.T) {
+	m := newTestModel(t)
+	m.stage = stageISO
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(`"C:\Users\me\Win11.iso"`)})
+	if m.isoPath != `"C:\Users\me\Win11.iso"` {
+		t.Fatalf("paste lost characters: %q", m.isoPath)
+	}
+	press(t, m, "enter") // fails CheckISO (no such file), but must strip quotes first
+	if strings.HasPrefix(m.isoPath, `"`) || strings.HasSuffix(m.isoPath, `"`) {
+		t.Errorf("quotes were not stripped: %q", m.isoPath)
 	}
 }
 
@@ -208,7 +274,7 @@ func TestViewsRender(t *testing.T) {
 	m := newTestModel(t)
 	m.devs = []device.Device{{ID: "/dev/fake", Model: "Test Stick", SizeBytes: 16 * 1000 * 1000 * 1000}}
 	selectWindows(t, m)
-	for _, st := range []stage{stageOS, stageOptions, stageApps, stageDevice, stageConfirm, stageRunning, stageDone} {
+	for _, st := range []stage{stageOS, stageISO, stageOptions, stageApps, stageDevice, stageConfirm, stageRunning, stageDone} {
 		m.stage = st
 		out := m.View()
 		if strings.TrimSpace(out) == "" {

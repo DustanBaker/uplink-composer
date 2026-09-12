@@ -80,6 +80,27 @@ func SpecsFor(h *hwdetect.Hardware, osName string) []recipe.HardwareSpec {
 	return out
 }
 
+// SpecForModel parses a "vendor:model" target — a machine you are not sitting
+// at, whose media you are building at the bench. The vendor is required and
+// checked because only Dell, Lenovo and HP publish a per-model driver pack;
+// anything else resolves per device, which needs the machine itself.
+func SpecForModel(spec, osName string) (recipe.HardwareSpec, error) {
+	if osName == "" {
+		osName = "win11"
+	}
+	vendor, model, ok := strings.Cut(spec, ":")
+	vendor = strings.ToLower(strings.TrimSpace(vendor))
+	model = strings.TrimSpace(model)
+	switch {
+	case !ok || model == "":
+		return recipe.HardwareSpec{}, fmt.Errorf("want \"vendor:model\", e.g. \"dell:OptiPlex 7010\" (got %q)", spec)
+	case vendor != string(catalog.Dell) && vendor != string(catalog.Lenovo) && vendor != string(catalog.HP):
+		return recipe.HardwareSpec{}, fmt.Errorf("vendor must be dell, lenovo, or hp (got %q) — "+
+			"other makers have no per-model feed, so build on the machine itself and detect it", vendor)
+	}
+	return recipe.HardwareSpec{Vendor: vendor, Model: model, OS: osName}, nil
+}
+
 // AddPack writes manifests/<id>.yaml for a catalog pack — its hardware
 // binding and install method — and, unless told otherwise, pulls it into the
 // library, pinning the SHA-256 for feeds that publish only a SHA-1.

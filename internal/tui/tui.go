@@ -8,6 +8,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -37,6 +38,7 @@ type stage int
 
 const (
 	stageOS stage = iota
+	stageISO
 	stageOptions
 	stageApps
 	stageDevice
@@ -87,6 +89,12 @@ type model struct {
 
 	entries []oscatalog.Entry
 	osIdx   int
+
+	// needISO is set when the chosen OS is not in the library yet and its
+	// image has to be fetched — the point at which offering a downloaded one
+	// is useful rather than clutter.
+	needISO bool
+	isoPath string
 
 	opts    []*choice
 	drivers bool
@@ -246,12 +254,17 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil // never abandon a half-written stick on a stray key
 	case "esc":
-		if m.stage > stageOS && m.stage < stageRunning {
-			m.stage--
-			m.err = nil
-			if m.stage == stageApps && m.entry().Family != oscatalog.Windows {
-				m.stage = stageOptions
-			}
+		if m.stage <= stageOS || m.stage >= stageRunning {
+			return m, nil
+		}
+		m.err = nil
+		m.stage--
+		switch {
+		case m.entry().Family != oscatalog.Windows:
+			// Linux has none of the Windows-only screens to step back through.
+			m.stage = stageOS
+		case m.stage == stageISO && !m.needISO:
+			m.stage = stageOS
 		}
 		return m, nil
 	}
@@ -259,6 +272,8 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.stage {
 	case stageOS:
 		return m.keyOS(k)
+	case stageISO:
+		return m.keyISO(k)
 	case stageOptions:
 		return m.keyOptions(k)
 	case stageApps:
@@ -291,9 +306,41 @@ func (m *model) keyOS(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.stage = stageDevice
 			return m, listDevices(m.ctx)
 		}
-		m.stage = stageOptions
 		m.cursor = 0
+		m.needISO = !oscatalog.InLibrary(m.lib, m.entry())
+		m.stage = stageOptions
+		if m.needISO {
+			m.stage, m.isoPath = stageISO, ""
+		}
 		return m, detectHardware(m.ctx)
+	}
+	return m, nil
+}
+
+// keyISO edits the ISO path. Paths are long and get pasted, and a terminal
+// delivers a paste as one multi-rune key event, so the whole run is taken
+// rather than a single character.
+func (m *model) keyISO(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.Type {
+	case tea.KeyBackspace:
+		if r := []rune(m.isoPath); len(r) > 0 {
+			m.isoPath = string(r[:len(r)-1])
+		}
+	case tea.KeySpace:
+		m.isoPath += " "
+	case tea.KeyRunes:
+		m.isoPath += string(k.Runes)
+	case tea.KeyEnter:
+		// Pasted paths often arrive wrapped in quotes.
+		m.isoPath = strings.Trim(strings.TrimSpace(m.isoPath), `"'`)
+		if m.isoPath != "" {
+			if err := oscatalog.CheckISO(m.isoPath); err != nil {
+				m.err = err
+				return m, nil
+			}
+		}
+		m.err = nil
+		m.stage = stageOptions
 	}
 	return m, nil
 }
@@ -426,6 +473,7 @@ func (m *model) start() tea.Cmd {
 	ch := m.ch
 	ctx := m.ctx
 	lib := m.lib
+	isoPath := m.isoPath
 
 	return func() tea.Msg {
 		go func() {
@@ -433,6 +481,13 @@ func (m *model) start() tea.Cmd {
 				select {
 				case ch <- progressMsg{stage: stage, done: done, total: total}:
 				default: // never block the build on a slow UI
+				}
+			}
+			if isoPath != "" && !oscatalog.InLibrary(lib, e) {
+				progress("importing "+filepath.Base(isoPath), 0, -1)
+				if _, err := oscatalog.ImportISO(lib, e, isoPath); err != nil {
+					ch <- doneMsg{err: err}
+					return
 				}
 			}
 			art, err := oscatalog.BuildQuick(ctx, lib, e, opts, progress)
@@ -460,6 +515,8 @@ func (m *model) View() string {
 	switch m.stage {
 	case stageOS:
 		b.WriteString(m.viewOS())
+	case stageISO:
+		b.WriteString(m.viewISO())
 	case stageOptions:
 		b.WriteString(m.viewOptions())
 	case stageApps:
@@ -492,6 +549,18 @@ func (m *model) viewOS() string {
 		b.WriteString(fmt.Sprintf("%s%-28s %s\n", cur, name, cDim.Render(e.Version)))
 	}
 	b.WriteString("\n" + cDim.Render("↑/↓ choose · enter continue · q quit") + "\n")
+	return b.String()
+}
+
+func (m *model) viewISO() string {
+	var b strings.Builder
+	b.WriteString(cSel.Render(m.entry().Name) + " is not in the library yet.\n\n")
+	b.WriteString("  It can be fetched from Microsoft, but that is rate-limited to\n")
+	b.WriteString("  roughly one download per day per address, and is often refused.\n\n")
+	b.WriteString("  If you already have an ISO, give its path. Leave it blank to try\n")
+	b.WriteString("  the download.\n\n")
+	b.WriteString("  " + cSel.Render(m.isoPath+"▌") + "\n")
+	b.WriteString("\n" + cDim.Render("enter to continue · esc back") + "\n")
 	return b.String()
 }
 

@@ -337,6 +337,18 @@ function selectOpt(label, pairs) {
   wrap.append(sel);
   return { wrap, get: () => sel.value };
 }
+function textOpt(label, placeholder, hint) {
+  const wrap = el("div", "opt");
+  wrap.append(el("label", null, label));
+  const inp = el("input"); inp.type = "text"; inp.placeholder = placeholder || "";
+  wrap.append(inp);
+  if (hint) {
+    const h = el("div", "sub", hint);
+    h.style.color = "var(--dim)"; h.style.marginTop = "4px";
+    wrap.append(h);
+  }
+  return { wrap, get: () => inp.value.trim() };
+}
 function checkOpt(label) {
   const wrap = el("div", "opt check"); const cb = el("input"); cb.type = "checkbox";
   const id = "c" + Math.random().toString(36).slice(2); cb.id = id;
@@ -401,6 +413,15 @@ function appsOpt() {
   return { wrap, get: () => [...chosen] };
 }
 
+// isoOpt offers a downloaded ISO for Windows, whose media Microsoft fetches on
+// demand and rate-limits to roughly one request per address per day. Linux
+// images come from mirrors that do not, so the field would only be clutter.
+function isoOpt(os) {
+  if (os.family !== "windows") return null;
+  return textOpt("Use an ISO you downloaded (optional)", "C:\\Users\\you\\Downloads\\Win11.iso",
+    "Only needed if Microsoft refuses the download. Filed under this OS, so later builds reuse it.");
+}
+
 function openInstall(os) {
   const dev = pickDevice(); if (!dev) return;
   $("instTitle").textContent = "Install " + os.name;
@@ -411,12 +432,18 @@ function openInstall(os) {
     const am = selectOpt("Account setup", [["local", "Local account, no setup screens"], ["oobe", "Normal Windows setup (OOBE)"]]);
     const db = selectOpt("Remove bloatware", [["standard", "Standard"], ["aggressive", "Aggressive"], ["off", "Keep everything"]]);
     const dv = driverOpt();
+    const df = textOpt("Also stage drivers for another machine", "dell:OptiPlex 7010",
+      "For imaging a machine you are not sitting at. Comma-separate several; " +
+      "one stick can carry packs for many models.");
     const ap = appsOpt();
     const bp = checkOpt("Skip TPM / Secure Boot / RAM checks (older or virtual hardware)");
-    opts.append(ed.wrap, am.wrap, db.wrap, dv.wrap, ap.wrap, bp.wrap);
+    const iso = isoOpt(os);
+    opts.append(ed.wrap, am.wrap, db.wrap, dv.wrap, df.wrap, ap.wrap, bp.wrap);
+    if (iso) opts.append(iso.wrap);
     getOpts = () => ({
       edition: ed.get(), account_mode: am.get(), debloat: db.get(),
-      drivers: dv.get(), apps: ap.get(), bypass_requirement: bp.get(),
+      drivers: dv.get(), drivers_for: df.get(), apps: ap.get(),
+      bypass_requirement: bp.get(), iso: iso ? iso.get() : "",
     });
   } else {
     opts.append(el("div", "sub", "Boots the installer — nothing to configure here."));

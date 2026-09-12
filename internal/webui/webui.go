@@ -489,7 +489,9 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		Debloat           string   `json:"debloat"`
 		BypassRequirement bool     `json:"bypass_requirement"`
 		Drivers           bool     `json:"drivers"`
+		DriversFor        string   `json:"drivers_for"`
 		Apps              []string `json:"apps"`
+		ISO               string   `json:"iso"`
 		DeviceID          string   `json:"device_id"`
 		Confirm           string   `json:"confirm"`
 	}
@@ -516,6 +518,19 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			dev.ID, dev.SizeConfirmation(), dev.SizeConfirmation())
 		return
 	}
+	// An ISO the operator downloaded themselves, filed before the build so the
+	// Microsoft fetch (rate-limited to about one a day per address) is skipped.
+	if iso := strings.TrimSpace(req.ISO); iso != "" && !oscatalog.InLibrary(s.Lib, e) {
+		if err := oscatalog.CheckISO(iso); err != nil {
+			httpErr(w, 400, "%v", err)
+			return
+		}
+		if _, err := oscatalog.ImportISO(s.Lib, e, iso); err != nil {
+			httpErr(w, 400, "importing %s: %v", filepath.Base(iso), err)
+			return
+		}
+	}
+
 	var hw []recipe.HardwareSpec
 	if req.Drivers && e.Family == oscatalog.Windows {
 		h, err := hwdetect.Detect(r.Context())
@@ -527,6 +542,23 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, 400, "nothing to resolve drivers for on this machine")
 			return
 		}
+	}
+	// Named models are additive with detection: pnputil installs only what
+	// matches, so one stick can carry packs for several machines.
+	for _, spec := range strings.Split(req.DriversFor, ",") {
+		if strings.TrimSpace(spec) == "" {
+			continue
+		}
+		if e.Family != oscatalog.Windows {
+			httpErr(w, 400, "drivers for a named model is a Windows option")
+			return
+		}
+		h, err := driverresolve.SpecForModel(spec, e.DriverOS())
+		if err != nil {
+			httpErr(w, 400, "%v", err)
+			return
+		}
+		hw = append(hw, h)
 	}
 	if len(req.Apps) > 0 {
 		if _, err := appcatalog.WingetIDs(req.Apps); err != nil {
