@@ -100,14 +100,55 @@ Launch the app (Start-menu icon or `uplink serve --open`) and the home screen
 has an **Install an OS** list: Windows 11/10 (fetched from Microsoft on demand
 via Fido) and Linux distros (Ubuntu Server, Linux Mint, more coming). Pick
 one, choose a couple of options — for Windows: edition, **local account vs.
-normal OOBE**, how much bloatware to strip, and an optional skip of the
-TPM/Secure-Boot/RAM checks — plug in a stick, confirm its size, and it builds
-and flashes. No workspace, no recipes. From the CLI:
+normal OOBE**, how much bloatware to strip, **drivers for this computer**,
+**programs to install**, and an optional skip of the TPM/Secure-Boot/RAM
+checks — plug in a stick, confirm its size, and it builds and flashes. No
+workspace, no recipes. From the CLI:
 
 ```
 uplink catalog
 uplink install windows-11 --edition Pro --account local --debloat standard
 ```
+
+### Drivers for the machine in front of you
+
+`uplink detect` profiles this computer — make and model, CPU, GPUs, network
+adapters, every PnP/PCI device — and says what it would fetch. Adding
+`--drivers` to an install stages those drivers on the media, so the machine
+comes up fully driven instead of hunting packs by hand:
+
+```
+uplink detect                 # what this computer is, and what it needs
+uplink detect --resolve       # fetch those drivers now, cached for later
+uplink install windows-11 --drivers
+```
+
+Dell, Lenovo and HP machines get their per-model driver pack; everything else
+resolves per device through the Microsoft Update Catalog. Devices the catalogs
+do not carry are reported and skipped rather than failing the build — Windows
+Update covers most of them. GPU packages are large (easily a gigabyte each),
+so driver media wants a 16 GB stick.
+
+### Programs
+
+`uplink apps` lists what can be installed alongside the OS; `--apps` picks
+them. They install at first boot through winget, so nothing large rides on
+the media and every installer comes from the vendor:
+
+```
+uplink apps
+uplink install windows-11 --drivers --apps chrome,7zip,vlc
+```
+
+The machine needs to be online at first boot for these — which is what the
+staged network drivers are for.
+
+### Three ways in, one pipeline
+
+The same Quick Install path is driven by the CLI above, by `uplink tui`
+(a full-screen terminal wizard — no flags to remember, works over SSH), and
+by the web portal (`uplink serve`, or the Start-menu icon). A fix in the
+pipeline shows up in all three.
 
 This is the "distro-hop / image a machine in two clicks" path. For repeatable,
 branded, fleet imaging with agents and per-model drivers, use a **workspace**:
@@ -117,7 +158,7 @@ branded, fleet imaging with agents and per-model drivers, use a **workspace**:
 ```
 uplink init --org "Acme IT" acme-workspace
 cd acme-workspace
-compose example-win11
+uplink example-win11
 ```
 
 That last line is the whole job: it pulls any pinned source that is missing
@@ -125,8 +166,8 @@ That last line is the whole job: it pulls any pinned source that is missing
 composes the media, finds the one USB stick you have plugged in, asks you
 to type its size, elevates once (UAC / polkit) for the raw write, writes,
 and verifies every byte by readback. In a workspace with a single recipe,
-plain `compose` does the same. `compose --build-only <recipe>` stops after
-building; `compose <recipe> <device>` names the stick when several are
+plain `uplink` does the same. `uplink --build-only <recipe>` stops after
+building; `uplink <recipe> <device>` names the stick when several are
 attached.
 
 The long form is still there when you want the pieces:
