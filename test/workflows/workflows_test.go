@@ -158,4 +158,10 @@ func TestReleasePublishes(t *testing.T) {
 			"that silently yields the COMMIT message when the local ref is lightweight; " +
 			"use the git/tags API")
 	}
+	// Deleting a tag demotes its release to a draft, so the release a re-run
+	// finds is usually one that needs publishing again, not just re-describing.
+	if strings.Contains(all, "gh release edit") && !strings.Contains(all, "--draft=false") {
+		t.Error("the `gh release edit` path does not pass --draft=false — a re-run " +
+			"would leave the release an unpublished draft")
+	}
 }

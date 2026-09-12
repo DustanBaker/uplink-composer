@@ -72,7 +72,11 @@ jobs:
           # exists" and leave it half-wrong.
           title="The Uplink CompOSer ${GITHUB_REF_NAME}"
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release edit "${GITHUB_REF_NAME}" --title "$title" --notes-file "$notes"
+            # --draft=false --latest are not cosmetic: deleting a tag demotes its
+            # release to a draft, so the release a re-run finds is usually one
+            # that has to be published again, not merely re-described.
+            gh release edit "${GITHUB_REF_NAME}" --title "$title" --notes-file "$notes" \
+              --draft=false --latest
             gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
           else
             gh release create "${GITHUB_REF_NAME}" dist/* --title "$title" --notes-file "$notes"
