@@ -196,12 +196,13 @@ func (e Entry) DriverOS() string {
 	return "win11"
 }
 
-// wingetPkgs resolves the picker ids to winget package ids. The error is
-// dropped on purpose: BuildQuick validates the same list up front and refuses
-// the build, so by the time the recipe is rendered these all resolve.
-func (o Options) wingetPkgs() []string {
-	pkgs, _ := appcatalog.WingetIDs(o.Apps)
-	return pkgs
+// resolvedApps splits the picker ids into winget packages and the operator's
+// own installers. The error is dropped on purpose: BuildQuick validates the
+// same list up front and refuses the build, so by the time the recipe is
+// rendered these all resolve.
+func (o Options) resolvedApps() ([]string, []appcatalog.Custom) {
+	pkgs, custom, _ := appcatalog.Resolve(o.Apps)
+	return pkgs, custom
 }
 
 func (o *Options) defaults(e Entry) {
@@ -242,7 +243,7 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 			return nil, fmt.Errorf("installing programs alongside %s is not supported yet — it needs an autoinstall recipe", e.Name)
 		}
 		// Fail before downloading gigabytes, not after.
-		if _, err := appcatalog.WingetIDs(opts.Apps); err != nil {
+		if _, _, err := appcatalog.Resolve(opts.Apps); err != nil {
 			return nil, err
 		}
 	}
@@ -415,6 +416,16 @@ func scaffoldQuickWorkspace(lib *library.Library, e Entry, opts Options, hw []re
 	if err := os.WriteFile(filepath.Join(dir, "manifests", e.ID+".yaml"), []byte(manifestYAML(e)), 0o644); err != nil {
 		return "", err
 	}
+	// One manifest per operator-supplied installer, so the recipe's payload
+	// refs resolve to the library blobs they were filed under.
+	if _, customApps := opts.resolvedApps(); len(customApps) > 0 {
+		for _, c := range customApps {
+			if err := os.WriteFile(filepath.Join(dir, "manifests", c.SourceID()+".yaml"),
+				[]byte(customManifestYAML(c)), 0o644); err != nil {
+				return "", err
+			}
+		}
+	}
 	if err := writeQuickRecipe(dir, e, opts, hw); err != nil {
 		return "", err
 	}
@@ -441,6 +452,10 @@ func pruneOtherRecipes(dir, keep string) {
 // resolved driver packs: they are pinned, already downloaded, and only ever
 // matched by hardware, so keeping them makes repeat installs on the same
 // machine skip the catalog lookups entirely.
+//
+// Operator-supplied installers are kept for the same reason — and, unlike a
+// driver pack, removing one would break the build outright, since the recipe
+// written moments ago refers to it by ref.
 func pruneOtherManifests(dir, keep string) {
 	entries, _ := os.ReadDir(dir)
 	for _, en := range entries {
@@ -448,11 +463,22 @@ func pruneOtherManifests(dir, keep string) {
 			continue
 		}
 		p := filepath.Join(dir, en.Name())
-		if b, err := os.ReadFile(p); err == nil && strings.Contains(string(b), "kind: driver-pack") {
-			continue
+		if b, err := os.ReadFile(p); err == nil {
+			if strings.Contains(string(b), "kind: driver-pack") ||
+				strings.Contains(string(b), "kind: payload") {
+				continue
+			}
 		}
 		os.Remove(p)
 	}
+}
+
+// customManifestYAML pins an operator-supplied installer to the library blob
+// it was imported as. No url: nothing fetches it, and the hash is the file
+// that was handed over.
+func customManifestYAML(c appcatalog.Custom) string {
+	return fmt.Sprintf("id: %s\nkind: payload\nformat: %s\nsha256: %q\nfilename: %s\n",
+		c.SourceID(), c.Format, c.SHA256, c.Filename)
 }
 
 func manifestYAML(e Entry) string {
@@ -532,8 +558,9 @@ flash:
 	if preset != "off" {
 		steps += "      - debloat\n"
 	}
+	pkgs, customApps := opts.resolvedApps()
 	appsBlock := ""
-	if pkgs := opts.wingetPkgs(); len(pkgs) > 0 {
+	if len(pkgs) > 0 {
 		var b strings.Builder
 		b.WriteString("  apps:\n    winget:\n")
 		for _, p := range pkgs {
@@ -541,6 +568,34 @@ flash:
 		}
 		appsBlock = b.String()
 		steps += "      - apps\n"
+	}
+	// The operator's own installers ride on the media, so each is staged as
+	// payload and then run. They go after the winget step because winget needs
+	// the network and these do not: if the machine is offline, the agent that
+	// matters still lands.
+	payloadBlock := ""
+	if len(customApps) > 0 {
+		var p, s strings.Builder
+		p.WriteString("  payload:\n")
+		for _, c := range customApps {
+			fmt.Fprintf(&p, "    - { ref: %s }\n", c.SourceID())
+			verb := "exe"
+			if c.Format == "msi" {
+				verb = "msi"
+			}
+			if args := c.RunArgs(); len(args) > 0 {
+				quoted := make([]string, len(args))
+				for i, a := range args {
+					quoted[i] = fmt.Sprintf("%q", a)
+				}
+				fmt.Fprintf(&s, "      - %s: { ref: %s, args: [%s] }\n",
+					verb, c.SourceID(), strings.Join(quoted, ", "))
+			} else {
+				fmt.Fprintf(&s, "      - %s: { ref: %s }\n", verb, c.SourceID())
+			}
+		}
+		payloadBlock = p.String()
+		steps += s.String()
 	}
 	// Staged GPU driver packages run past a gigabyte each, so driver media
 	// outgrows the 8 GiB stick a bare Windows ISO fits on.
@@ -577,14 +632,14 @@ windows:
       bypass_requirements: "%s"
 %s  debloat:
     preset: %s
-%s  firstboot:
+%s%s  firstboot:
     mode: generate
     steps:
 %s
 flash:
   verify: readback-sha256
 `, e.ID, e.Name, e.ID, minStick, editionName(opts.Edition), genericKeys[opts.Edition],
-		opts.AccountMode, bypass, hardwareYAML(hw), preset, appsBlock, steps)
+		opts.AccountMode, bypass, hardwareYAML(hw), preset, appsBlock, payloadBlock, steps)
 }
 
 // editionName maps the option to the ei.cfg EditionID (drops the "N"/space).

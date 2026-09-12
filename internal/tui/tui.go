@@ -140,7 +140,7 @@ func newModel(ctx context.Context, lib *library.Library) *model {
 		ch:      make(chan tea.Msg, 64),
 	}
 	for _, a := range appcatalog.Catalog() {
-		if a.Winget != "" {
+		if a.InstallsOnWindows() {
 			m.apps = append(m.apps, a)
 		}
 	}

@@ -19,7 +19,9 @@
   header .org { color: var(--dim); }
   header .ws { margin-left: auto; color: var(--dim); font-size: 12px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
-  #quitBtn { margin-left: 12px; }
+  header .ver { color: var(--dim); font-size: 12px; margin-left: 14px; white-space: nowrap; }
+  #updBtn { margin-left: 10px; }
+  #quitBtn { margin-left: 8px; }
   .wsrow input { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--line);
     border-radius: 6px; padding: 6px 9px; font: inherit; font-size: 13px; min-width: 0; }
   .active { color: var(--ok); }
@@ -110,6 +112,8 @@
   <h1>The Uplink CompOSer</h1>
   <span class="org" id="org"></span>
   <span class="ws" id="ws"></span>
+  <span class="ver" id="ver" title="Check for a newer release"></span>
+  <button id="updBtn" onclick="checkUpdate(true)" title="Ask GitHub for the newest release now">Check for updates</button>
   <button id="quitBtn" title="Stop the app" onclick="quitApp()">Quit</button>
 </header>
 <main>
@@ -252,13 +256,44 @@ function openPrepare(disk) {
   $("prepDialog").showModal(); input.focus();
 }
 
-// checkUpdate asks once on load. The server caches the answer, and being
-// offline is normal on a bench, so a failure here says nothing at all.
-async function checkUpdate() {
+// checkUpdate runs automatically on load, and on demand from the header.
+//
+// The banner only ever appeared when an update existed, which left no way to
+// ask and no way to see what you were running — "am I current, or did the
+// check not happen?" had no answer. So the version is always shown, and
+// asking explicitly forces a fresh check rather than repeating an answer the
+// server may have cached for an hour.
+//
+// Being offline is normal on a bench: the automatic check stays silent about
+// it, while an explicit one says so, because someone who just pressed a
+// button is owed a reply.
+async function checkUpdate(explicit) {
+  const btn = $("updBtn"), ver = $("ver");
+  if (explicit) { btn.disabled = true; btn.textContent = "Checking…"; }
   let u;
-  try { u = await api("/api/update"); } catch (e) { return; }
-  if (!u || !u.newer) return;
-  const bar = el("div", "updbar");
+  try {
+    u = await api("/api/update" + (explicit ? "?force=1" : ""));
+  } catch (e) {
+    if (explicit) showErr("Could not check for updates: " + e.message);
+    return;
+  } finally {
+    if (explicit) { btn.disabled = false; btn.textContent = "Check for updates"; }
+  }
+  if (!u) return;
+  ver.textContent = u.current || "";
+
+  if (u.unavailable) {
+    if (explicit) showErr("Could not reach GitHub: " + u.unavailable);
+    return;
+  }
+  if (!u.newer) {
+    ver.textContent = `${u.current} · up to date`;
+    if (explicit) showOk(`You are running the newest release (${u.current}).`);
+    return;
+  }
+  ver.textContent = `${u.current} → ${u.latest}`;
+  if ($("updbar")) return; // already offered; do not stack banners
+  const bar = el("div", "updbar"); bar.id = "updbar";
   bar.append(el("span", null, `${u.latest} is available — you are running ${u.current}.`));
   const go = el("button", "primary", "Update now");
   go.onclick = async () => {
@@ -573,9 +608,19 @@ function appsOpt() {
         : `Install programs (${apps.length} available)`;
     };
     row.append(cb, el("span", null, a.name));
+    // Your own installers behave differently enough to mark: they ride on the
+    // stick, so they land whether or not the machine has a network.
+    if (a.mine) {
+      const tag = el("span", "badge ok", "on the stick");
+      tag.style.marginLeft = "6px";
+      row.append(tag);
+    }
     box.append(row);
   }
-  const note = el("div", "sub", "Installed at first boot with winget, so the machine needs to be online then.");
+  const anyMine = apps.some(a => a.mine);
+  const note = el("div", "sub",
+    "Built-in programs install at first boot with winget, so the machine needs to be online then." +
+    (anyMine ? " Your own installers are carried on the stick and need no network." : ""));
   note.style.color = "var(--dim)";
   note.style.marginTop = "4px";
   wrap.append(box, note);

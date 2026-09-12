@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
 	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/recipe"
@@ -272,6 +275,103 @@ func TestResolveChecksumLive(t *testing.T) {
 			t.Errorf("%s: resolved checksum %q is not a sha256", e.ID, sum)
 		}
 		t.Logf("%s -> %s", e.ID, sum)
+	}
+}
+
+// TestCustomAppReachesTheMedia is the whole point of operator-supplied
+// installers: the file has to be staged onto the stick AND run at first boot.
+// Either half alone is useless — a staged file nobody runs, or a run step
+// pointing at a file that was never copied, which fails the build outright.
+func TestCustomAppReachesTheMedia(t *testing.T) {
+	root := t.TempDir()
+	if err := appcatalog.LoadCustom(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = appcatalog.LoadCustom(t.TempDir()) })
+	agent := appcatalog.Custom{
+		ID: "macula", Name: "Macula Agent", Format: "msi",
+		SHA256: strings.Repeat("d", 64), Filename: "MaculaAgent.msi",
+		Args: []string{"/qn", "/norestart"},
+	}
+	if err := appcatalog.AddCustom(root, agent, false); err != nil {
+		t.Fatal(err)
+	}
+
+	lib, err := library.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	win, ok := Get("windows-11")
+	if !ok {
+		t.Skip("no windows entry in this catalog")
+	}
+	dir, err := scaffoldQuickWorkspace(lib, win, Options{Apps: []string{"macula", "chrome"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "recipes", win.ID+".yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"payload:",
+		"{ ref: app-macula }",
+		`msi: { ref: app-macula, args: ["/qn", "/norestart"] }`,
+		"Google.Chrome", // the winget half must still be there
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("generated recipe is missing %q:\n%s", want, got)
+		}
+	}
+
+	// The manifest is what turns that ref into the library blob; without it
+	// the build fails on an unresolved source.
+	man, err := os.ReadFile(filepath.Join(dir, "manifests", "app-macula.yaml"))
+	if err != nil {
+		t.Fatalf("no manifest for the staged installer: %v", err)
+	}
+	for _, want := range []string{"id: app-macula", "kind: payload", "format: msi", agent.SHA256} {
+		if !strings.Contains(string(man), want) {
+			t.Errorf("manifest missing %q:\n%s", want, man)
+		}
+	}
+
+	// And the whole thing still has to load and validate as a recipe.
+	if r := assertLoads(t, dir, win.ID); r != nil {
+		if len(r.Windows.Payload) != 1 || r.Windows.Payload[0].Ref != "app-macula" {
+			t.Errorf("payload did not survive parsing: %+v", r.Windows.Payload)
+		}
+		ran := false
+		for _, s := range r.Windows.Firstboot.Steps {
+			if s.MSI != nil && s.MSI.Ref == "app-macula" {
+				ran = true
+			}
+		}
+		if !ran {
+			t.Error("the installer is staged but never run — it would sit on the stick doing nothing")
+		}
+	}
+}
+
+// TestCustomAppManifestSurvivesPruning: the OS manifest of a previous build is
+// cleared between Quick Installs, and an installer swept up with it would
+// break the build that was just written to refer to it.
+func TestCustomAppManifestSurvivesPruning(t *testing.T) {
+	dir := t.TempDir()
+	man := filepath.Join(dir, "app-macula.yaml")
+	if err := os.WriteFile(man, []byte("id: app-macula\nkind: payload\nformat: msi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "old-os.yaml"), []byte("id: old-os\nkind: os-image\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pruneOtherManifests(dir, "windows-11")
+	if _, err := os.Stat(man); err != nil {
+		t.Error("the staged installer's manifest was pruned — the build would fail on an unresolved ref")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "old-os.yaml")); err == nil {
+		t.Error("a stale OS manifest was kept")
 	}
 }
 

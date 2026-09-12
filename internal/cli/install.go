@@ -54,29 +54,6 @@ func cmdCatalog(ctx context.Context, env *Env, _ []string) error {
 	return nil
 }
 
-// cmdApps lists the programs Quick Install can add, grouped by category.
-func cmdApps(_ *Env, _ []string) error {
-	fmt.Println("Programs `uplink install --apps` can add (comma-separated ids):")
-	for _, cat := range appcatalog.Categories() {
-		fmt.Printf("\n  %s\n", cat)
-		for _, a := range appcatalog.Catalog() {
-			if a.Category != cat {
-				continue
-			}
-			where := ""
-			if a.Winget == "" {
-				where = "  (no Windows package)"
-			}
-			fmt.Printf("    %-18s %s%s\n", a.ID, a.Name, where)
-		}
-	}
-	fmt.Println("\nExample:")
-	fmt.Println("  uplink install windows-11 --drivers --apps chrome,7zip,vlc")
-	fmt.Println("\nThese install at first boot with winget, so the machine needs to be")
-	fmt.Println("online then — staging its network driver (--drivers) helps.")
-	return nil
-}
-
 // cmdInstall is Quick Install from the CLI: pick a catalog OS, build media
 // with a few options, and flash the attached stick.
 func cmdInstall(ctx context.Context, env *Env, args []string) error {
@@ -150,11 +127,19 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	var appIDs []string
 	if strings.TrimSpace(*apps) != "" {
 		appIDs = strings.Split(*apps, ",")
-		pkgs, err := appcatalog.WingetIDs(appIDs)
+		pkgs, custom, err := appcatalog.Resolve(appIDs)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Will install %d program(s) at first boot: %s\n", len(pkgs), strings.Join(pkgs, ", "))
+		if len(pkgs) > 0 {
+			fmt.Printf("Will install %d program(s) with winget at first boot: %s\n",
+				len(pkgs), strings.Join(pkgs, ", "))
+		}
+		// Named separately because they behave differently: these ride on the
+		// stick and run with no network, which is usually why they were added.
+		for _, c := range custom {
+			fmt.Printf("Will stage and run your installer %s (%s, %d MiB)\n", c.ID, c.Filename, c.Size>>20)
+		}
 	}
 
 	fmt.Printf("Building %s installer media...\n", e.Name)

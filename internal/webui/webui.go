@@ -219,6 +219,9 @@ type appEntry struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Category string `json:"category"`
+	// Mine marks an installer the operator added, which behaves differently
+	// enough to say so: it rides on the stick and needs no network.
+	Mine bool `json:"mine,omitempty"`
 }
 
 type catalogEntry struct {
@@ -295,8 +298,11 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	// Only programs with a Windows package: that is all Quick Install can do
 	// for now, and an option that cannot run is worse than no option.
 	for _, a := range appcatalog.Catalog() {
-		if a.Winget != "" {
-			resp.Apps = append(resp.Apps, appEntry{ID: a.ID, Name: a.Name, Category: a.Category})
+		if a.InstallsOnWindows() {
+			resp.Apps = append(resp.Apps, appEntry{
+				ID: a.ID, Name: a.Name, Category: a.Category,
+				Mine: a.Custom != nil,
+			})
 		}
 	}
 	for _, e := range oscatalog.Catalog() {
@@ -633,8 +639,14 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 // cached: the page asks on load, and hitting the release feed every time
 // would be rude to it and slow for no gain.
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	// An explicit "check now" must actually check. The hour-long cache is
+	// right for the automatic check on page load, but returning a stale answer
+	// to someone who just pressed the button would look broken — especially
+	// right after a release, which is exactly when they press it.
+	force := r.URL.Query().Get("force") != ""
+
 	s.updMu.Lock()
-	fresh := s.updAt.After(time.Now().Add(-time.Hour))
+	fresh := !force && s.updAt.After(time.Now().Add(-time.Hour))
 	rel := s.updRel
 	s.updMu.Unlock()
 

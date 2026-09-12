@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
 	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
@@ -35,7 +36,11 @@ Quick install (no workspace needed)
                              --apps chrome,7zip,... to install programs at first boot,
                              --iso <file> to use an ISO you downloaded yourself)
   detect                    what this computer is, and the drivers it needs
+
+Programs
   apps                      programs --apps can install
+  apps add <installer>      add your own .msi/.exe (--id, --name, --args)
+  apps set|remove|show <id>   edit, forget, or inspect one of yours
 
 Workspace
   init --org <name> [dir]   scaffold a new org workspace
@@ -172,6 +177,13 @@ func Main(args []string) int {
 	// the catalog refresh it themselves.
 	oscatalog.LoadCached(env.libraryRoot())
 
+	// The operator's own installers, which every picker then shows alongside
+	// the built-in programs. A broken store is worth saying out loud rather
+	// than quietly presenting a short list as if it were complete.
+	if err := appcatalog.LoadCustom(env.libraryRoot()); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: your added programs could not be read:", err)
+	}
+
 	// "compose this": no arguments in a one-recipe workspace runs it.
 	if len(rest) == 0 {
 		if id := soleRecipe(env); id != "" {
@@ -210,7 +222,7 @@ func Main(args []string) int {
 	case "catalog":
 		err = cmdCatalog(ctx, env, cmdArgs)
 	case "apps":
-		err = cmdApps(env, cmdArgs)
+		err = cmdApps(ctx, env, cmdArgs)
 	case "install":
 		err = cmdInstall(ctx, env, cmdArgs)
 	case "detect":
