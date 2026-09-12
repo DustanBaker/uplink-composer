@@ -34,6 +34,7 @@ Quick install (no workspace needed)
                              --drivers to detect this machine and stage its drivers,
                              --drivers-for "dell:OptiPlex 7010" for another model (repeatable),
                              --apps chrome,7zip,... to install programs at first boot,
+                             --domain-blob <file> to join a domain offline,
                              --iso <file> to use an ISO you downloaded yourself)
   detect                    what this computer is, and the drivers it needs
 

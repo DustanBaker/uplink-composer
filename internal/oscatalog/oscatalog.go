@@ -110,6 +110,15 @@ type Options struct {
 	// Apps are appcatalog picker ids to install at first boot (windows only,
 	// via winget). Resolved to package ids by the caller.
 	Apps []string
+	// DomainBlob is a file from `djoin /provision`: an offline domain join.
+	//
+	// Only the offline path is offered here, and that asymmetry is deliberate.
+	// A credentialed join needs a password, and a password passed to a command
+	// lands in shell history and in the terminal scrollback of whoever is
+	// watching — on top of the cleartext copy it already leaves on the stick.
+	// A workspace recipe keeps it in vars.local.yaml, which is gitignored, so
+	// that is where credentialed joins belong.
+	DomainBlob string
 }
 
 // sourceFormat is the manifest format for this entry's download. Raw images
@@ -597,6 +606,13 @@ flash:
 		payloadBlock = p.String()
 		steps += s.String()
 	}
+	// An offline-join blob is a path on this machine, so it goes in verbatim
+	// rather than being copied into the ephemeral workspace: compose reads it
+	// at build time and inlines the base64 into the answer file.
+	domainBlock := ""
+	if opts.DomainBlob != "" {
+		domainBlock = fmt.Sprintf("  domain:\n    blob: %q\n", filepath.ToSlash(opts.DomainBlob))
+	}
 	// Staged GPU driver packages run past a gigabyte each, so driver media
 	// outgrows the 8 GiB stick a bare Windows ISO fits on.
 	minStick := "8GiB"
@@ -632,14 +648,14 @@ windows:
       bypass_requirements: "%s"
 %s  debloat:
     preset: %s
-%s%s  firstboot:
+%s%s%s  firstboot:
     mode: generate
     steps:
 %s
 flash:
   verify: readback-sha256
 `, e.ID, e.Name, e.ID, minStick, editionName(opts.Edition), genericKeys[opts.Edition],
-		opts.AccountMode, bypass, hardwareYAML(hw), preset, appsBlock, payloadBlock, steps)
+		opts.AccountMode, bypass, hardwareYAML(hw), preset, appsBlock, payloadBlock, domainBlock, steps)
 }
 
 // editionName maps the option to the ei.cfg EditionID (drops the "N"/space).

@@ -354,6 +354,56 @@ func TestCustomAppReachesTheMedia(t *testing.T) {
 	}
 }
 
+// TestQuickInstallOfflineDomainJoin: Quick Install offers the offline path and
+// only the offline path. A credentialed join needs a password, and a password
+// on a command line lands in shell history — on top of the cleartext copy it
+// already leaves on the stick — so that belongs in a workspace recipe where
+// vars.local.yaml is gitignored.
+func TestQuickInstallOfflineDomainJoin(t *testing.T) {
+	lib, err := library.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := Get("windows-11")
+	if !ok {
+		t.Skip("no windows entry")
+	}
+	blob := filepath.Join(t.TempDir(), "pc01.odj")
+	dir, err := scaffoldQuickWorkspace(lib, e, Options{Edition: "Pro", DomainBlob: blob}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := assertLoads(t, dir, e.ID)
+	if r == nil || r.Windows == nil {
+		t.Fatal("recipe did not load")
+	}
+	d := r.Windows.Domain
+	if !d.Enabled() || !d.Offline() {
+		t.Fatalf("offline domain join did not reach the recipe: %+v", d)
+	}
+	if d.Blob != filepath.ToSlash(blob) {
+		t.Errorf("blob path = %q, want %q", d.Blob, filepath.ToSlash(blob))
+	}
+	// Nothing credentialed may appear, however the recipe was generated.
+	if d.Join != "" || d.Username != "" || d.Password != "" {
+		t.Errorf("Quick Install emitted join credentials: %+v", d)
+	}
+	for _, f := range r.Lint() {
+		if f.Severity == "error" {
+			t.Errorf("lint error: %s", f.Message)
+		}
+	}
+
+	// And no domain block at all when none was asked for.
+	bare, err := scaffoldQuickWorkspace(lib, e, Options{Edition: "Pro"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rb := assertLoads(t, bare, e.ID); rb != nil && rb.Windows.Domain.Enabled() {
+		t.Error("a build with no --domain-blob produced a domain join")
+	}
+}
+
 // TestCustomAppManifestSurvivesPruning: the OS manifest of a previous build is
 // cleared between Quick Installs, and an installer swept up with it would
 // break the build that was just written to refer to it.

@@ -67,6 +67,9 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	fs.Var(&driversFor, "drivers-for", "Windows: stage drivers for another machine, e.g.\n"+
 		"\"dell:OptiPlex 7010\" (repeatable; one stick can carry several models)")
 	apps := fs.String("apps", "", "Windows: programs to install at first boot (see `uplink apps`)")
+	domainBlob := fs.String("domain-blob", "", "Windows: join a domain using a blob from\n"+
+		"`djoin /provision` (one machine per blob). A credentialed join belongs\n"+
+		"in a workspace recipe, so its password is not left in shell history.")
 	iso := fs.String("iso", "", "use an ISO you downloaded instead of fetching it")
 	yes := fs.Bool("yes", false, "skip the typed size confirmation")
 	buildOnly := fs.Bool("build-only", false, "stop after building; do not flash")
@@ -142,11 +145,22 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 		}
 	}
 
+	if *domainBlob != "" {
+		if e.Family != oscatalog.Windows {
+			return fmt.Errorf("--domain-blob is a Windows option")
+		}
+		// The blob is that computer account's password. Said plainly, because
+		// "offline join is the safe one" is easy to over-read, and because the
+		// blob is for exactly one machine.
+		fmt.Printf("Offline domain join from %s\n", filepath.Base(*domainBlob))
+		fmt.Println("  This blob is for one machine and holds its computer-account password —")
+		fmt.Println("  treat the stick as carrying a credential, and build one stick per machine.")
+	}
 	fmt.Printf("Building %s installer media...\n", e.Name)
 	prog := &stageProgress{}
 	art, err := oscatalog.BuildQuick(ctx, lib, e, oscatalog.Options{
 		Edition: *edition, AccountMode: *account, Debloat: *debloat, BypassRequirement: *bypass,
-		Hardware: hw, Apps: appIDs,
+		Hardware: hw, Apps: appIDs, DomainBlob: *domainBlob,
 	}, prog.report)
 	prog.finish()
 	if err != nil {
