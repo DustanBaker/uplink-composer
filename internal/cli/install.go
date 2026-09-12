@@ -38,17 +38,16 @@ func cmdCatalog(ctx context.Context, env *Env, _ []string) error {
 			if a := e.CPUArch(); a != "amd64" {
 				tags += "/" + a
 			}
-			if e.ImportOnly() {
-				tags += " (bring your own ISO)"
-			}
 			fmt.Printf("    %-24s %-13s %s\n", e.ID, tags, e.Name)
 			detail := fmt.Sprintf("%s — %s", e.Version, e.Notes)
 			if len(e.Editions) > 0 {
 				detail += "  editions: " + strings.Join(e.Editions, ", ")
 			}
 			fmt.Printf("      %s\n", detail)
-			if e.ImportFrom != "" {
-				fmt.Printf("      download it from %s\n", e.ImportFrom)
+			// On its own line rather than in the tag column, which is too
+			// narrow for it and would push every other name out of alignment.
+			if e.ImportOnly() && e.ImportFrom != "" {
+				fmt.Printf("      bring your own ISO, from %s\n", e.ImportFrom)
 			}
 		}
 	}
