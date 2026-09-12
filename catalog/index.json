@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "serial": 1789239034,
-  "generated": "2026-09-12T18:50:34Z",
+  "serial": 1789239799,
+  "generated": "2026-09-12T19:03:19Z",
   "entries": [
     {
       "id": "windows-11",
@@ -223,6 +223,17 @@
       "url": "https://download.bazzite.gg/bazzite-stable-amd64.iso",
       "checksums_url": "https://download.bazzite.gg/bazzite-stable-amd64.iso-CHECKSUM",
       "filename": "bazzite-stable-amd64.iso"
+    },
+    {
+      "id": "nobara-44",
+      "name": "Nobara 44",
+      "family": "linux",
+      "version": "44 (2026-09-02)",
+      "notes": "Fedora with the codecs, drivers and gaming tweaks already applied — NVIDIA and OBS work out of the box.",
+      "firmware_notes": "UEFI boot. Unsigned kernel — Secure Boot must be off.",
+      "url": "https://nobara-images.nobaraproject.org/Nobara-44-Official-2026-09-02.iso",
+      "sha256": "a2dda79fd7f805b683134d16ae4644c12f76d95abad3f2cc61b57d4fe40e6871",
+      "filename": "Nobara-44-Official-2026-09-02.iso"
     },
     {
       "id": "opensuse-tumbleweed",

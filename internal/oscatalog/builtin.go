@@ -242,6 +242,22 @@ var builtin = []Entry{
 		FirmwareNotes: "UEFI boot. Signed shim, so Secure Boot generally works.",
 	},
 	{
+		ID:      "nobara-44",
+		Name:    "Nobara 44",
+		Family:  Linux,
+		Version: "44 (2026-09-02)",
+		// Pinned to the dated build, which is immutable, rather than carrying a
+		// ChecksumsURL — those are for the rolling entries whose target file
+		// changes. The hash below was computed from a download and then checked
+		// against the project's own Nobara-44-Official-2026-09-02.iso.sha256sum;
+		// the two agree.
+		URL:           "https://nobara-images.nobaraproject.org/Nobara-44-Official-2026-09-02.iso",
+		SHA256:        "a2dda79fd7f805b683134d16ae4644c12f76d95abad3f2cc61b57d4fe40e6871",
+		Filename:      "Nobara-44-Official-2026-09-02.iso",
+		Notes:         "Fedora with the codecs, drivers and gaming tweaks already applied — NVIDIA and OBS work out of the box.",
+		FirmwareNotes: "UEFI boot. Unsigned kernel — Secure Boot must be off.",
+	},
+	{
 		ID:     "opensuse-tumbleweed",
 		Name:   "openSUSE Tumbleweed",
 		Family: Linux,
