@@ -1,7 +1,11 @@
 package oscatalog
 
 import (
+	"context"
+	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/recipe"
@@ -184,6 +188,79 @@ func TestAppsReachTheRecipe(t *testing.T) {
 	}
 	if rb := assertLoads(t, bare, e.ID); rb != nil && rb.Windows.Apps.Enabled() {
 		t.Error("expected no apps block")
+	}
+}
+
+// TestCatalogEntriesWellFormed guards the hand-maintained OS list: a typo in
+// an id, a missing filename, or an unpinned image would only surface as a
+// confusing failure partway through someone's install.
+func TestCatalogEntriesWellFormed(t *testing.T) {
+	idRe := regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	seen := map[string]bool{}
+	for _, e := range Catalog() {
+		if !idRe.MatchString(e.ID) {
+			t.Errorf("%q is not a usable id (lowercase, digits, dot, dash, underscore)", e.ID)
+		}
+		if seen[e.ID] {
+			t.Errorf("duplicate catalog id %q", e.ID)
+		}
+		seen[e.ID] = true
+		if e.Name == "" || e.Notes == "" {
+			t.Errorf("%s: needs a name and notes — they are all the picker shows", e.ID)
+		}
+		switch e.Family {
+		case Windows:
+			if e.Provider != "fido" || e.Fido == nil {
+				t.Errorf("%s: Windows entries resolve their ISO through Fido", e.ID)
+			}
+			if len(e.Editions) == 0 {
+				t.Errorf("%s: Windows entries need editions (the key table is keyed by them)", e.ID)
+			}
+		case Linux:
+			if e.URL == "" || e.Filename == "" {
+				t.Errorf("%s: Linux entries need a url and a filename", e.ID)
+			}
+			// Unpinned would mean downloading gigabytes and trusting whatever
+			// arrived. Immutable artifacts carry a hash; rolling ones resolve
+			// theirs from the vendor's checksum file at pull time.
+			if e.SHA256 == "" && e.ChecksumsURL == "" {
+				t.Errorf("%s: unpinned — needs either sha256 or a checksums_url", e.ID)
+			}
+			if e.SHA256 != "" && len(e.SHA256) != 64 {
+				t.Errorf("%s: sha256 is %d characters, want 64", e.ID, len(e.SHA256))
+			}
+		default:
+			t.Errorf("%s: unknown family %q", e.ID, e.Family)
+		}
+		if !strings.HasPrefix(e.URL, "https://") && e.URL != "" {
+			t.Errorf("%s: url must be https", e.ID)
+		}
+	}
+}
+
+// TestResolveChecksumLive exercises the rolling-image path against the real
+// checksum file: the filename has to still match a line in it, which is
+// exactly what silently rots when a distro changes its layout. Network, so
+// it is skipped under -short (which is what CI runs).
+func TestResolveChecksumLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network test")
+	}
+	for _, e := range Catalog() {
+		if e.ChecksumsURL == "" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		sum, err := resolveChecksum(ctx, e)
+		cancel()
+		if err != nil {
+			t.Errorf("%s: %v", e.ID, err)
+			continue
+		}
+		if len(sum) != 64 {
+			t.Errorf("%s: resolved checksum %q is not a sha256", e.ID, sum)
+		}
+		t.Logf("%s -> %s", e.ID, sum)
 	}
 }
 

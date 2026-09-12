@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"strings"
 
+	"path/filepath"
+
 	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
 	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
 	"github.com/DustanBaker/uplink-composer/internal/hwdetect"
+	"github.com/DustanBaker/uplink-composer/internal/library"
 	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
 	"github.com/DustanBaker/uplink-composer/internal/recipe"
 )
@@ -58,7 +61,11 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	debloat := fs.String("debloat", "standard", "Windows debloat: off | standard | aggressive")
 	bypass := fs.Bool("bypass-checks", false, "Windows: skip TPM/Secure Boot/RAM checks")
 	withDrivers := fs.Bool("drivers", false, "Windows: detect this machine and stage its drivers")
+	var driversFor stringList
+	fs.Var(&driversFor, "drivers-for", "Windows: stage drivers for another machine, e.g.\n"+
+		"\"dell:OptiPlex 7010\" (repeatable; one stick can carry several models)")
 	apps := fs.String("apps", "", "Windows: programs to install at first boot (see `uplink apps`)")
+	iso := fs.String("iso", "", "use an ISO you downloaded instead of fetching it")
 	yes := fs.Bool("yes", false, "skip the typed size confirmation")
 	buildOnly := fs.Bool("build-only", false, "stop after building; do not flash")
 	if err := parseFlags(fs, args); err != nil {
@@ -85,12 +92,28 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 		return derr
 	}
 
+	if *iso != "" {
+		if err := importISO(lib, e, *iso); err != nil {
+			return err
+		}
+	}
+
+	// Detected hardware and named models are additive: pnputil installs only
+	// what matches the machine being imaged, so one stick can carry packs for
+	// several models.
 	var hw []recipe.HardwareSpec
 	if *withDrivers {
 		var err error
 		if hw, err = detectedHardware(ctx, e); err != nil {
 			return err
 		}
+	}
+	for _, spec := range driversFor {
+		h, err := hardwareForModel(spec, e)
+		if err != nil {
+			return err
+		}
+		hw = append(hw, h)
 	}
 
 	var appIDs []string
@@ -118,6 +141,57 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 		return nil
 	}
 	return armAndFlash(ctx, art, dev, *yes)
+}
+
+// stringList collects a repeatable string flag.
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, ", ") }
+func (s *stringList) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
+// hardwareForModel parses a "vendor:model" target into a hardware entry. The
+// vendor is required because only Dell, Lenovo and HP publish a per-model
+// driver pack; anything else is found per device, which needs the machine
+// itself rather than its name.
+func hardwareForModel(spec string, e oscatalog.Entry) (recipe.HardwareSpec, error) {
+	if e.Family != oscatalog.Windows {
+		return recipe.HardwareSpec{}, fmt.Errorf("--drivers-for is a Windows option — Linux ships its drivers in the kernel")
+	}
+	vendor, model, ok := strings.Cut(spec, ":")
+	vendor = strings.ToLower(strings.TrimSpace(vendor))
+	model = strings.TrimSpace(model)
+	switch {
+	case !ok || model == "":
+		return recipe.HardwareSpec{}, fmt.Errorf("--drivers-for wants \"vendor:model\", e.g. \"dell:OptiPlex 7010\" (got %q)", spec)
+	case vendor != "dell" && vendor != "lenovo" && vendor != "hp":
+		return recipe.HardwareSpec{}, fmt.Errorf("--drivers-for vendor must be dell, lenovo, or hp (got %q).\n"+
+			"Other makers have no per-model feed — build on the machine itself and use --drivers", vendor)
+	}
+	return recipe.HardwareSpec{Vendor: vendor, Model: model, OS: e.DriverOS()}, nil
+}
+
+// importISO files a downloaded ISO under the catalog entry's id. Hashing and
+// copying several gigabytes takes a while, so say so, and skip the work when
+// the image is already there.
+func importISO(lib *library.Library, e oscatalog.Entry, path string) error {
+	if oscatalog.InLibrary(lib, e) {
+		fmt.Printf("%s is already in the library — using that, ignoring --iso.\n", e.ID)
+		fmt.Println("  (to replace it: uplink gc, or delete the blob the catalog names)")
+		return nil
+	}
+	if err := oscatalog.CheckISO(path); err != nil {
+		return err
+	}
+	fmt.Printf("Importing %s (hashing and copying several GB, this takes a minute)...\n", filepath.Base(path))
+	entry, err := oscatalog.ImportISO(lib, e, path)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("  in library as %s: %d MiB, sha256 %s\n", entry.ID, entry.Size>>20, entry.SHA256)
+	return nil
 }
 
 // detectedHardware profiles this machine into the hardware entries Quick

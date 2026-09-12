@@ -27,7 +27,9 @@ Quick install (no workspace needed)
   install <os-id> [device]  build + flash an OS from the catalog
                             (--edition, --account local|oobe, --debloat, --bypass-checks,
                              --drivers to detect this machine and stage its drivers,
-                             --apps chrome,7zip,... to install programs at first boot)
+                             --drivers-for "dell:OptiPlex 7010" for another model (repeatable),
+                             --apps chrome,7zip,... to install programs at first boot,
+                             --iso <file> to use an ISO you downloaded yourself)
   detect                    what this computer is, and the drivers it needs
   apps                      programs --apps can install
 

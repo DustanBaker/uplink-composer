@@ -184,6 +184,50 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 	})
 }
 
+// InLibrary reports whether this entry's OS image is already local, so a
+// caller can skip both the fetch and a re-import.
+func InLibrary(lib *library.Library, e Entry) bool {
+	_, err := lib.Resolve(e.ID)
+	return err == nil
+}
+
+// CheckISO validates an ISO path before any expensive work starts, so a typo
+// fails immediately rather than after "hashing several GB" has been announced.
+func CheckISO(path string) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return fmt.Errorf("%s is a directory; point --iso at the .iso file", path)
+	}
+	if !strings.EqualFold(filepath.Ext(path), ".iso") {
+		return fmt.Errorf("%s is not a .iso", filepath.Base(path))
+	}
+	if st.Size() < 1<<30 {
+		return fmt.Errorf("%s is only %d MiB — that is too small to be an OS installer ISO",
+			filepath.Base(path), st.Size()>>20)
+	}
+	return nil
+}
+
+// ImportISO files an ISO the operator downloaded themselves under this
+// entry's id, so Quick Install uses it instead of fetching. Microsoft
+// rate-limits the on-demand Windows fetch hard enough (roughly one per day
+// per address) that "download it yourself once" is a normal path, not a
+// fallback — and there is otherwise no way to hand Quick Install an ISO,
+// since `sources import` needs a workspace and a manifest.
+func ImportISO(lib *library.Library, e Entry, path string) (library.Entry, error) {
+	if err := CheckISO(path); err != nil {
+		return library.Entry{}, err
+	}
+	src := &manifest.Source{
+		ID: e.ID, Kind: manifest.KindOSImage, Format: manifest.FormatISO,
+		Filename: filepath.Base(path),
+	}
+	return lib.Import(src, path)
+}
+
 // PlanDrivers finds and downloads the driver packs a machine needs without
 // building any media, reporting what each piece of hardware resolved to. It
 // stages into the same Quick Install workspace the real build uses, so
