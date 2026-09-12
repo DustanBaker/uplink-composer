@@ -79,6 +79,10 @@
   .updbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
     font-size: 13px; }
+  .wsnew { padding: 4px 0 10px; }
+  .wsexplain { color: var(--dim); font-size: 12px; padding: 4px 14px 8px; line-height: 1.5; }
+  .wswhere { color: var(--dim); font-size: 12px; padding: 0 14px 2px; }
+  .linkish { color: var(--accent); cursor: pointer; text-decoration: underline; }
   .catgroup { color: var(--dim); font-size: 11px; text-transform: uppercase;
     letter-spacing: .04em; margin: 10px 0 2px; }
   .catgroup:first-child { margin-top: 0; }
@@ -318,7 +322,7 @@ function render() {
 
   // ── Workspace panel ─────────────────────────────────────────────────────
   const wp = $("wsPanel"); wp.replaceChildren();
-  $("wsHint").textContent = state.has_workspace ? "" : "open one to build recipes";
+  $("wsHint").textContent = state.has_workspace ? "" : "optional — for building the same media repeatedly";
   if (state.has_workspace) {
     const row = el("div", "row");
     const grow = el("div", "grow");
@@ -327,7 +331,10 @@ function render() {
     row.append(grow, el("span", "badge ok", "open"));
     wp.append(row);
   } else {
-    wp.append(el("div", "empty", "No workspace open. Open one to see its recipes and build media."));
+    // The explainer leads, before the ways of getting one — otherwise
+    // someone reads three options before learning what they are choosing
+    // between, or whether they need to choose at all.
+    wp.append(workspaceExplainer());
   }
   // Recents (excluding the current one).
   for (const w of state.recent || []) {
@@ -352,13 +359,7 @@ function render() {
   orow.append(input, browseBtn, openBtn);
   wp.append(orow);
 
-  const nrow = el("div", "row wsrow");
-  const orgIn = el("input"); orgIn.placeholder = "new workspace for… (organisation name)";
-  const newBtn = el("button", "", "Create workspace…");
-  newBtn.onclick = () => createWorkspace(newBtn, orgIn);
-  orgIn.onkeydown = e => { if (e.key === "Enter") createWorkspace(newBtn, orgIn); };
-  nrow.append(orgIn, newBtn);
-  wp.append(nrow);
+  wp.append(newWorkspaceBlock());
 
   const rr = $("recipes"); rr.replaceChildren();
   if (!state.has_workspace) rr.append(el("div", "empty", "Open a workspace above to see its recipes."));
@@ -673,26 +674,71 @@ async function browseWorkspace(btn, input) {
   }
 }
 
-// createWorkspace asks for the organisation, then where to put it, using the
-// host's folder chooser — so nobody has to know what a workspace directory
-// looks like before making one.
-async function createWorkspace(btn, orgInput) {
-  const org = orgInput.value.trim();
-  if (!org) { showErr("Give the workspace an organisation name first."); orgInput.focus(); return; }
-  const was = btn.textContent;
-  btn.textContent = "Choose a folder…"; btn.disabled = true;
-  try {
-    const picked = await api("/api/browse", {});
-    if (!picked.path) return;                       // cancelled
-    const r = await api("/api/workspace/new", { org, parent: picked.path });
-    orgInput.value = "";
-    await loadState();
-    showOk("Created and opened " + r.dir);
-  } catch (e) {
-    showErr(e.message);
-  } finally {
-    btn.textContent = was; btn.disabled = false;
+// newWorkspaceBlock is the create-a-workspace affordance: name and folder
+// filled in already, so it is one button rather than a form. Both stay
+// visible and editable — the goal is to remove the blank page, not the
+// choice, and a workspace hidden in app data is one nobody ever commits.
+let wsDefaults = null;
+
+// workspaceExplainer says plainly what this panel is, because "workspace" is
+// jargon and the section otherwise reads like setup someone skipped — when
+// in fact installing an operating system needs none of it.
+function workspaceExplainer() {
+  return el("div", "wsexplain",
+    "Installing an operating system needs nothing here. A workspace is for building " +
+    "the same media again and again — your own recipes, drivers and installers, kept " +
+    "in a folder you own on this machine. No account, nothing uploaded.");
+}
+
+function newWorkspaceBlock() {
+  const box = el("div", "wsnew");
+  const row = el("div", "row wsrow");
+  const orgIn = el("input");
+  orgIn.placeholder = "workspace name";
+  orgIn.value = (wsDefaults && wsDefaults.org) || "";
+  const btn = el("button", state.has_workspace ? "" : "primary", "Create workspace");
+  row.append(orgIn, btn);
+  box.append(row);
+
+  const where = el("div", "sub wswhere");
+  let parent = (wsDefaults && wsDefaults.parent) || "";
+  const change = el("a", "linkish", "change");
+  change.onclick = async () => {
+    try {
+      const p = await api("/api/browse", {});
+      if (p.path) { parent = p.path; paint(); }
+    } catch (e) { showErr(e.message); }
+  };
+  function paint() {
+    where.replaceChildren(document.createTextNode("in " + (parent || "your home folder") + "  "), change);
   }
+  paint();
+  box.append(where);
+
+  const go = async () => {
+    const org = orgIn.value.trim();
+    if (!org) { showErr("Give the workspace a name first."); orgIn.focus(); return; }
+    const was = btn.textContent;
+    btn.textContent = "Creating…"; btn.disabled = true;
+    try {
+      const r = await api("/api/workspace/new", { org, parent });
+      await loadState();
+      showOk("Created and opened " + r.dir);
+    } catch (e) {
+      showErr(e.message);
+      btn.textContent = was; btn.disabled = false;
+    }
+  };
+  btn.onclick = go;
+  orgIn.onkeydown = e => { if (e.key === "Enter") go(); };
+  return box;
+}
+
+// loadWorkspaceDefaults fetches the suggested name and folder once, so the
+// create block is pre-filled the first time it is drawn.
+async function loadWorkspaceDefaults() {
+  try { wsDefaults = await api("/api/workspace/defaults"); render(); }
+  catch (e) { /* the fields just start empty */ }
 }
 
 async function openWorkspace(dir) {
@@ -716,6 +762,7 @@ async function loadState() {
 }
 loadState();
 loadDisks();
+loadWorkspaceDefaults();
 streamEvents();
 checkUpdate();
 </script>

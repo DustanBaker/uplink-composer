@@ -131,6 +131,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/state", s.auth(s.handleState))
 	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
 	mux.HandleFunc("POST /api/browse", s.auth(s.handleBrowse))
+	mux.HandleFunc("GET /api/workspace/defaults", s.auth(s.handleWorkspaceDefaults))
 	mux.HandleFunc("POST /api/workspace/new", s.auth(s.handleNewWorkspace))
 	mux.HandleFunc("GET /api/disks", s.auth(s.handleDisks))
 	mux.HandleFunc("POST /api/disks/prepare", s.auth(s.handleDiskPrepare))
@@ -693,9 +694,49 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"path": path})
 }
 
-// handleNewWorkspace scaffolds a workspace and opens it. The folder is
-// chosen with the host's own picker rather than typed, and a workspace is
-// created inside it named after the org.
+// handleWorkspaceDefaults suggests a name and a place, so creating one is a
+// button rather than an interrogation. Both stay editable: the point is to
+// remove the blank page, not the choice.
+func (s *Server) handleWorkspaceDefaults(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]string{
+		"org":    suggestOrgName(),
+		"parent": suggestWorkspaceParent(),
+	})
+}
+
+// suggestOrgName prefers the machine name: on a work bench it is usually the
+// shop's name already, and it is a better guess than "Default".
+func suggestOrgName() string {
+	if h, err := os.Hostname(); err == nil && h != "" {
+		return h
+	}
+	if u := os.Getenv("USERNAME"); u != "" {
+		return u
+	}
+	if u := os.Getenv("USER"); u != "" {
+		return u
+	}
+	return "My Workspace"
+}
+
+// suggestWorkspaceParent picks somewhere the person will actually find it
+// again — never an app-data folder, which is where files go to be forgotten
+// and never committed.
+func suggestWorkspaceParent() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	for _, candidate := range []string{"Documents", "documents"} {
+		p := filepath.Join(home, candidate)
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			return filepath.Join(p, "Uplink Workspaces")
+		}
+	}
+	return filepath.Join(home, "Uplink Workspaces")
+}
+
+// handleNewWorkspace scaffolds a workspace and opens it.
 func (s *Server) handleNewWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Org    string `json:"org"`
@@ -707,13 +748,17 @@ func (s *Server) handleNewWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	org := strings.TrimSpace(req.Org)
 	parent := strings.TrimSpace(req.Parent)
-	if org == "" || parent == "" {
-		httpErr(w, 400, "both an organisation name and a folder are required")
+	if org == "" {
+		httpErr(w, 400, "the workspace needs a name")
 		return
 	}
-	st, err := os.Stat(parent)
-	if err != nil || !st.IsDir() {
-		httpErr(w, 400, "%s is not a folder", parent)
+	if parent == "" {
+		parent = suggestWorkspaceParent()
+	}
+	// The suggested folder will not exist the first time, which is normal
+	// rather than an error worth showing anyone.
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		httpErr(w, 400, "cannot use %s: %v", parent, err)
 		return
 	}
 	dir := filepath.Join(parent, slugify(org)+"-workspace")
