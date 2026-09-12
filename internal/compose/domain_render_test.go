@@ -149,6 +149,25 @@ func TestRenderOfflineJoin(t *testing.T) {
 			t.Errorf("an offline join emitted %s — no user credential should appear", unwanted)
 		}
 	}
+
+	// The blob provisions a computer account for ONE named machine and carries
+	// that name. Naming the machine here as well — and the default is "*",
+	// meaning random — leaves it calling itself something its own computer
+	// account does not match, which breaks the trust the join just
+	// established. Same reason UserData/FullName must stay absent: on 24H2 it
+	// overrides the blob's name too.
+	if strings.Contains(sp, "<ComputerName>") {
+		t.Error("an offline join set ComputerName — that overrides the name the blob provisioned " +
+			"and breaks the domain trust")
+	}
+	if strings.Contains(doc, "<FullName>") {
+		t.Error("UserData/FullName is set — on Windows 11 24H2 it overrides an offline join's machine name")
+	}
+	// The component itself must remain: the specialize Shell-Setup component
+	// is documented as needing to exist even when empty.
+	if !strings.Contains(sp, `name="Microsoft-Windows-Shell-Setup"`) {
+		t.Error("the specialize Shell-Setup component disappeared; it is documented as required")
+	}
 }
 
 // TestOfflineBlobAbsolutePath: a blob is produced on a domain-joined machine

@@ -161,7 +161,20 @@ const scaffoldUnattend = `<?xml version="1.0" encoding="utf-8"?>
   <settings pass="specialize">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
                publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      {{if eq .Vars.domain_mode "offline"}}
+      <!-- No ComputerName on an offline join, deliberately.
+           djoin /provision creates the computer account for ONE named machine
+           and the blob carries that name. Setting a name here too - and the
+           default is "*", meaning random - renames the machine to something
+           its own computer account does not match, which breaks the trust
+           relationship the join just established.
+           For the same reason do not add UserData/FullName: on Windows 11
+           24H2 that silently overrides the blob's name as well.
+           The component stays, empty: the specialize Shell-Setup component is
+           documented as needing to exist. -->
+      {{else}}
       <ComputerName>{{.Vars.computer_name}}</ComputerName>
+      {{end}}
     </component>
     {{if eq .Vars.domain_mode "offline"}}
     <!-- Offline domain join (windows.domain.blob). The computer account was
