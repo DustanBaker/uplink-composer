@@ -51,13 +51,15 @@ jobs:
           if [ ! -s "$notes" ]; then
             echo "Cross-platform builds." > "$notes"
           fi
-          cat >> "$notes" <<'EOF'
-
----
-
-Verify downloads against `SHA256SUMS.txt`. Binaries are unsigned for now —
-Windows SmartScreen / Smart App Control may object until code signing lands.
-EOF
+          # printf, not a heredoc: a heredoc body and its terminator have to sit
+          # at column 0, which ends this YAML block scalar early (and `---` there
+          # starts a new YAML document), silently truncating the script.
+          {
+            printf '\n---\n\n'
+            printf 'Verify downloads against `SHA256SUMS.txt`. Binaries are unsigned'
+            printf ' for now — Windows SmartScreen / Smart App Control may object'
+            printf ' until code signing lands.\n'
+          } >> "$notes"
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --title "The Uplink CompOSer ${GITHUB_REF_NAME}" \
             --notes-file "$notes"
