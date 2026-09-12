@@ -157,6 +157,31 @@ var builtin = []Entry{
 		FirmwareNotes: "UEFI boot. Unsigned — Secure Boot must be off.",
 	},
 	{
+		ID:            "cachyos-desktop",
+		Name:          "CachyOS Desktop",
+		Family:        Linux,
+		Version:       "260809",
+		URL:           "https://cdn77.cachyos.org/ISO/desktop/260809/cachyos-desktop-linux-260809.iso",
+		SHA256:        "959f6577f45e25ee9fd8c220fd221b08e4ea79412c7315c0f922dd6d86d5e33c",
+		Filename:      "cachyos-desktop-linux-260809.iso",
+		Notes:         "Arch, tuned for speed: optimised packages and a custom kernel, with a graphical installer.",
+		FirmwareNotes: "UEFI boot. Unsigned — Secure Boot must be off.",
+	},
+	{
+		ID:       "cachyos-handheld",
+		Name:     "CachyOS Handheld",
+		Family:   Linux,
+		Version:  "260628",
+		URL:      "https://cdn77.cachyos.org/ISO/handheld/260628/cachyos-handheld-linux-260628.iso",
+		SHA256:   "0567c61f21622e5b4b482a874c41076beeb9bd8c00f046fa40e5c8cfbe34d15f",
+		Filename: "cachyos-handheld-linux-260628.iso",
+		// The practical answer to "I want SteamOS on this": Valve's own image
+		// only serves Steam Deck hardware, while this installs on any handheld
+		// gaming PC and boots to the same kind of controller-first session.
+		Notes:         "For handheld gaming PCs — Steam Deck, ROG Ally, Legion Go. Boots straight into a game session.",
+		FirmwareNotes: "UEFI boot. Unsigned — Secure Boot must be off.",
+	},
+	{
 		ID:       "raspios-arm64",
 		Name:     "Raspberry Pi OS (64-bit)",
 		Family:   Linux,
