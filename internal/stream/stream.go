@@ -1,8 +1,9 @@
-// Package stream opens artifact/blob files with transparent xz, zstd, or
-// gzip decompression, shared by the flash engine and the uplink.
+// Package stream opens artifact/blob files with transparent xz, zstd, gzip,
+// or bzip2 decompression, shared by the flash engine and the uplink.
 package stream
 
 import (
+	"compress/bzip2"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
-// Detect sniffs xz/zstd/gzip magic bytes; returns "none" otherwise.
+// Detect sniffs xz/zstd/gzip/bzip2 magic bytes; returns "none" otherwise.
 func Detect(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -31,6 +32,10 @@ func Detect(path string) (string, error) {
 		return "zstd", nil
 	case magic[0] == 0x1F && magic[1] == 0x8B:
 		return "gz", nil
+	// "BZh" then the block-size digit: Valve ships the Steam Deck recovery
+	// image this way.
+	case magic[0] == 'B' && magic[1] == 'Z' && magic[2] == 'h' && magic[3] >= '1' && magic[3] <= '9':
+		return "bz2", nil
 	default:
 		return "none", nil
 	}
@@ -52,8 +57,8 @@ func (r *readCloser) Close() error {
 }
 
 // Open returns a reader over path decoded per compress ("none", "xz",
-// "zstd", "gz"). Callers get the uncompressed stream; the size is unknown
-// for compressed inputs.
+// "zstd", "gz", "bz2"). Callers get the uncompressed stream; the size is
+// unknown for compressed inputs.
 func Open(path, compress string) (io.ReadCloser, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -83,6 +88,10 @@ func Open(path, compress string) (io.ReadCloser, error) {
 			return nil, fmt.Errorf("opening gzip stream: %w", err)
 		}
 		return &readCloser{Reader: gr, closers: []io.Closer{gr, f}}, nil
+	case "bz2":
+		// compress/bzip2 is decompress-only, which is all a flasher needs,
+		// and returns a plain Reader with nothing of its own to close.
+		return &readCloser{Reader: bzip2.NewReader(f), closers: []io.Closer{f}}, nil
 	default:
 		f.Close()
 		return nil, fmt.Errorf("unknown compression %q", compress)

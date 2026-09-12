@@ -460,6 +460,12 @@ func hardwareYAML(hw []recipe.HardwareSpec) string {
 
 func recipeYAML(e Entry, opts Options, hw []recipe.HardwareSpec) string {
 	if e.Family == Linux {
+		// Raw images arrive compressed and expand several times over, so the
+		// stick they need is much bigger than the download suggests.
+		minStick := "4GiB"
+		if e.Kind() == ImageRaw {
+			minStick = "8GiB"
+		}
 		return fmt.Sprintf(`version: 1
 id: %s
 name: %q
@@ -467,11 +473,11 @@ os:
   type: %s
   source: %s
 target:
-  min_stick: 4GiB
+  min_stick: %s
   boot: uefi-only
 flash:
   verify: readback-sha256
-`, e.ID, e.Name, e.recipeOSType(), e.ID)
+`, e.ID, e.Name, e.recipeOSType(), e.ID, minStick)
 	}
 	bypass := "0"
 	if opts.BypassRequirement {

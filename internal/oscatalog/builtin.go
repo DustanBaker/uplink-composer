@@ -182,6 +182,26 @@ var builtin = []Entry{
 		FirmwareNotes: "UEFI boot. Unsigned — Secure Boot must be off.",
 	},
 	{
+		ID:       "steamos-deck-recovery",
+		Name:     "SteamOS (Steam Deck recovery)",
+		Family:   Linux,
+		Category: Appliance,
+		Image:    ImageRaw,
+		Version:  "20260707.10 / 3.8.14",
+		// Pinned to the dated build rather than the "latest" alias, because
+		// the hash below is ours: Valve publishes no checksum (the .sha256
+		// URL redirects to the image itself), so this was computed from a
+		// download and pins the file against later change, not against the
+		// first fetch. The alias would invalidate it at every new build.
+		URL:      "https://steamdeck-images.steamos.cloud/recovery/steamdeck-oobe-repair-20260707.10-3.8.14.img.bz2",
+		SHA256:   "4254ee02ec34ae8add9aceef1881a2ce675a9d0176171df92e0eaa1bf014c594",
+		Filename: "steamdeck-oobe-repair-20260707.10-3.8.14.img.bz2",
+		Notes: "Valve's recovery image, for Steam Deck hardware only — reinstalls or repairs SteamOS on a Deck. " +
+			"Not a SteamOS installer for a PC; for handheld gaming PCs generally, see CachyOS Handheld.",
+		FirmwareNotes: "Boot a powered-off Deck with Volume-Down held to pick this stick. " +
+			"Unsigned — Secure Boot must be off.",
+	},
+	{
 		ID:       "raspios-arm64",
 		Name:     "Raspberry Pi OS (64-bit)",
 		Family:   Linux,
