@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the annotated tag's message is available below.
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27"
@@ -39,6 +42,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -eu
+          # The annotated tag's message is the release notes, so what shipped is
+          # written once, next to the commits it describes. Kept out of dist/ so
+          # it is neither published as an asset nor hashed into SHA256SUMS.
+          notes="${RUNNER_TEMP}/notes.md"
+          git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > "$notes"
+          if [ ! -s "$notes" ]; then
+            echo "Cross-platform builds." > "$notes"
+          fi
+          cat >> "$notes" <<'EOF'
+
+---
+
+Verify downloads against `SHA256SUMS.txt`. Binaries are unsigned for now —
+Windows SmartScreen / Smart App Control may object until code signing lands.
+EOF
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --title "The Uplink CompOSer ${GITHUB_REF_NAME}" \
-            --notes "Cross-platform builds. Verify with SHA256SUMS.txt. Binaries are unsigned for now — Windows SmartScreen/Smart App Control may object until code signing lands."
+            --notes-file "$notes"
