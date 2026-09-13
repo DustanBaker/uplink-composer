@@ -16,10 +16,10 @@ func Scaffold(dir, orgName string) error {
 	}
 	orgID := slugify(orgName)
 	files := map[string]string{
-		"workspace.yaml":                  fmt.Sprintf(scaffoldWorkspaceYAML, orgName, orgID),
-		".gitignore":                      scaffoldGitignore,
-		"README.md":                       fmt.Sprintf(scaffoldReadme, orgName),
-		"vars.local.yaml":                 scaffoldVarsLocal,
+		"workspace.yaml":                          fmt.Sprintf(scaffoldWorkspaceYAML, orgName, orgID),
+		".gitignore":                              scaffoldGitignore,
+		"README.md":                               fmt.Sprintf(scaffoldReadme, orgName),
+		"vars.local.yaml":                         scaffoldVarsLocal,
 		"templates/autounattend.xml.tmpl":         scaffoldUnattend,
 		"templates/autoinstall.yaml.tmpl":         scaffoldAutoinstall,
 		"recipes/example-win11.yaml":              scaffoldWinRecipe,

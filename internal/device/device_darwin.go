@@ -15,15 +15,15 @@ type duList struct {
 }
 
 type duInfo struct {
-	DeviceIdentifier string `plist:"DeviceIdentifier"`
-	MediaName        string `plist:"MediaName"`
+	DeviceIdentifier    string `plist:"DeviceIdentifier"`
+	MediaName           string `plist:"MediaName"`
 	IORegistryEntryName string `plist:"IORegistryEntryName"`
-	Size             int64  `plist:"Size"`
-	BusProtocol      string `plist:"BusProtocol"`
-	RemovableMedia   bool   `plist:"RemovableMedia"`
-	Internal         bool   `plist:"Internal"`
-	MountPoint       string `plist:"MountPoint"`
-	OSInternalMedia  bool   `plist:"OSInternalMedia"`
+	Size                int64  `plist:"Size"`
+	BusProtocol         string `plist:"BusProtocol"`
+	RemovableMedia      bool   `plist:"RemovableMedia"`
+	Internal            bool   `plist:"Internal"`
+	MountPoint          string `plist:"MountPoint"`
+	OSInternalMedia     bool   `plist:"OSInternalMedia"`
 }
 
 func list(ctx context.Context) ([]Device, error) {

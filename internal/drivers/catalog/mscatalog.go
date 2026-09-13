@@ -29,7 +29,7 @@ type msCatalogFeed struct{}
 func (f *msCatalogFeed) Vendor() Vendor { return MSCatalog }
 
 var (
-	msRowRe = regexp.MustCompile(`(?s)<tr id="([0-9a-f-]{36})_R\d+".*?</tr>`)
+	msRowRe  = regexp.MustCompile(`(?s)<tr id="([0-9a-f-]{36})_R\d+".*?</tr>`)
 	msCellRe = regexp.MustCompile(`(?s)<td[^>]*id="[0-9a-f-]{36}_C(\d)_R\d+"[^>]*>(.*?)</td>`)
 	msTagRe  = regexp.MustCompile(`(?s)<[^>]+>`)
 	msSizeRe = regexp.MustCompile(`id="[0-9a-f-]{36}_originalSize">(\d+)<`)

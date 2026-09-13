@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	fsctlLockVolume          = 0x00090018
-	fsctlDismountVolume      = 0x00090020
-	ioctlDiskGetLengthInfo   = 0x0007405C
+	fsctlLockVolume           = 0x00090018
+	fsctlDismountVolume       = 0x00090020
+	ioctlDiskGetLengthInfo    = 0x0007405C
 	ioctlDiskUpdateProperties = 0x00070140
-	ioctlVolumeGetExtents    = 0x00560000
-	ioctlStorageEjectMedia   = 0x002D4808
+	ioctlVolumeGetExtents     = 0x00560000
+	ioctlStorageEjectMedia    = 0x002D4808
 )
 
 type winTarget struct {

@@ -50,5 +50,5 @@ func buildRaw(ctx context.Context, req Request) (*Artifact, error) {
 	return a, nil
 }
 
-func nowUTC() time.Time     { return time.Now().UTC() }
-func toolVersion() string   { return buildinfo.Version }
+func nowUTC() time.Time   { return time.Now().UTC() }
+func toolVersion() string { return buildinfo.Version }

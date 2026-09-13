@@ -20,8 +20,8 @@ var debloatStandardApps = []string{
 	"Microsoft.MicrosoftSolitaireCollection",
 	"Microsoft.MicrosoftOfficeHub", // "Office" ad hub
 	"Clipchamp.Clipchamp",
-	"MicrosoftTeams",     // consumer Teams (11 21H2-22H2)
-	"MSTeams",            // consumer Teams (23H2+)
+	"MicrosoftTeams", // consumer Teams (11 21H2-22H2)
+	"MSTeams",        // consumer Teams (23H2+)
 	"Microsoft.Todos",
 	"Microsoft.PowerAutomateDesktop",
 	"MicrosoftCorporationII.MicrosoftFamily",

@@ -52,7 +52,7 @@ type Artifact struct {
 	Kind      string    `json:"kind"` // "image" (composed) | "raw" (blob passthrough)
 	Path      string    `json:"path"`
 	Size      int64     `json:"size"`
-	SHA256    string    `json:"sha256,omitempty"` // of Path as stored
+	SHA256    string    `json:"sha256,omitempty"`   // of Path as stored
 	Compress  string    `json:"compress,omitempty"` // raw kind: none|xz|zstd|gz
 	InputsKey string    `json:"inputs_key"`
 	Verify    string    `json:"verify"` // readback-sha256 | none
