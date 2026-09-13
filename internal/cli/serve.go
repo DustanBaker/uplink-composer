@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -148,18 +149,40 @@ func AppMain() error {
 		case <-done:
 		case <-time.After(3 * time.Second):
 		}
+		waitForRelaunch()
 		return nil
 	}
 	// No window to be had — fall back to the browser, where the idle timeout
 	// is what eventually stops the server.
 	openBrowser(url)
 	<-done
+	waitForRelaunch()
 	return nil
 }
 
+// waitForRelaunch holds this process open while an update restart is under
+// way, until the new build has been started.
+//
+// Returning from AppMain ends the process, and an update restart begins by
+// stopping the server — which is exactly what the callers above wait for. So
+// without this the process exited in the gap between stopping and relaunching,
+// and the update installed with nothing reopening. In a browser tab that was
+// every time; the window paths survived only because the window happened to
+// outlast the gap.
+func waitForRelaunch() {
+	if restarting.Load() {
+		<-relaunched
+	}
+}
+
 // restarting is set while restartAfterUpdate is replacing this process, so the
-// server stopping is not taken as a reason to close the window.
-var restarting atomic.Bool
+// server stopping is not taken as a reason to close the window or to exit.
+// relaunched closes once the new build has been started (or failed to start).
+var (
+	restarting   atomic.Bool
+	relaunched   = make(chan struct{})
+	relaunchOnce sync.Once
+)
 
 // appTitle is what the window is called in the taskbar and the title bar.
 const appTitle = "DSKY"
@@ -203,6 +226,7 @@ func restartAfterUpdate(stop func()) {
 	// With the same arguments: `dsky app` restarted as a bare `dsky` would
 	// print the usage and exit, leaving no app at all. dsky-app has none.
 	_ = selfupdate.Relaunch(os.Args[1:]...)
+	relaunchOnce.Do(func() { close(relaunched) })
 	// The window, not the server, is what holds this process open — stopping
 	// the server alone leaves an app on screen serving nothing. Closed even if
 	// the relaunch failed, because the alternative is a window whose portal is

@@ -100,6 +100,45 @@ jobs:
           for i in $(seq 1 20); do kill -0 $APP 2>/dev/null || { echo "exited ${i}s after Quit"; exit 0; }; sleep 1; done
           echo "still running 20s after Quit"; cat app.log; exit 1
 
+      # An update must bring the app back. This checkout, stamped as an older
+      # version, updates itself to the latest published release through the
+      # page's API, and the new build has to come up with a window of its own.
+      - name: Updating reopens the app
+        if: inputs.release == ''
+        timeout-minutes: 5
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -u
+          go build -ldflags "-X github.com/uplinkresearch/dsky/internal/buildinfo.Version=v0.0.1" -o upd/dsky ./cmd/dsky
+          ./upd/dsky version
+          REC="$HOME/Library/Application Support/dsky/portal.json"
+          rm -f "$REC"
+          ./upd/dsky app > upd.log 2>&1 &
+          OLD=$!
+          for i in $(seq 1 60); do [ -s "$REC" ] && break; sleep 1; done
+          PORT=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['port'])" "$REC")
+          TOKEN=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['token'])" "$REC")
+          sleep 3
+          curl -s -X POST -H "X-DSKY-Token: $TOKEN" -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:$PORT/api/update; echo
+          NEW=""
+          for i in $(seq 1 90); do
+            P=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['pid'])" "$REC" 2>/dev/null || true)
+            if [ -n "$P" ] && [ "$P" != "$OLD" ] && kill -0 "$P" 2>/dev/null; then NEW=$P; break; fi
+            sleep 1
+          done
+          [ -n "$NEW" ] || { echo "no new process after the update"; ./upd/dsky version; cat upd.log; exit 1; }
+          echo "relaunched as pid $NEW; binary now: $(./upd/dsky version)"
+          sleep 8
+          kill -0 $OLD 2>/dev/null && { echo "old process still running"; exit 1; } || echo "old process gone"
+          swift windows.swift $NEW || { echo "the relaunched build has no window"; exit 1; }
+          screencapture -x "${{ runner.temp }}/after-update.png" || true
+          TOKEN=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['token'])" "$REC")
+          PORT=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['port'])" "$REC")
+          curl -s -X POST -H "X-DSKY-Token: $TOKEN" -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:$PORT/api/quit; echo
+          for i in $(seq 1 20); do kill -0 $NEW 2>/dev/null || { echo "relaunched build exited ${i}s after Quit"; exit 0; }; sleep 1; done
+          echo "relaunched build still running after Quit"; exit 1
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
