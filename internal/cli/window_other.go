@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package cli
 
@@ -15,12 +15,12 @@ import (
 	"github.com/uplinkresearch/dsky/internal/appconfig"
 )
 
-// The portal in its own window, on macOS and Linux.
+// The portal in its own window, on Linux.
 //
-// Both have system web views, but every Go binding for them needs a C
-// compiler, and that would cost the CGO-free single-binary build on every
-// platform to gain a frame on two. What these machines almost always have
-// instead is a Chromium-family browser, and Chromium has an app mode: one
+// Linux's web views (WebKitGTK and friends) are C libraries that differ by
+// distribution and are often not installed, and every Go binding for them
+// needs a C compiler. What these machines almost always have instead is a
+// Chromium-family browser, and Chromium has an app mode: one
 // window, no tabs, no address bar, the page's own title in the title bar. It
 // is a subprocess, so nothing is linked.
 //
@@ -98,18 +98,7 @@ func focusWindow(title string) bool { return false }
 // appBrowser finds a Chromium-family browser, preferring the one somebody has
 // chosen as their default, so the window looks like the browser they use.
 func appBrowser() string {
-	if runtime.GOOS == "darwin" {
-		for _, app := range []string{"Google Chrome", "Microsoft Edge", "Brave Browser", "Chromium", "Vivaldi"} {
-			for _, dir := range []string{"/Applications", filepath.Join(os.Getenv("HOME"), "Applications")} {
-				p := filepath.Join(dir, app+".app", "Contents", "MacOS", app)
-				if _, err := os.Stat(p); err == nil {
-					return p
-				}
-			}
-		}
-		return ""
-	}
-	// Linux: the default browser's desktop id names the family even when the
+	// The default browser's desktop id names the family even when the
 	// executable is spelled differently from distribution to distribution.
 	families := []struct {
 		id   string

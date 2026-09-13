@@ -1,0 +1,91 @@
+name: mac-window
+# The macOS window cannot be exercised by `go test` on a machine without a
+# desktop, and nobody developing this has a Mac to hand. GitHub's macOS
+# runners have a logged-in desktop session, so this opens the real window
+# there, checks what it did, and keeps screenshots as evidence.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - internal/cli/window_darwin.go
+      - internal/cli/window_darwin_test.go
+      - internal/cli/serve.go
+      - .github/workflows/mac-window.yml
+
+jobs:
+  window:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      # Built the way releases are built: no cgo.
+      - name: Dialogs and closing, in the real window
+        timeout-minutes: 4
+        env:
+          CGO_ENABLED: "0"
+          DSKY_MAC_WINDOW_TEST: "1"
+          DSKY_SHOT: ${{ runner.temp }}/dialogs.png
+        run: go test -count=1 -v ./internal/cli
+
+      - name: The app itself
+        timeout-minutes: 4
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -u
+          go build -o dsky ./cmd/dsky
+          file dsky
+          ./dsky app > app.log 2>&1 &
+          APP=$!
+          REC="$HOME/Library/Application Support/dsky/portal.json"
+          for i in $(seq 1 60); do [ -s "$REC" ] && break; sleep 1; done
+          cat "$REC"; echo
+          PORT=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['port'])" "$REC")
+          TOKEN=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['token'])" "$REC")
+          # The page opens a live event stream from JavaScript as soon as it
+          # runs. A connection to the portal from something other than dsky
+          # is the WebKit network process, which means the page loaded and its
+          # script ran inside the window.
+          ok=0
+          for i in $(seq 1 45); do
+            if lsof -nP -iTCP@127.0.0.1:$PORT -sTCP:ESTABLISHED | awk 'NR>1 && $1 !~ /^dsky/' | grep -q .; then ok=1; break; fi
+            sleep 1
+          done
+          lsof -nP -iTCP@127.0.0.1:$PORT -sTCP:ESTABLISHED || true
+          sleep 3
+          screencapture -x "${{ runner.temp }}/app.png" || true
+          # What the menu bar and Dock call the running app.
+          lsappinfo info -only name -only bundlepath $(lsappinfo find pid=$APP) || true
+          # Windows on screen belonging to dsky, from the window server itself.
+          cat > windows.swift <<'SWIFT'
+          import CoreGraphics
+          import Foundation
+          let pid = Int32(CommandLine.arguments[1])!
+          let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]
+          let mine = list.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid }
+          for w in mine { print(w[kCGWindowBounds as String] ?? "", w[kCGWindowLayer as String] ?? "") }
+          print("windows: \(mine.count)")
+          exit(mine.isEmpty ? 1 : 0)
+          SWIFT
+          swift windows.swift $APP || { echo "no window on screen for dsky"; cat app.log; exit 1; }
+          [ $ok = 1 ] || { echo "the page never connected back to the portal"; cat app.log; exit 1; }
+          # Quit, as the page's button does: the window must close and the
+          # process end on its own.
+          curl -s -X POST -H "X-DSKY-Token: $TOKEN" -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:$PORT/api/quit; echo
+          for i in $(seq 1 20); do kill -0 $APP 2>/dev/null || { echo "exited ${i}s after Quit"; exit 0; }; sleep 1; done
+          echo "still running 20s after Quit"; cat app.log; exit 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: ${{ runner.temp }}/*.png
+          if-no-files-found: warn

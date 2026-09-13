@@ -119,9 +119,7 @@ func AppMain() error {
 	}
 	// The other direction: when the server stops first — Quit in the page, or
 	// the idle timeout — the window goes too, rather than staying on screen
-	// serving nothing. On macOS this is also what quits at all: closing a
-	// Chromium window there does not quit Chromium, so the window's browser
-	// outlives the window until the server's idle timeout reaches here.
+	// serving nothing.
 	//
 	// Not during an update restart, which stops the server on purpose and
 	// relaunches a moment later: closing the window there would end this

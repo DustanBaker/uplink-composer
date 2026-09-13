@@ -110,7 +110,8 @@ if [ "$OS" = "darwin" ]; then
     chmod +x "$APP/Contents/MacOS/DSKY"
     # LSUIElement: the launcher is a shell script with no window of its own, and
     # without this it would sit in the Dock as an icon that does nothing when
-    # clicked. The DSKY window belongs to the browser that draws it.
+    # clicked. dsky puts DSKY in the Dock and menu bar itself once its window
+    # opens.
     cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

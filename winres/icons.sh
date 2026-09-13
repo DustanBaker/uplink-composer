@@ -9,6 +9,7 @@
 # dsky.png    Linux app launcher
 # dsky.icns   macOS: the DSKY.app install.sh builds
 # favicon.png the portal page
+# appicon.png the macOS window's Dock icon (internal/webui)
 set -eu
 M=docs/logo/dsky-icon.png
 T=$(mktemp -d)
@@ -17,6 +18,7 @@ trap 'rm -rf "$T"' EXIT
 magick "$M" -filter Lanczos -define icon:auto-resize=256,128,64,48,40,32,24,20,16 dsky.ico
 magick "$M" -filter Lanczos -resize 512x512 -strip dsky.png
 magick "$M" -filter Lanczos -resize 64x64 -strip internal/webui/favicon.png
+magick "$M" -filter Lanczos -resize 256x256 -strip internal/webui/appicon.png
 
 # ICNS is a list of (type, length, PNG) chunks. ImageMagick cannot write it and
 # iconutil only exists on a Mac, but the format is small enough to write here.

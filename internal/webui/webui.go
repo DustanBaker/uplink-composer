@@ -55,6 +55,14 @@ var logoWebP []byte
 //go:embed favicon.png
 var faviconPNG []byte
 
+//go:embed appicon.png
+var appIconPNG []byte
+
+// AppIcon is the DSKY icon at 256px, for a native window that has to supply
+// its own: the macOS Dock takes a running program's icon from its app bundle,
+// and dsky runs from ~/.local/bin, outside one.
+func AppIcon() []byte { return appIconPNG }
+
 // Server holds the wiring for one serve session. The workspace is optional
 // and switchable at runtime, so the app can launch to a home screen and let
 // the operator open a workspace from the page.
