@@ -55,8 +55,22 @@ type Server struct {
 	wsMu sync.RWMutex
 	ws   *workspace.Workspace
 
+	// IdleTimeout stops the server this long after the last page closes.
+	// Zero leaves it running until something else stops it.
+	//
+	// Closing a browser tab is the gesture everyone actually uses, and
+	// without this it leaks a server every time: the port auto-increments, so
+	// they accumulate rather than collide, and the next one you open is a
+	// different instance than the one you were looking at.
+	IdleTimeout time.Duration
+
 	quit     func()     // cancels Serve; set in Serve
 	deviceMu sync.Mutex // one raw-device operation at a time
+
+	idleMu    sync.Mutex
+	clients   int         // pages with the event stream open
+	sawClient bool        // a page has connected at least once
+	idleTimer *time.Timer // running only while clients == 0
 
 	updMu  sync.Mutex // guards the cached update check
 	updRel *selfupdate.Release
@@ -1182,12 +1196,62 @@ func (s *Server) findDevice(ctx context.Context, id string) (device.Device, erro
 
 // ── events (SSE) ─────────────────────────────────────────────────────────────
 
+// pageOpened and pageClosed bracket a live event stream, which is the only
+// reliable signal that somebody is actually looking at the portal.
+func (s *Server) pageOpened() {
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
+	s.clients++
+	s.sawClient = true
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+		s.idleTimer = nil
+	}
+}
+
+func (s *Server) pageClosed() {
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
+	if s.clients > 0 {
+		s.clients--
+	}
+	if s.clients == 0 && s.IdleTimeout > 0 {
+		s.idleTimer = time.AfterFunc(s.IdleTimeout, s.stopIfIdle)
+	}
+}
+
+// stopIfIdle ends the session once nobody is watching and nothing is running.
+//
+// A reload drops the stream and reopens it a moment later, hence the delay
+// before this fires at all. A job still running holds the server open however
+// long it takes: a flash that outlives its browser tab has to finish, because
+// a half-written stick is the worst thing this tool can leave behind.
+func (s *Server) stopIfIdle() {
+	s.idleMu.Lock()
+	if s.clients > 0 {
+		s.idleMu.Unlock()
+		return
+	}
+	if s.Reg != nil && s.Reg.Busy() {
+		// Check again later rather than giving up on stopping entirely.
+		s.idleTimer = time.AfterFunc(s.IdleTimeout, s.stopIfIdle)
+		s.idleMu.Unlock()
+		return
+	}
+	s.idleMu.Unlock()
+	if s.quit != nil {
+		s.quit()
+	}
+}
+
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		httpErr(w, 500, "streaming unsupported")
 		return
 	}
+	s.pageOpened()
+	defer s.pageClosed()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	ch, cancel := s.Reg.Subscribe()

@@ -64,6 +64,23 @@ func (r *Registry) Subscribe() (<-chan Event, func()) {
 	}
 }
 
+// Busy reports whether any job is still running. Terminal events carry Final,
+// so anything without it is still going.
+//
+// Used to decide whether the server may stop when the last page closes: a
+// flash that outlives its browser tab must finish, and a half-written stick is
+// the worst thing this tool can leave behind.
+func (r *Registry) Busy() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, ev := range r.latest {
+		if !ev.Final {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Registry) publish(ev Event) {
 	ev.At = time.Now().UnixMilli()
 	r.mu.Lock()

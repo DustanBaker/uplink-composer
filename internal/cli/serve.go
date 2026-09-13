@@ -19,10 +19,18 @@ import (
 	"github.com/DustanBaker/uplink-composer/internal/webui"
 )
 
+// idleGrace is how long the portal waits after the last page closes. Long
+// enough that a reload (which drops the event stream and reopens it) is not
+// mistaken for leaving, short enough that a forgotten tab does not leave a
+// server running all afternoon.
+const idleGrace = 45 * time.Second
+
 func cmdServe(ctx context.Context, env *Env, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", 8931, "loopback port (auto-increments if busy)")
 	open := fs.Bool("open", false, "open the page in the default browser")
+	stay := fs.Bool("keep-alive", false, "keep serving after the last page closes")
+	newInst := fs.Bool("new", false, "start another portal even if one is running")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -30,12 +38,35 @@ func cmdServe(ctx context.Context, env *Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	url, done, err := startServer(ctx, lib, env.Vars, *port, env.WorkspaceDir, *open, true)
+	if !*newInst {
+		if inst, ok := liveInstance(lib.Root); ok {
+			fmt.Printf("A portal is already running.\n\nOpen:  %s\n", inst.url())
+			if *open {
+				openBrowser(inst.url())
+			}
+			fmt.Println("\n(`uplink serve --new` starts a second one anyway.)")
+			return nil
+		}
+	}
+	idle := idleGrace
+	if *stay {
+		idle = 0
+	}
+	url, done, err := startServer(ctx, lib, env.Vars, *port, env.WorkspaceDir, *open, true, idle)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Open:  %s\n", url)
-	fmt.Println("The token in the URL is this session's key — the page needs it. Ctrl-C (or Quit in the page) stops it.")
+	fmt.Println("The token in the URL is this session's key — the page needs it.")
+	if *stay {
+		fmt.Println("Ctrl-C (or Quit in the page) stops it.")
+	} else {
+		// Said plainly, because a server that stops on its own is surprising
+		// if you were not told — and this is the behaviour people expect from
+		// something they closed.
+		fmt.Println("It stops on its own shortly after you close the page. Anything still")
+		fmt.Println("running — a flash, a build — keeps it open until it finishes.")
+	}
 	<-done
 	return nil
 }
@@ -50,7 +81,14 @@ func AppMain() error {
 	if err != nil {
 		return err
 	}
-	_, done, err := startServer(ctx, lib, map[string]string{}, 8931, ".", true, false)
+	// Launching the app when it is already running should bring back the
+	// portal you already have, not start a second one behind it. There is no
+	// window to focus, so opening the page is the whole of it.
+	if inst, ok := liveInstance(lib.Root); ok {
+		openBrowser(inst.url())
+		return nil
+	}
+	_, done, err := startServer(ctx, lib, map[string]string{}, 8931, ".", true, false, idleGrace)
 	if err != nil {
 		return err
 	}
@@ -62,7 +100,7 @@ func AppMain() error {
 // (explicit -w if present, else the last-opened one), optionally opens the
 // browser, and runs the server in the background. It returns the tokened URL
 // and a channel that closes when the server stops.
-func startServer(ctx context.Context, lib *library.Library, vars map[string]string, base int, wsDir string, open, announce bool) (string, <-chan struct{}, error) {
+func startServer(ctx context.Context, lib *library.Library, vars map[string]string, base int, wsDir string, open, announce bool, idle time.Duration) (string, <-chan struct{}, error) {
 	var tok [16]byte
 	if _, err := rand.Read(tok[:]); err != nil {
 		return "", nil, err
@@ -70,7 +108,7 @@ func startServer(ctx context.Context, lib *library.Library, vars map[string]stri
 	cfg := appconfig.Load()
 	s := &webui.Server{
 		Lib: lib, CLIVars: vars, Token: hex.EncodeToString(tok[:]),
-		Reg: jobs.NewRegistry(), Cfg: cfg,
+		Reg: jobs.NewRegistry(), Cfg: cfg, IdleTimeout: idle,
 	}
 	if err := s.SetWorkspaceDir(wsDir); err != nil {
 		if last := cfg.Current(); last != "" {
@@ -90,8 +128,17 @@ func startServer(ctx context.Context, lib *library.Library, vars map[string]stri
 			fmt.Println("The Uplink CompOSer — no workspace open yet (pick one in the page)")
 		}
 	}
+	// Recorded before serving, so a second launch a moment later finds it.
+	inst := instance{Port: port, Token: s.Token, PID: os.Getpid(),
+		Started: time.Now().Format(time.RFC3339)}
+	writeInstance(lib.Root, inst)
+
 	done := make(chan struct{})
-	go func() { _ = webui.Serve(ctx, ln, s); close(done) }()
+	go func() {
+		_ = webui.Serve(ctx, ln, s)
+		clearInstance(lib.Root, inst)
+		close(done)
+	}()
 	if open {
 		go func() { time.Sleep(300 * time.Millisecond); openBrowser(url) }()
 	}
