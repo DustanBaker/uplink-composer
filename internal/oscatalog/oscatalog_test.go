@@ -573,3 +573,81 @@ func TestGenericKeysComplete(t *testing.T) {
 		}
 	}
 }
+
+// TestSaveRecipeIntoAScaffoldedWorkspace saves Quick Install options as named
+// recipes into a real `dsky init` workspace and requires that they load, lint
+// clean, keep the name somebody chose, and leave the workspace's own files
+// alone — a saved recipe must never overwrite a hand-edited template.
+func TestSaveRecipeIntoAScaffoldedWorkspace(t *testing.T) {
+	lib, err := library.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wsDir := filepath.Join(t.TempDir(), "acme-workspace")
+	if err := workspace.Scaffold(wsDir, "Acme IT"); err != nil {
+		t.Fatal(err)
+	}
+	ownTemplate := filepath.Join(wsDir, "templates", "autounattend.xml.tmpl")
+	before, err := os.ReadFile(ownTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	win, ok := Get("windows-11")
+	if !ok {
+		t.Fatal("windows-11 missing from catalog")
+	}
+	winOpts := Options{Edition: "Pro", AccountMode: "local", Debloat: "standard", BypassRequirement: true}
+	if _, err := SaveRecipe(context.Background(), lib, wsDir, "front-desk-pc", "Front desk PC", win, winOpts, nil); err != nil {
+		t.Fatalf("save windows recipe: %v", err)
+	}
+	var linux Entry
+	for _, e := range Catalog() {
+		if e.Family == Linux && !e.ImportOnly() {
+			linux = e
+			break
+		}
+	}
+	if _, err := SaveRecipe(context.Background(), lib, wsDir, "lab-linux", "Lab Linux", linux, Options{}, nil); err != nil {
+		t.Fatalf("save %s recipe: %v", linux.ID, err)
+	}
+
+	ws, err := workspace.Load(wsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := ws.Recipe("front-desk-pc")
+	if err != nil {
+		t.Fatalf("saved windows recipe does not load: %v", err)
+	}
+	if r.Name != "Front desk PC" || r.OS.Source != win.ID {
+		t.Errorf("windows recipe: name %q source %q", r.Name, r.OS.Source)
+	}
+	if r.Windows == nil || r.Windows.Unattend.Template != savedTemplate {
+		t.Errorf("windows recipe does not use its own template: %+v", r.Windows)
+	}
+	for _, f := range r.Lint() {
+		if f.Severity == "error" {
+			t.Errorf("windows recipe lint: %s", f.Message)
+		}
+	}
+	if _, err := ws.Source(win.ID); err != nil {
+		t.Errorf("no manifest for the OS image: %v", err)
+	}
+	if lr, err := ws.Recipe("lab-linux"); err != nil || lr.OS.Source != linux.ID {
+		t.Errorf("linux recipe: %v %+v", err, lr)
+	}
+	// The example recipes `dsky init` wrote are still there and still load.
+	if all, err := ws.Recipes(); err != nil || len(all) < 4 {
+		t.Errorf("workspace recipes after saving: %d, %v", len(all), err)
+	}
+	after, _ := os.ReadFile(ownTemplate)
+	if string(after) != string(before) {
+		t.Error("saving a recipe changed the workspace's own template")
+	}
+
+	if _, err := SaveRecipe(context.Background(), lib, wsDir, "front-desk-pc", "Again", win, winOpts, nil); err == nil ||
+		!strings.Contains(err.Error(), "already exists") {
+		t.Errorf("saving over an existing recipe: %v", err)
+	}
+}

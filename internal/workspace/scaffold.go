@@ -8,9 +8,20 @@ import (
 	"strings"
 )
 
-// Scaffold creates a new workspace at dir for the named org. Refuses to
-// overwrite existing files.
+// Scaffold creates a new workspace at dir for the named org, with example
+// recipes to learn from. Refuses to overwrite existing files.
 func Scaffold(dir, orgName string) error {
+	return scaffold(dir, orgName, true)
+}
+
+// ScaffoldEmpty creates a workspace with no example recipes, for when one is
+// made on somebody's behalf to hold a recipe they just saved: their list
+// should show what they saved, not two examples they never asked for.
+func ScaffoldEmpty(dir, orgName string) error {
+	return scaffold(dir, orgName, false)
+}
+
+func scaffold(dir, orgName string, examples bool) error {
 	if orgName == "" {
 		return fmt.Errorf("org name is required")
 	}
@@ -26,6 +37,13 @@ func Scaffold(dir, orgName string) error {
 		"recipes/example-ubuntu-autoinstall.yaml": scaffoldUbuntuRecipe,
 		"manifests/ubuntu-24.04-iso.yaml":         scaffoldUbuntuManifest,
 		"payload/.gitkeep":                        "",
+	}
+	if !examples {
+		delete(files, "recipes/example-win11.yaml")
+		delete(files, "recipes/example-ubuntu-autoinstall.yaml")
+		delete(files, "manifests/ubuntu-24.04-iso.yaml")
+		files["recipes/.gitkeep"] = ""
+		files["manifests/.gitkeep"] = ""
 	}
 	for rel := range files {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {

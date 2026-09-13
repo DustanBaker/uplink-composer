@@ -30,9 +30,11 @@ import (
 	"github.com/uplinkresearch/dsky/internal/driverresolve"
 	"github.com/uplinkresearch/dsky/internal/filepicker"
 	"github.com/uplinkresearch/dsky/internal/flashrun"
+	"github.com/uplinkresearch/dsky/internal/helpers"
 	"github.com/uplinkresearch/dsky/internal/hwdetect"
 	"github.com/uplinkresearch/dsky/internal/jobs"
 	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/manifest"
 	"github.com/uplinkresearch/dsky/internal/oscatalog"
 	"github.com/uplinkresearch/dsky/internal/recipe"
 	"github.com/uplinkresearch/dsky/internal/selfupdate"
@@ -194,6 +196,8 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/build", s.auth(s.handleBuild))
 	mux.HandleFunc("POST /api/flash", s.auth(s.handleFlash))
 	mux.HandleFunc("POST /api/install", s.auth(s.handleInstall))
+	mux.HandleFunc("POST /api/recipes/save", s.auth(s.handleSaveRecipe))
+	mux.HandleFunc("POST /api/artifacts/delete", s.auth(s.handleDeleteArtifact))
 	mux.HandleFunc("GET /api/detect", s.auth(s.handleDetect))
 	mux.HandleFunc("GET /api/update", s.auth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/update", s.auth(s.handleUpdateApply))
@@ -295,6 +299,8 @@ type catalogEntry struct {
 	// instead of offering a button that cannot work.
 	ImportOnly bool   `json:"import_only,omitempty"`
 	ImportFrom string `json:"import_from,omitempty"`
+	// Downloaded: the OS image is already in the library.
+	Downloaded bool `json:"downloaded,omitempty"`
 }
 
 type recentWS struct {
@@ -303,10 +309,12 @@ type recentWS struct {
 }
 
 type recipeInfo struct {
-	ID   string   `json:"id"`
-	Name string   `json:"name"`
-	Type string   `json:"type"`
-	Lint []string `json:"lint,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	// Source is the OS image the recipe builds from.
+	Source string   `json:"source"`
+	Lint   []string `json:"lint,omitempty"`
 }
 
 type sourceInfo struct {
@@ -368,6 +376,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 			Category: string(e.Group()), Arch: e.CPUArch(), Version: e.Version,
 			Notes: e.Notes, FirmwareNotes: e.FirmwareNotes, Editions: e.Editions,
 			ImportOnly: e.ImportOnly(), ImportFrom: e.ImportFrom,
+			Downloaded: oscatalog.InLibrary(s.Lib, e),
 		})
 	}
 	if s.Cfg != nil {
@@ -383,7 +392,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		resp.Workspace = ws.Dir
 		if recipes, err := ws.Recipes(); err == nil {
 			for _, rc := range recipes {
-				info := recipeInfo{ID: rc.ID, Name: rc.Name, Type: string(rc.OS.Type)}
+				info := recipeInfo{ID: rc.ID, Name: rc.Name, Type: string(rc.OS.Type), Source: rc.OS.Source}
 				for _, f := range rc.Lint() {
 					info.Lint = append(info.Lint, f.String())
 				}
@@ -463,10 +472,53 @@ func (s *Server) build(ctx context.Context, recipeID string, progress func(strin
 			return nil, fmt.Errorf("lint: %s", f.Message)
 		}
 	}
+	if err := s.ensureSources(ctx, ws, rc, progress); err != nil {
+		return nil, err
+	}
 	return compose.Build(ctx, compose.Request{
 		Workspace: ws, Library: s.Lib, Recipe: rc, CLIVars: s.CLIVars,
 		Progress: progress,
 	})
+}
+
+// ensureSources downloads whatever a recipe needs that is not in the library
+// yet. Building a recipe used to fail on a missing ISO with nothing to do about
+// it in the page; the CLI's `go` has always fetched first.
+//
+// A source named after a catalog OS is fetched the way Quick Install fetches
+// it — Microsoft's rotating links, distros that publish checksums beside the
+// image — because that is where recipes saved from the Install screen point.
+// Anything else comes from the workspace's manifest, trusted on first use only
+// when its provider cannot be pinned (Fido), as the CLI does for Quick Install.
+func (s *Server) ensureSources(ctx context.Context, ws *workspace.Workspace, rc *recipe.Recipe, progress func(string, int64, int64)) error {
+	for _, ref := range rc.SourceRefs() {
+		if _, err := s.Lib.Resolve(ref); err == nil {
+			continue
+		}
+		if e, ok := oscatalog.Get(ref); ok {
+			if err := oscatalog.Fetch(ctx, s.Lib, e, progress); err != nil {
+				return err
+			}
+			continue
+		}
+		src, err := ws.Source(ref)
+		if err != nil {
+			return fmt.Errorf("%s is not in the library and has no manifest", ref)
+		}
+		if src.URL == "" && src.Provider == "" {
+			return fmt.Errorf("%s is not in the library and its manifest has nowhere to download it from — import it with `dsky sources import %s <file>`", ref, ref)
+		}
+		resolver := func(ctx context.Context, m *manifest.Source) (string, error) {
+			progress("resolving download URL", 0, -1)
+			return helpers.ResolveFidoURL(ctx, s.Lib.HelpersDir(), m.Fido)
+		}
+		if _, err := s.Lib.Pull(ctx, src, src.Provider != "", resolver, func(done, total int64) {
+			progress("downloading "+ref, done, total)
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // workspaceName reads a workspace directory's org name for display, falling
@@ -576,74 +628,44 @@ func (s *Server) handleFlash(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]string{"job_id": job.ID})
 }
 
-// handleInstall is Quick Install: build media for a catalog OS + options and
-// flash it to the chosen stick — no workspace required.
-func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		OSID              string   `json:"os_id"`
-		Edition           string   `json:"edition"`
-		AccountMode       string   `json:"account_mode"`
-		Debloat           string   `json:"debloat"`
-		BypassRequirement bool     `json:"bypass_requirement"`
-		Drivers           bool     `json:"drivers"`
-		DriversFor        string   `json:"drivers_for"`
-		Apps              []string `json:"apps"`
-		ISO               string   `json:"iso"`
-		DeviceID          string   `json:"device_id"`
-		Confirm           string   `json:"confirm"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.OSID == "" || req.DeviceID == "" {
-		httpErr(w, 400, "body must include os_id, device_id, and confirm")
-		return
-	}
+// installRequest is the Quick Install options as the page sends them, shared
+// by installing, setting up an image, downloading, and saving a recipe.
+type installRequest struct {
+	OSID              string   `json:"os_id"`
+	Edition           string   `json:"edition"`
+	AccountMode       string   `json:"account_mode"`
+	Debloat           string   `json:"debloat"`
+	BypassRequirement bool     `json:"bypass_requirement"`
+	Drivers           bool     `json:"drivers"`
+	DriversFor        string   `json:"drivers_for"`
+	Apps              []string `json:"apps"`
+	ISO               string   `json:"iso"`
+	// Mode is "install" (build and write to device_id, the default), "setup"
+	// (build the image and keep it, no stick), or "download" (fetch the OS
+	// image only).
+	Mode     string `json:"mode"`
+	DeviceID string `json:"device_id"`
+	Confirm  string `json:"confirm"`
+	// Name is the recipe name, for /api/recipes/save.
+	Name string `json:"name"`
+}
+
+// installOptions validates a request's options and turns them into what the
+// catalog builds from. It detects this machine's hardware when drivers are
+// asked for, so it can take a moment.
+func (s *Server) installOptions(ctx context.Context, req installRequest) (oscatalog.Entry, oscatalog.Options, error) {
 	e, ok := oscatalog.Get(req.OSID)
 	if !ok {
-		httpErr(w, 400, "unknown OS %q", req.OSID)
-		return
+		return e, oscatalog.Options{}, fmt.Errorf("unknown OS %q", req.OSID)
 	}
-	dev, err := s.findDevice(r.Context(), req.DeviceID)
-	if err != nil {
-		httpErr(w, 400, "%v", err)
-		return
-	}
-	if !dev.Flashable() {
-		httpErr(w, 400, "%s is not flashable (bus=%s, system=%v)", dev.ID, dev.Bus, dev.System)
-		return
-	}
-	if strings.TrimSpace(req.Confirm) != dev.SizeConfirmation() {
-		httpErr(w, 400, "confirmation mismatch: device %s is %s GiB — type exactly %q to arm",
-			dev.ID, dev.SizeConfirmation(), dev.SizeConfirmation())
-		return
-	}
-	// Refused before the device is armed: an import-only entry has nothing to
-	// download, so no later step can make up for a missing path.
-	if e.ImportOnly() && strings.TrimSpace(req.ISO) == "" && !oscatalog.InLibrary(s.Lib, e) {
-		httpErr(w, 400, "%v", e.ImportOnlyError())
-		return
-	}
-	// An ISO the operator downloaded themselves, filed before the build so the
-	// Microsoft fetch (rate-limited to about one a day per address) is skipped.
-	if iso := strings.TrimSpace(req.ISO); iso != "" && !oscatalog.InLibrary(s.Lib, e) {
-		if err := oscatalog.CheckISO(iso); err != nil {
-			httpErr(w, 400, "%v", err)
-			return
-		}
-		if _, err := oscatalog.ImportISO(s.Lib, e, iso, nil); err != nil {
-			httpErr(w, 400, "importing %s: %v", filepath.Base(iso), err)
-			return
-		}
-	}
-
 	var hw []recipe.HardwareSpec
 	if req.Drivers && e.Family == oscatalog.Windows {
-		h, err := hwdetect.Detect(r.Context())
+		h, err := hwdetect.Detect(ctx)
 		if err != nil {
-			httpErr(w, 400, "hardware detection failed: %v", err)
-			return
+			return e, oscatalog.Options{}, fmt.Errorf("hardware detection failed: %v", err)
 		}
 		if hw = driverresolve.SpecsFor(h, e.DriverOS()); len(hw) == 0 {
-			httpErr(w, 400, "nothing to resolve drivers for on this machine")
-			return
+			return e, oscatalog.Options{}, fmt.Errorf("nothing to resolve drivers for on this machine")
 		}
 	}
 	// Named models are additive with detection: pnputil installs only what
@@ -653,43 +675,272 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if e.Family != oscatalog.Windows {
-			httpErr(w, 400, "drivers for a named model is a Windows option")
-			return
+			return e, oscatalog.Options{}, fmt.Errorf("drivers for a named model is a Windows option")
 		}
 		h, err := driverresolve.SpecForModel(spec, e.DriverOS())
 		if err != nil {
-			httpErr(w, 400, "%v", err)
-			return
+			return e, oscatalog.Options{}, err
 		}
 		hw = append(hw, h)
 	}
 	if len(req.Apps) > 0 {
 		if _, err := appcatalog.WingetIDs(req.Apps); err != nil {
+			return e, oscatalog.Options{}, err
+		}
+	}
+	return e, oscatalog.Options{
+		Edition: req.Edition, AccountMode: req.AccountMode,
+		Debloat: req.Debloat, BypassRequirement: req.BypassRequirement,
+		Hardware: hw, Apps: req.Apps,
+	}, nil
+}
+
+// handleInstall is Quick Install: build media for a catalog OS + options and
+// flash it to the chosen stick — no workspace required. With mode "setup" it
+// builds the image and keeps it to write later, and with mode "download" it
+// only fetches the OS; neither needs a stick plugged in.
+func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
+	var req installRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.OSID == "" {
+		httpErr(w, 400, "body must include os_id")
+		return
+	}
+	mode := req.Mode
+	if mode == "" {
+		mode = "install"
+	}
+	if mode != "install" && mode != "setup" && mode != "download" {
+		httpErr(w, 400, "mode must be install, setup or download")
+		return
+	}
+	e, ok := oscatalog.Get(req.OSID)
+	if !ok {
+		httpErr(w, 400, "unknown OS %q", req.OSID)
+		return
+	}
+	var dev device.Device
+	if mode == "install" {
+		if req.DeviceID == "" {
+			httpErr(w, 400, "installing needs device_id and confirm — or set up the image now and write it later")
+			return
+		}
+		var err error
+		if dev, err = s.findDevice(r.Context(), req.DeviceID); err != nil {
+			httpErr(w, 400, "%v", err)
+			return
+		}
+		if !dev.Flashable() {
+			httpErr(w, 400, "%s is not flashable (bus=%s, system=%v)", dev.ID, dev.Bus, dev.System)
+			return
+		}
+		if strings.TrimSpace(req.Confirm) != dev.SizeConfirmation() {
+			httpErr(w, 400, "confirmation mismatch: device %s is %s GiB — type exactly %q to arm",
+				dev.ID, dev.SizeConfirmation(), dev.SizeConfirmation())
+			return
+		}
+	}
+	// Refused before anything starts: an import-only entry has nothing to
+	// download, so no later step can make up for a missing path.
+	iso := strings.TrimSpace(req.ISO)
+	if e.ImportOnly() && iso == "" && !oscatalog.InLibrary(s.Lib, e) {
+		httpErr(w, 400, "%v", e.ImportOnlyError())
+		return
+	}
+	if iso != "" && !oscatalog.InLibrary(s.Lib, e) {
+		if err := oscatalog.CheckISO(iso); err != nil {
 			httpErr(w, 400, "%v", err)
 			return
 		}
 	}
-	opts := oscatalog.Options{
-		Edition: req.Edition, AccountMode: req.AccountMode,
-		Debloat: req.Debloat, BypassRequirement: req.BypassRequirement,
-		Hardware: hw, Apps: req.Apps,
+	var opts oscatalog.Options
+	if mode != "download" {
+		var err error
+		if _, opts, err = s.installOptions(r.Context(), req); err != nil {
+			httpErr(w, 400, "%v", err)
+			return
+		}
 	}
-	job := s.Reg.New("install", fmt.Sprintf("%s → %s", e.Name, dev.ID))
+
+	var job *jobs.Job
+	switch mode {
+	case "install":
+		job = s.Reg.New("install", fmt.Sprintf("%s → %s", e.Name, dev.ID))
+	case "setup":
+		job = s.Reg.New("setup", "set up "+e.Name)
+	default:
+		job = s.Reg.New("download", "download "+e.Name)
+	}
 	go func() {
-		s.deviceMu.Lock()
-		defer s.deviceMu.Unlock()
-		art, err := oscatalog.BuildQuick(context.Background(), s.Lib, e, opts, progressFor(job))
+		progress := progressFor(job)
+		// An ISO the operator downloaded themselves, filed first so the
+		// Microsoft fetch (rate-limited to about one a day per address) is
+		// skipped. In the job rather than the request: a Windows ISO is read
+		// twice to import, and that is minutes of a request hanging.
+		if iso != "" && !oscatalog.InLibrary(s.Lib, e) {
+			if _, err := oscatalog.ImportISO(s.Lib, e, iso, progress); err != nil {
+				job.Fail(fmt.Errorf("importing %s: %w", filepath.Base(iso), err))
+				return
+			}
+		}
+		switch mode {
+		case "download":
+			if err := oscatalog.Fetch(context.Background(), s.Lib, e, progress); err != nil {
+				job.Fail(err)
+				return
+			}
+			job.Finish(e.Name + " is downloaded — setting up or installing it will not download it again")
+		case "setup":
+			art, err := oscatalog.BuildQuick(context.Background(), s.Lib, e, opts, progress)
+			if err != nil {
+				job.Fail(err)
+				return
+			}
+			if strings.HasPrefix(art.Path, s.Lib.ArtifactsDir()) {
+				job.Finish("ready to write — it is in Built images")
+			} else {
+				// Plain ISOs and disk images are written as they are: the
+				// download is the image, and there is nothing else to build.
+				job.Finish(e.Name + " is ready to write — nothing more to build for it")
+			}
+		default:
+			s.deviceMu.Lock()
+			defer s.deviceMu.Unlock()
+			art, err := oscatalog.BuildQuick(context.Background(), s.Lib, e, opts, progress)
+			if err != nil {
+				job.Fail(err)
+				return
+			}
+			if err := flashrun.RunFlash(context.Background(), art, dev, progress); err != nil {
+				job.Fail(err)
+				return
+			}
+			job.Finish("installed — safe to remove and boot the target machine")
+		}
+	}()
+	writeJSON(w, 202, map[string]string{"job_id": job.ID})
+}
+
+// handleSaveRecipe saves Quick Install options as a named recipe in the open
+// workspace, creating one first if none is open — a recipe has to live
+// somewhere that can be backed up, shared and opened again, and asking
+// somebody to understand workspaces before they can save their settings is
+// backwards.
+func (s *Server) handleSaveRecipe(w http.ResponseWriter, r *http.Request) {
+	var req installRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.OSID == "" {
+		httpErr(w, 400, "body must include os_id and name")
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	id := slugify(name)
+	if name == "" || id == "" {
+		httpErr(w, 400, "the recipe needs a name")
+		return
+	}
+	e, opts, err := s.installOptions(r.Context(), req)
+	if err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	created := ""
+	ws := s.workspace()
+	if ws == nil {
+		dir, isNew, err := s.defaultWorkspace()
+		if err != nil {
+			httpErr(w, 500, "%v", err)
+			return
+		}
+		if isNew {
+			created = dir
+		}
+		ws = s.workspace()
+	}
+	if _, err := os.Stat(filepath.Join(ws.Dir, "recipes", id+".yaml")); err == nil {
+		httpErr(w, 400, "a recipe called %s already exists in this workspace — choose another name", id)
+		return
+	}
+	iso := strings.TrimSpace(req.ISO)
+	if iso != "" && !oscatalog.InLibrary(s.Lib, e) {
+		if err := oscatalog.CheckISO(iso); err != nil {
+			httpErr(w, 400, "%v", err)
+			return
+		}
+	}
+	job := s.Reg.New("recipe", "save recipe "+name)
+	go func() {
+		// A recipe for an OS that only arrives as your own ISO is useless
+		// without that ISO, so it is filed now rather than asked for again.
+		if iso != "" && !oscatalog.InLibrary(s.Lib, e) {
+			if _, err := oscatalog.ImportISO(s.Lib, e, iso, progressFor(job)); err != nil {
+				job.Fail(fmt.Errorf("importing %s: %w", filepath.Base(iso), err))
+				return
+			}
+		}
+		path, err := oscatalog.SaveRecipe(context.Background(), s.Lib, ws.Dir, id, name, e, opts, progressFor(job))
 		if err != nil {
 			job.Fail(err)
 			return
 		}
-		if err := flashrun.RunFlash(context.Background(), art, dev, progressFor(job)); err != nil {
-			job.Fail(err)
-			return
+		msg := "saved to " + path
+		if created != "" {
+			msg += " — in a new workspace, " + created
 		}
-		job.Finish("installed — safe to remove and boot the target machine")
+		job.Finish(msg)
 	}()
-	writeJSON(w, 202, map[string]string{"job_id": job.ID})
+	writeJSON(w, 202, map[string]string{"job_id": job.ID, "workspace_created": created})
+}
+
+// defaultWorkspace opens the workspace a recipe is saved into when none is
+// open: the one New workspace would suggest, created if it does not exist yet.
+func (s *Server) defaultWorkspace() (dir string, created bool, err error) {
+	parent := suggestWorkspaceParent()
+	org := suggestOrgName()
+	dir = filepath.Join(parent, slugify(org)+"-workspace")
+	if _, statErr := os.Stat(filepath.Join(dir, "workspace.yaml")); statErr != nil {
+		if _, statErr := os.Stat(dir); statErr == nil {
+			return "", false, fmt.Errorf("%s exists but is not a workspace — open or create a workspace first", dir)
+		}
+		if err := os.MkdirAll(parent, 0o755); err != nil {
+			return "", false, fmt.Errorf("cannot use %s: %v", parent, err)
+		}
+		if err := workspace.ScaffoldEmpty(dir, org); err != nil {
+			return "", false, err
+		}
+		created = true
+	}
+	if err := s.SetWorkspaceDir(dir); err != nil {
+		return "", false, err
+	}
+	return dir, created, nil
+}
+
+// handleDeleteArtifact removes a built image and its description. Only files
+// in the library's artifacts directory: the path comes from the page, and the
+// page is not trusted to name anything else on the disk.
+func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Path == "" {
+		httpErr(w, 400, "body must be {\"path\": \"<artifact>\"}")
+		return
+	}
+	dir, _ := filepath.Abs(s.Lib.ArtifactsDir())
+	p, err := filepath.Abs(req.Path)
+	if err != nil || filepath.Dir(p) != dir || !strings.HasSuffix(p, ".img") {
+		httpErr(w, 400, "%s is not a built image in the library", req.Path)
+		return
+	}
+	if s.Reg.BusyExcept("") {
+		httpErr(w, 409, "something is running — delete it when the activity has finished")
+		return
+	}
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		httpErr(w, 500, "%v", err)
+		return
+	}
+	_ = os.Remove(compose.MetaPath(p))
+	writeJSON(w, 200, map[string]string{"ok": "1"})
 }
 
 // handleUpdateCheck reports whether a newer release exists. The result is

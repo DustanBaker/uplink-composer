@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/uplinkresearch/dsky/internal/appcatalog"
 	"github.com/uplinkresearch/dsky/internal/compose"
@@ -240,9 +241,126 @@ var genericKeys = map[string]string{
 // published index has been verified. Catalog() is what callers want.
 func Builtin() []Entry { return builtin }
 
+// quickMu serialises everything that writes the Quick Install workspace. It is
+// one directory, rewritten and pruned to a single recipe on every build, so
+// two builds at once — setting up one image while writing another, which the
+// portal now allows — would delete each other's recipe mid-build.
+var quickMu sync.Mutex
+
+// quickTemplate is where the Quick Install workspace keeps its answer file.
+const quickTemplate = "templates/autounattend.xml.tmpl"
+
+// savedTemplate is the answer file a saved recipe uses. A different name from
+// the one `dsky init` scaffolds, because a workspace's own template is often
+// edited by hand, and saving a recipe must never overwrite it.
+const savedTemplate = "templates/dsky-windows-autounattend.xml.tmpl"
+
+// Fetch downloads this entry's OS image into the library if it is not there
+// already, with nothing built and no stick involved.
+func Fetch(ctx context.Context, lib *library.Library, e Entry, progress func(stage string, done, total int64)) error {
+	return ensureSource(ctx, lib, e, progress)
+}
+
+// SaveRecipe writes the Quick Install options for e as a named recipe in the
+// workspace at wsDir, so the same media can be built again later — by anyone
+// who has that workspace — without re-entering the options.
+//
+// Driver packs are resolved now and pinned into the workspace, because compose
+// requires every windows.hardware entry to match a staged pack, and a saved
+// recipe must build as saved rather than depending on whatever the catalogs
+// say on the day it is built. That can download, so it takes progress.
+//
+// The OS image is not downloaded: a recipe says what to build, and building
+// fetches what is missing.
+func SaveRecipe(ctx context.Context, lib *library.Library, wsDir, id, name string, e Entry, opts Options, progress func(stage string, done, total int64)) (string, error) {
+	opts.defaults(e)
+	if e.Family == Windows && genericKeys[opts.Edition] == "" {
+		return "", fmt.Errorf("unknown Windows edition %q (have: %s)", opts.Edition, strings.Join(e.Editions, ", "))
+	}
+	if len(opts.Apps) > 0 {
+		if e.Family != Windows {
+			return "", fmt.Errorf("installing programs alongside %s is not supported yet — it needs an autoinstall recipe", e.Name)
+		}
+		if _, _, err := appcatalog.Resolve(opts.Apps); err != nil {
+			return "", err
+		}
+	}
+	path := filepath.Join(wsDir, "recipes", id+".yaml")
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("a recipe called %s already exists in this workspace — choose another name", id)
+	}
+	for _, sub := range []string{"templates", "manifests", "recipes", "payload"} {
+		if err := os.MkdirAll(filepath.Join(wsDir, sub), 0o755); err != nil {
+			return "", err
+		}
+	}
+	// Existing files are left alone: another recipe may depend on them, and
+	// somebody may have edited them.
+	writeIfMissing := func(rel string, data []byte) error {
+		p := filepath.Join(wsDir, filepath.FromSlash(rel))
+		if _, err := os.Stat(p); err == nil {
+			return nil
+		}
+		return os.WriteFile(p, data, 0o644)
+	}
+	if e.Family == Windows {
+		tmpl, err := templatesFS.ReadFile("templates/autounattend.xml.tmpl")
+		if err != nil {
+			return "", err
+		}
+		if err := writeIfMissing(savedTemplate, tmpl); err != nil {
+			return "", err
+		}
+	}
+	if err := writeIfMissing("manifests/"+e.ID+".yaml", []byte(manifestYAML(e))); err != nil {
+		return "", err
+	}
+	if _, customApps := opts.resolvedApps(); len(customApps) > 0 {
+		for _, c := range customApps {
+			if err := writeIfMissing("manifests/"+c.SourceID()+".yaml", []byte(customManifestYAML(c))); err != nil {
+				return "", err
+			}
+		}
+	}
+	var hw []recipe.HardwareSpec
+	if e.Family == Windows && len(opts.Hardware) > 0 {
+		ws, err := workspace.Load(wsDir)
+		if err != nil {
+			return "", err
+		}
+		res, err := driverresolve.Resolve(ctx, ws, lib, opts.Hardware, false, progress)
+		if err != nil {
+			return "", err
+		}
+		if progress != nil {
+			for _, m := range res.Missing {
+				progress("no driver pack found for "+m, 0, -1)
+			}
+		}
+		hw = res.Specs
+	}
+	meta := recipeMeta{ID: id, Name: name, Template: savedTemplate}
+	if err := os.WriteFile(path, []byte(recipeYAML(meta, e, opts, hw)), 0o644); err != nil {
+		return "", err
+	}
+	// Loaded back before reporting success, so a recipe that would not build
+	// is not left behind looking saved.
+	ws, err := workspace.Load(wsDir)
+	if err == nil {
+		_, err = ws.Recipe(id)
+	}
+	if err != nil {
+		os.Remove(path)
+		return "", fmt.Errorf("the saved recipe did not load back: %w", err)
+	}
+	return path, nil
+}
+
 // BuildQuick pulls the OS (if needed), synthesizes an ephemeral workspace and
 // recipe from the entry + options, and composes flashable media.
 func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options, progress func(stage string, done, total int64)) (*compose.Artifact, error) {
+	quickMu.Lock()
+	defer quickMu.Unlock()
 	opts.defaults(e)
 	if e.Family == Windows && genericKeys[opts.Edition] == "" {
 		return nil, fmt.Errorf("unknown Windows edition %q (have: %s)", opts.Edition, strings.Join(e.Editions, ", "))
@@ -354,6 +472,8 @@ func ImportISO(lib *library.Library, e Entry, path string, progress func(stage s
 // stages into the same Quick Install workspace the real build uses, so
 // nothing is fetched twice.
 func PlanDrivers(ctx context.Context, lib *library.Library, e Entry, hw []recipe.HardwareSpec, progress func(stage string, done, total int64)) (*driverresolve.Resolved, error) {
+	quickMu.Lock()
+	defer quickMu.Unlock()
 	opts := Options{}
 	opts.defaults(e)
 	wsDir, err := scaffoldQuickWorkspace(lib, e, opts, nil)
@@ -447,7 +567,8 @@ func scaffoldQuickWorkspace(lib *library.Library, e Entry, opts Options, hw []re
 }
 
 func writeQuickRecipe(dir string, e Entry, opts Options, hw []recipe.HardwareSpec) error {
-	return os.WriteFile(filepath.Join(dir, "recipes", e.ID+".yaml"), []byte(recipeYAML(e, opts, hw)), 0o644)
+	meta := recipeMeta{ID: e.ID, Name: e.Name, Template: quickTemplate}
+	return os.WriteFile(filepath.Join(dir, "recipes", e.ID+".yaml"), []byte(recipeYAML(meta, e, opts, hw)), 0o644)
 }
 
 func pruneOtherRecipes(dir, keep string) {
@@ -539,7 +660,14 @@ func hardwareYAML(hw []recipe.HardwareSpec) string {
 	return b.String()
 }
 
-func recipeYAML(e Entry, opts Options, hw []recipe.HardwareSpec) string {
+// recipeMeta is what differs between a Quick Install recipe, which is named
+// after its OS and rewritten on every build, and a saved one, which has a name
+// somebody chose and may share a workspace with a hand-edited template.
+type recipeMeta struct {
+	ID, Name, Template string
+}
+
+func recipeYAML(m recipeMeta, e Entry, opts Options, hw []recipe.HardwareSpec) string {
 	if e.Family == Linux {
 		// Raw images arrive compressed and expand several times over, so the
 		// stick they need is much bigger than the download suggests.
@@ -558,7 +686,7 @@ target:
   boot: uefi-only
 flash:
   verify: readback-sha256
-`, e.ID, e.Name, e.recipeOSType(), e.ID, minStick)
+`, m.ID, m.Name, e.recipeOSType(), e.ID, minStick)
 	}
 	bypass := "0"
 	if opts.BypassRequirement {
@@ -638,7 +766,7 @@ target:
 windows:
   ei_cfg: { edition: %s, channel: Retail, vl: false }
   unattend:
-    template: templates/autounattend.xml.tmpl
+    template: %s
     vars:
       edition_key: %s
       locale: en-US
@@ -656,7 +784,7 @@ windows:
 %s
 flash:
   verify: readback-sha256
-`, e.ID, e.Name, e.ID, minStick, editionName(opts.Edition), genericKeys[opts.Edition],
+`, m.ID, m.Name, e.ID, minStick, editionName(opts.Edition), m.Template, genericKeys[opts.Edition],
 		opts.AccountMode, bypass, hardwareYAML(hw), preset, appsBlock, payloadBlock, domainBlock, steps)
 }
 

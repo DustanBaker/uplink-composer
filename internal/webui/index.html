@@ -232,6 +232,12 @@
     font-size: 12.5px; line-height: 1.5; }
   .hashline { font-size: 10.5px; color: var(--dim); word-break: break-all; }
 
+  /* The Install dialog's stick-free actions, above the destructive one and
+     visibly separate from it. */
+  dialog .later { margin: 14px 0 4px; padding: 11px 0 2px; border-top: 1px solid var(--line); }
+  dialog .laterbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+  dialog .later .sub { color: var(--dim); font-size: 12px; margin-top: 7px; }
+  #instArm { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 4px; }
   #err { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
     background: var(--danger); color: #fff; padding: 9px 16px; border-radius: 8px;
     max-width: 80%; display: none; font-size: 13px; }
@@ -274,7 +280,7 @@
     </div>
     <div class="homefoot">
       <span id="homeHint"></span>
-      <button class="linkish" onclick="setDoor('advanced')">Recipes, workspaces and artifacts ›</button>
+      <button class="linkish" onclick="setDoor('advanced')">Workspaces and sources ›</button>
     </div>
   </section>
 
@@ -311,9 +317,9 @@
     <section data-door="advanced"><h2>Workspace<span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
       <div class="rows" id="wsPanel"></div>
     </section>
-    <section data-door="install clone disks advanced" id="jobsSec"><h2>Activity</h2><div class="rows" id="jobs"><div class="empty">No jobs yet — build a recipe or flash a stick.</div></div></section>
-    <section data-door="advanced"><h2>Recipes <span class="spacer"></span><button onclick="loadState()">Refresh</button></h2><div class="rows" id="recipes"></div></section>
-    <section data-door="advanced"><h2>Artifacts</h2><div class="rows" id="artifacts"></div></section>
+    <section data-door="install clone disks advanced" id="jobsSec"><h2>Activity</h2><div class="rows" id="jobs"><div class="empty">Nothing running. Downloads, image set-ups and writes show their progress here.</div></div></section>
+    <section data-door="install advanced"><h2>Recipes <span class="spacer"></span><span class="sub" id="recipesWhere"></span></h2><div class="rows" id="recipes"></div></section>
+    <section data-door="install advanced"><h2>Built images <span class="spacer"></span><span class="sub">ready to write, no rebuilding</span></h2><div class="rows" id="artifacts"></div></section>
   </div>
   <div class="col" style="display:flex;flex-direction:column;gap:16px">
     <section data-door="install advanced"><h2>Devices <span class="spacer"></span><button onclick="loadState()">Rescan</button></h2><div class="rows" id="devices"></div></section>
@@ -386,10 +392,21 @@
   <div class="body">
     <h3 id="instTitle">Install</h3>
     <div id="instOpts"></div>
-    <div class="target" id="instTarget"></div>
-    <p id="instNote">This <b>permanently erases</b> the stick and writes the installer.</p>
-    <p>Type the stick size (<b id="instSize"></b>) to arm:</p>
-    <input id="instInput" autocomplete="off">
+    <div class="later">
+      <div class="laterbtns">
+        <button id="instDownload" title="Save the OS download in the library, nothing else">Download only</button>
+        <button id="instSetup" title="Download and build the installer with these options, to write to a stick later">Set up image</button>
+        <button id="instSave" title="Keep these options as a named recipe, to set up or install again later">Save as recipe…</button>
+      </div>
+      <div class="sub" id="instLaterNote">No stick needed for these.</div>
+    </div>
+    <div id="instArm">
+      <div class="target" id="instTarget"></div>
+      <p id="instNote">This <b>permanently erases</b> the stick and writes the installer.</p>
+      <p>Type the stick size (<b id="instSize"></b>) to arm:</p>
+      <input id="instInput" autocomplete="off">
+    </div>
+    <p id="instNoStick" hidden>No USB stick is plugged in. Set up the image now and write it from <b>Built images</b> when you have one.</p>
     <div class="actions">
       <button onclick="installDialog.close()">Cancel</button>
       <button class="danger" id="instGo">Erase &amp; install</button>
@@ -942,8 +959,9 @@ function renderCatalogNote() {
     return;
   }
   const tag = os.arch && os.arch !== "amd64" ? os.family + "/" + os.arch : os.family;
-  note.append(el("span", "badge" + (os.family === "windows" ? "" : " ok"), tag),
-              el("span", "grow", os.notes || ""));
+  note.append(el("span", "badge" + (os.family === "windows" ? "" : " ok"), tag));
+  if (os.downloaded) note.append(el("span", "badge ok", "downloaded"));
+  note.append(el("span", "grow", os.notes || ""));
 }
 
 function render() {
@@ -998,17 +1016,20 @@ function render() {
   wp.append(newWorkspaceBlock());
 
   const rr = $("recipes"); rr.replaceChildren();
-  if (!state.has_workspace) rr.append(el("div", "empty", "Open a workspace above to see its recipes."));
-  else if (!state.recipes.length) rr.append(el("div", "empty", "No recipes in this workspace."));
+  $("recipesWhere").textContent = state.has_workspace ? "in " + (state.org || "this workspace") : "";
+  if (!state.recipes.length)
+    rr.append(el("div", "empty", "Saved install settings show up here. Pick an OS above, choose its options, then Save as recipe."));
   for (const rc of state.recipes) {
     const row = el("div", "row");
     const grow = el("div", "grow");
-    grow.append(el("div", "title", rc.id), el("div", "sub", (rc.type || "") + (rc.name ? " — " + rc.name : "")));
+    const osName = ((state.catalog || []).find(o => o.id === rc.source) || {}).name || rc.source || rc.type || "";
+    grow.append(el("div", "title", rc.name || rc.id), el("div", "sub", osName + " · " + rc.id));
     row.append(grow);
-    const build = el("button", "", "Build");
+    const build = el("button", "", "Set up image");
+    build.title = "Download what is missing and build the image, to write later";
     build.onclick = () => api("/api/build", { recipe: rc.id }).catch(e => showErr(e.message));
-    const flash = el("button", "primary", "Flash…");
-    flash.onclick = () => armFlash({ recipe: rc.id });
+    const flash = el("button", "primary", "Write to stick…");
+    flash.onclick = () => armFlash({ recipe: rc.id, label: rc.name || rc.id });
     row.append(build, flash);
     rr.append(row);
     for (const l of rc.lint || [])
@@ -1036,16 +1057,27 @@ function render() {
   }
 
   const aa = $("artifacts"); aa.replaceChildren();
-  if (!state.artifacts.length) aa.append(el("div", "empty", "No built artifacts yet."));
+  if (!state.artifacts.length)
+    aa.append(el("div", "empty", "Images you set up show up here, to write to any number of sticks without building them again."));
   for (const a of state.artifacts) {
     const row = el("div", "row");
     const grow = el("div", "grow");
-    grow.append(el("div", "title", a.recipe_id),
-      el("div", "sub", a.size_mb + " MiB · " + a.created + " · " + a.path));
+    const rc = state.recipes.find(r => r.id === a.recipe_id);
+    const os = (state.catalog || []).find(o => o.id === a.recipe_id);
+    const label = (rc && rc.name) || (os && os.name) || a.recipe_id;
+    grow.append(el("div", "title", label),
+      el("div", "sub", a.size_mb + " MiB · built " + a.created));
+    grow.title = a.path;
     row.append(grow);
-    const flash = el("button", "primary", "Flash…");
-    flash.onclick = () => armFlash({ artifact: a.path, label: a.recipe_id });
-    row.append(flash);
+    const del = el("button", "", "Delete");
+    del.onclick = async () => {
+      if (!confirm(`Delete the built image for ${label}? It can be set up again later.`)) return;
+      try { await api("/api/artifacts/delete", { path: a.path }); loadState(); }
+      catch (e) { showErr(e.message); }
+    };
+    const flash = el("button", "primary", "Write to stick…");
+    flash.onclick = () => armFlash({ artifact: a.path, label });
+    row.append(del, flash);
     aa.append(row);
   }
 
@@ -1086,7 +1118,7 @@ function openArm(dev, title, note, onGo) {
 }
 function armFlash(what) {
   const dev = pickDevice(); if (!dev) return;
-  openArm(dev, `Flash ${what.recipe || what.label || "artifact"}`,
+  openArm(dev, `Write ${what.label || what.recipe || "image"} to a stick`,
     "This <b>permanently erases</b> everything on the device, then writes and verifies the media." +
       (what.note ? "<br><br>" + what.note : ""),
     confirm => api("/api/flash",
@@ -1246,7 +1278,9 @@ function isoOpt(os) {
 }
 
 function openInstall(os) {
-  const dev = pickDevice(); if (!dev) return;
+  // A stick is only needed to write. Downloading, setting up the image and
+  // saving a recipe all happen without one.
+  const dev = (state.devices || []).find(d => d.flashable) || null;
   $("instTitle").textContent = "Install " + os.name;
   const opts = $("instOpts"); opts.replaceChildren();
   let getOpts = () => ({});
@@ -1277,16 +1311,49 @@ function openInstall(os) {
       opts.append(el("div", "sub", "Boots the installer — nothing to configure here."));
     }
   }
-  $("instTarget").textContent = `${dev.model || dev.id} — ${dev.id} — ${dev.size_gib} GiB` +
-    (dev.mounts && dev.mounts.length ? ` (mounted: ${dev.mounts.join(", ")})` : "");
-  $("instSize").textContent = dev.confirm;
-  const input = $("instInput"); input.value = ""; input.placeholder = dev.confirm;
-  $("instGo").onclick = () => {
-    api("/api/install", { os_id: os.id, ...getOpts(), device_id: dev.id, confirm: input.value.trim() })
+  const run = (mode, extra) => {
+    api("/api/install", { os_id: os.id, ...getOpts(), mode, ...extra })
       .catch(e => showErr(e.message));
     installDialog.close();
   };
-  installDialog.showModal(); input.focus();
+  const windows = os.family === "windows";
+  const dl = $("instDownload");
+  dl.hidden = !!os.import_only;
+  dl.disabled = !!os.downloaded;
+  dl.textContent = os.downloaded ? "Downloaded" : "Download only";
+  dl.onclick = () => run("download");
+  // Only Windows has anything to build; every other entry is written as it is
+  // downloaded, so "set up" would just be the download under another name.
+  $("instSetup").hidden = !windows;
+  $("instSetup").onclick = () => run("setup");
+  $("instSave").onclick = async () => {
+    const opts = getOpts();
+    const suggestion = os.name + (windows && opts.edition ? " " + opts.edition : "");
+    const name = prompt("Name this recipe (for example the customer or the machine):", suggestion);
+    if (!name || !name.trim()) return;
+    try {
+      const r = await api("/api/recipes/save", { os_id: os.id, ...opts, name: name.trim() });
+      if (r.workspace_created) showOk("Saving to a new workspace: " + r.workspace_created);
+      installDialog.close();
+    } catch (e) { showErr(e.message); }
+  };
+  $("instLaterNote").textContent = windows
+    ? "No stick needed for these. Set up image builds it with the options above."
+    : "No stick needed for these.";
+
+  $("instArm").hidden = !dev;
+  $("instNoStick").hidden = !!dev;
+  $("instGo").hidden = !dev;
+  const input = $("instInput"); input.value = "";
+  if (dev) {
+    $("instTarget").textContent = `${dev.model || dev.id} — ${dev.id} — ${dev.size_gib} GiB` +
+      (dev.mounts && dev.mounts.length ? ` (mounted: ${dev.mounts.join(", ")})` : "");
+    $("instSize").textContent = dev.confirm;
+    input.placeholder = dev.confirm;
+    $("instGo").onclick = () => run("install", { device_id: dev.id, confirm: input.value.trim() });
+  }
+  installDialog.showModal();
+  if (dev) input.focus();
 }
 
 // ── jobs / SSE ──────────────────────────────────────────────────────────────
