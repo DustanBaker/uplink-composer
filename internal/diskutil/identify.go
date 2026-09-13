@@ -74,6 +74,13 @@ func Identify(dev device.Device, layout Layout, inspectErr error) Identity {
 			fmt.Sprintf("It is mounted and in use right now as %s.", strings.Join(m, ", ")))
 	}
 	for _, n := range layout.Notes {
+		// diagnose() ends its findings by recommending Prepare, which is right
+		// in the disk list and wrong everywhere else: telling somebody how to
+		// erase a disk, inside the confirmation for copying onto it, is an
+		// instruction for a different job in the middle of this one.
+		if strings.HasPrefix(n, "Prepare wipes the disk") {
+			continue
+		}
 		id.Warnings = append(id.Warnings, n)
 	}
 	return id

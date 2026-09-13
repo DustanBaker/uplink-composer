@@ -99,3 +99,28 @@ func TestUnreadableIsItsOwnWarning(t *testing.T) {
 		t.Errorf("Kind = %q, wanted it to admit it does not know", id.Kind)
 	}
 }
+
+// TestDoesNotAdvertisePrepareInsideAnotherJob: diagnose() ends with "Prepare
+// wipes the disk…", which is right in the disk list and wrong in the
+// confirmation for copying onto that disk — an instruction for a different job
+// in the middle of this one.
+func TestDoesNotAdvertisePrepareInsideAnotherJob(t *testing.T) {
+	dev := device.Device{ID: "d", Bus: "usb", Model: "SanDisk", SizeBytes: 64 << 30}
+	l := Layout{Device: dev, Usable: 4 << 30, Parts: []Partition{
+		{Number: 1, Size: 4 << 30, Type: "iso9660"},
+	}}
+	l.Notes = diagnose(l)
+	if len(l.Notes) == 0 {
+		t.Fatal("the fixture produced no notes, so this proves nothing")
+	}
+	id := Identify(dev, l, nil)
+	for _, w := range id.Warnings {
+		if strings.HasPrefix(w, "Prepare wipes the disk") {
+			t.Errorf("the identity card recommends Prepare: %q", w)
+		}
+	}
+	// The findings themselves must survive; only the call to action goes.
+	if !strings.Contains(joined(id.Warnings), "outside any partition") {
+		t.Errorf("the useful diagnosis was dropped too: %v", id.Warnings)
+	}
+}
