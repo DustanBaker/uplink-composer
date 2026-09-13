@@ -44,10 +44,14 @@ func GenerateVerifyPS(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref st
 	p(``)
 	p(`$ErrorActionPreference = 'SilentlyContinue'`)
 	p(`$pass = 0; $fail = 0; $warn = 0`)
+	p(`$script:failures = @()`)
 	p(`function OK   ($m) { $script:pass++; Write-Host ("  [ OK ] " + $m) -ForegroundColor Green }`)
-	p(`function FAIL ($m) { $script:fail++; Write-Host ("  [FAIL] " + $m) -ForegroundColor Red }`)
+	p(`function FAIL ($m) { $script:fail++; $script:failures += $m; Write-Host ("  [FAIL] " + $m) -ForegroundColor Red }`)
 	p(`function WARN ($m) { $script:warn++; Write-Host ("  [warn] " + $m) -ForegroundColor Yellow }`)
 	p(`function Head ($m) { Write-Host ""; Write-Host $m -ForegroundColor Cyan }`)
+	if w.StatusScreen.Enabled() {
+		statusScreenPS(w.StatusScreen, p)
+	}
 	p(``)
 	p(`Write-Host "Uplink post-install check - recipe %s" -ForegroundColor White`, r.ID)
 	p(`Write-Host ("machine: " + $env:COMPUTERNAME + "   " + (Get-CimInstance Win32_ComputerSystem).Model)`)
@@ -184,10 +188,155 @@ func GenerateVerifyPS(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref st
 
 	p(`Head "Result"`)
 	p(`Write-Host ("  passed $pass   failed $fail   warnings $warn")`)
+	if w.StatusScreen.Enabled() {
+		p(`Set-StatusScreen -Failed $fail -Warned $warn`)
+	}
 	p(`if ($fail -gt 0) { Write-Host "  THIS MACHINE DOES NOT MATCH THE BUILD" -ForegroundColor Red; exit 1 }`)
 	p(`Write-Host "  matches what the build intended" -ForegroundColor Green`)
 	p(`exit 0`)
 	return toCRLF(b.String())
+}
+
+// statusScreenPS is the part that paints the answer onto the machine.
+//
+// The check already knows what failed; a technician walking a bench of twenty
+// machines does not, and cannot without sitting down at each one. So the
+// result goes where it can be read from the doorway: the lock screen and the
+// desktop, with the failures listed on it rather than a bare red cross —
+// knowing WHICH machine to pick up is only half of it.
+//
+// Drawn at runtime rather than shipped as artwork, because the failure list is
+// not known until the check runs, and because this has to work for an operator
+// who supplied no images at all.
+func statusScreenPS(s *StatusScreen, p func(string, ...any)) {
+	p(``)
+	p(`function New-StatusImage {`)
+	// The colour components are typed: passed untyped, PowerShell cannot pick
+	// the three-argument FromArgb overload and the background silently stays
+	// black, which is neither green nor red and tells a technician nothing.
+	p(`  param([string]$Path, [string]$Title, [string[]]$Lines, [int]$R, [int]$G, [int]$B)`)
+	p(`  Add-Type -AssemblyName System.Drawing`)
+	// 1920x1080 regardless of the panel: Windows scales the lock screen
+	// image, and a fixed size keeps the text legible on the 1366x768 laptops
+	// this lands on as often as not.
+	p(`  $w = 1920; $h = 1080`)
+	p(`  $bmp = New-Object System.Drawing.Bitmap $w, $h`)
+	// $gfx, not $g: PowerShell variable names are case-insensitive, so $g and
+	// the [int]$G colour parameter are the SAME variable — the Graphics object
+	// gets cast to Int32 and every draw call after it fails.
+	p(`  $gfx = [System.Drawing.Graphics]::FromImage($bmp)`)
+	p(`  $gfx.SmoothingMode = 'AntiAlias'`)
+	p(`  $gfx.TextRenderingHint = 'ClearTypeGridFit'`)
+	p(`  $gfx.Clear([System.Drawing.Color]::FromArgb($R, $G, $B))`)
+	p(`  $white = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)`)
+	p(`  $fTitle = New-Object System.Drawing.Font 'Segoe UI', 96, ([System.Drawing.FontStyle]::Bold)`)
+	p(`  $fBody  = New-Object System.Drawing.Font 'Segoe UI', 28`)
+	p(`  $fSmall = New-Object System.Drawing.Font 'Segoe UI', 22`)
+	p(`  $gfx.DrawString($Title, $fTitle, $white, 120, 130)`)
+	p(`  $y = 320`)
+	p(`  foreach ($l in $Lines) {`)
+	// Bounded: a machine with thirty broken devices must not push the name
+	// and time off the bottom of the screen.
+	p(`    if ($y -gt 830) { $gfx.DrawString("...and more - run verify.ps1 for the full list", $fSmall, $white, 120, $y); break }`)
+	p(`    $gfx.DrawString($l, $fBody, $white, 120, $y); $y += 46`)
+	p(`  }`)
+	p(`  $stamp = "$env:COMPUTERNAME    $(Get-Date -Format 'yyyy-MM-dd HH:mm')"`)
+	p(`  $gfx.DrawString($stamp, $fSmall, $white, 120, 950)`)
+	p(`  $gfx.DrawString("C:\Windows\Setup\Scripts\verify.ps1 for detail", $fSmall, $white, 120, 990)`)
+	p(`  $gfx.Dispose()`)
+	p(`  $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Jpeg)`)
+	p(`  $bmp.Dispose()`)
+	p(`}`)
+	p(``)
+	p(`function Set-StatusScreen {`)
+	p(`  param([int]$Failed, [int]$Warned)`)
+	p(`  try {`)
+	p(`    $dir = 'C:\ProgramData\Uplink'`)
+	p(`    if (-not (Test-Path $dir)) { [void](mkdir $dir) }`)
+	p(`    $img = Join-Path $dir 'status.jpg'`)
+	p(`    if ($Failed -gt 0) {`)
+	p(`      $lines = @("$Failed check(s) failed:") + ($script:failures | Select-Object -First 10)`)
+	p(`      New-StatusImage -Path $img -Title 'IMAGING FAILED' -Lines $lines -R 155 -G 25 -B 25`)
+	p(`    } else {`)
+	if path, ref := s.SuccessImage(); path != "" || ref != "" {
+		// An operator's own artwork is used verbatim when it is there, and
+		// falls back rather than failing when it is not: a missing logo must
+		// not cost you the signal.
+		p(`      $logo = Join-Path 'C:\Windows\Setup\Scripts' '%s'`, statusImageName(s))
+		p(`      if (Test-Path $logo) { Copy-Item $logo $img -Force }`)
+		p(`      else {`)
+		p(`        $lines = @("This machine matches the build.")`)
+		p(`        if ($Warned -gt 0) { $lines += "$Warned warning(s) - see verify.ps1" }`)
+		p(`        New-StatusImage -Path $img -Title 'READY' -Lines $lines -R 20 -G 105 -B 60`)
+		p(`      }`)
+	} else {
+		p(`      $lines = @("This machine matches the build.")`)
+		p(`      if ($Warned -gt 0) { $lines += "$Warned warning(s) - see verify.ps1" }`)
+		p(`      New-StatusImage -Path $img -Title 'READY' -Lines $lines -R 20 -G 105 -B 60`)
+	}
+	p(`    }`)
+	p(``)
+	// PersonalizationCSP rather than the Personalization policy key: the
+	// policy one is Enterprise/Education only and does nothing on the Pro
+	// these machines ship with.
+	p(`    $csp = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP'`)
+	p(`    if (-not (Test-Path $csp)) { [void](New-Item -Path $csp -Force) }`)
+	p(`    foreach ($n in @('LockScreenImagePath','LockScreenImageUrl')) {`)
+	p(`      New-ItemProperty -Path $csp -Name $n -Value $img -PropertyType String -Force | Out-Null`)
+	p(`    }`)
+	p(`    New-ItemProperty -Path $csp -Name 'LockScreenImageStatus' -Value 1 -PropertyType DWord -Force | Out-Null`)
+	// The desktop too: first boot ends logged in, so the lock screen alone
+	// would show nothing until the machine locked itself.
+	p(`    Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper -Value $img`)
+	p(`    Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value 10`)
+	p(`    rundll32.exe user32.dll, UpdatePerUserSystemParameters 1, True`)
+	p(`    Write-Host "  status screen set: $img"`)
+	p(`  } catch {`)
+	// Never fatal. The screen is a convenience; the report and the exit code
+	// are the actual answer, and losing the paint job must not lose those.
+	p(`    Write-Host ("  could not set the status screen: " + $_.Exception.Message) -ForegroundColor Yellow`)
+	p(`  }`)
+	p(`}`)
+	p(``)
+}
+
+// GenerateClearStatusScreen puts the machine back to the Windows default.
+//
+// The status screen is the imaging bench's signal, not the customer's
+// wallpaper, so there has to be a way to take it off that does not involve
+// knowing which registry keys were set. Left as a .cmd so it can be
+// double-clicked.
+func GenerateClearStatusScreen() string {
+	var b strings.Builder
+	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
+	w(`@echo off`)
+	w(`rem Generated by The Uplink CompOSer.`)
+	w(`rem Removes the imaging status screen and restores the Windows default.`)
+	w(`rem Run this before handing the machine over.`)
+	w(`setlocal`)
+	w(`set CSP=HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP`)
+	w(`reg delete "%%CSP%%" /v LockScreenImagePath   /f >nul 2>&1`)
+	w(`reg delete "%%CSP%%" /v LockScreenImageUrl    /f >nul 2>&1`)
+	w(`reg delete "%%CSP%%" /v LockScreenImageStatus /f >nul 2>&1`)
+	w(`reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "" /f >nul 2>&1`)
+	w(`rundll32.exe user32.dll, UpdatePerUserSystemParameters 1, True`)
+	w(`del /q C:\ProgramData\Uplink\status.jpg >nul 2>&1`)
+	w(`echo Status screen cleared. Sign out and back in to see the default lock screen.`)
+	w(`endlocal`)
+	return toCRLF(b.String())
+}
+
+// statusImageName is the filename the operator's success artwork is staged
+// under, keeping whatever extension they gave it.
+func statusImageName(s *StatusScreen) string {
+	src, ref := s.SuccessImage()
+	if ref != "" {
+		return ref
+	}
+	if i := strings.LastIndexAny(src, `/\`); i >= 0 {
+		return src[i+1:]
+	}
+	return src
 }
 
 // firstbootLog is the log name the first-boot script writes.

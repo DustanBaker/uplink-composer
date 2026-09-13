@@ -149,6 +149,106 @@ func TestVerifyTellsRunningApartFromFailed(t *testing.T) {
 	}
 }
 
+// TestStatusScreenOffByDefault: painting a machine's lock screen is intrusive
+// and permanent-looking. Nothing happens unless it was asked for.
+func TestStatusScreenOffByDefault(t *testing.T) {
+	got := renderVerify(verifyRecipe(nil), ResolvedDrivers{})
+	for _, unwanted := range []string{"PersonalizationCSP", "New-StatusImage", "Wallpaper"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("a recipe that did not ask for a status screen emitted %q", unwanted)
+		}
+	}
+}
+
+func TestStatusScreenPaintsTheResult(t *testing.T) {
+	r := verifyRecipe(func(w *WindowsSpec) { w.StatusScreen = &StatusScreen{} })
+	got := renderVerify(r, ResolvedDrivers{})
+
+	for _, want := range []string{
+		"New-StatusImage",    // drawn, so a failure list can be on it
+		"IMAGING FAILED",     // legible from the doorway
+		"READY",              //
+		"PersonalizationCSP", // the lock screen, which works without GPO
+		"Wallpaper",          // and the desktop, since first boot ends logged in
+		"$script:failures",   // the actual failures, not a bare red cross
+		"Set-StatusScreen",   //
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("status screen is missing %q", want)
+		}
+	}
+	// PowerShell variable names are case-insensitive, so a Graphics object in
+	// $g collides with the [int]$G colour parameter and every draw call after
+	// it fails on an Int32. Found by running it.
+	if strings.Contains(got, "$g.DrawString") || strings.Contains(got, "$g = [System.Drawing.Graphics]") {
+		t.Error("the Graphics object is in $g, which collides with the [int]$G colour parameter")
+	}
+	if !strings.Contains(got, "[int]$R, [int]$G, [int]$B") {
+		t.Error("colour components are untyped - PowerShell cannot resolve the FromArgb overload")
+	}
+	// Losing the paint job must not lose the report or the exit code.
+	if !strings.Contains(got, "could not set the status screen") {
+		t.Error("a failure to paint the screen is not survivable")
+	}
+}
+
+// TestStatusScreenRunsAfterFirstBootCompletes: the check treats a log with no
+// completion line as "still running", so calling it before that line is
+// written would paint "still running" forever and never show a real result.
+func TestStatusScreenRunsAfterFirstBootCompletes(t *testing.T) {
+	r := verifyRecipe(func(w *WindowsSpec) { w.StatusScreen = &StatusScreen{} })
+	fb := renderFirstboot(t, r)
+	done := strings.Index(fb, "first-boot script done")
+	verify := strings.Index(fb, "verify.ps1")
+	switch {
+	case verify < 0:
+		t.Fatal("first boot never runs the check, so nothing paints the screen")
+	case done < 0:
+		t.Fatal("first boot no longer logs completion")
+	case verify < done:
+		t.Error("the check runs before the completion line - it would always say 'still running'")
+	}
+}
+
+func TestStatusScreenCanBeCleared(t *testing.T) {
+	got := GenerateClearStatusScreen()
+	for _, want := range []string{"PersonalizationCSP", "LockScreenImagePath", "Wallpaper", "status.jpg"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the clear script leaves %q behind", want)
+		}
+	}
+}
+
+// TestStatusScreenSuccessImageIsOptional: it must work for someone with no
+// artwork at all, and a missing logo must degrade rather than lose the signal.
+func TestStatusScreenSuccessImageIsOptional(t *testing.T) {
+	plain := renderVerify(verifyRecipe(func(w *WindowsSpec) {
+		w.StatusScreen = &StatusScreen{}
+	}), ResolvedDrivers{})
+	if !strings.Contains(plain, "'READY'") {
+		t.Error("with no artwork there is no success screen at all")
+	}
+
+	branded := renderVerify(verifyRecipe(func(w *WindowsSpec) {
+		w.StatusScreen = &StatusScreen{Success: "payload/logo.png"}
+	}), ResolvedDrivers{})
+	if !strings.Contains(branded, "logo.png") {
+		t.Error("the operator's artwork is never looked for")
+	}
+	if !strings.Contains(branded, "'READY'") {
+		t.Error("no fallback when the artwork is missing - a lost logo would cost the signal")
+	}
+}
+
+func TestStatusScreenValidation(t *testing.T) {
+	r := verifyRecipe(func(w *WindowsSpec) {
+		w.StatusScreen = &StatusScreen{Success: "a.png", SuccessRef: "b"}
+	})
+	if err := r.Validate(); err == nil {
+		t.Error("both success and success_ref were accepted")
+	}
+}
+
 // TestVerifyUsesCRLF: it is a .ps1 written to FAT32 and run by Windows;
 // everything else this tool generates for Windows is CRLF too.
 func TestVerifyUsesCRLF(t *testing.T) {

@@ -269,6 +269,22 @@ func GenerateFirstboot(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref s
 
 	line("")
 	line(`echo [%%date%% %%time%%] first-boot script done >> "%%LOG%%"`)
+
+	// The status screen runs last, and deliberately AFTER the done line: the
+	// check it runs treats a log with no completion as "first boot is still
+	// going", so calling it any earlier would paint "still running" every
+	// time and never show a real result.
+	//
+	// Nobody has to remember to run it, which is the whole point — a bench of
+	// machines paints itself and the technician reads the room.
+	if w.StatusScreen.Enabled() {
+		line("")
+		line(`rem --- check this machine against the build and show the result ---`)
+		line(`rem Paints the lock screen and desktop green or red so a bench of`)
+		line(`rem machines can be read without logging into each one.`)
+		line(`powershell -NoProfile -ExecutionPolicy Bypass -File "%%SCRIPTS%%\verify.ps1" >> "%%LOG%%" 2>&1`)
+		line(`echo [%%date%% %%time%%] status screen set (exit %%errorlevel%%) >> "%%LOG%%"`)
+	}
 	line("endlocal")
 	return toCRLF(b.String()), nil
 }

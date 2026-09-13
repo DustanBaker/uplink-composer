@@ -81,7 +81,40 @@ type WindowsSpec struct {
 	Debloat      *DebloatSpec   `yaml:"debloat,omitempty"`
 	Apps         *AppsSpec      `yaml:"apps,omitempty"`
 	Domain       *DomainSpec    `yaml:"domain,omitempty"`
+	StatusScreen *StatusScreen  `yaml:"status_screen,omitempty"`
 	Firstboot    FirstbootSpec  `yaml:"firstboot,omitempty"`
+}
+
+// StatusScreen paints the result of the post-install check onto the machine's
+// own lock screen and desktop, so a bench of twenty freshly imaged machines
+// can be read from the doorway instead of one login at a time.
+//
+// A failure screen lists what actually failed rather than showing a generic
+// stop sign: the point is to know which machine to pick up AND why, without
+// sitting down at it.
+type StatusScreen struct {
+	// Success is an image shown when the machine matches the build — an org
+	// logo, normally. Either a workspace-relative path or a library ref. When
+	// empty a plain "READY" screen is drawn instead, so this works with no
+	// artwork at all.
+	Success    string `yaml:"success,omitempty"`
+	SuccessRef string `yaml:"success_ref,omitempty"`
+	// Keep leaves the screens in place. By default they are the imaging
+	// bench's signal, not the customer's wallpaper, so the machine is put
+	// back to the Windows default once someone has read it — see
+	// Scripts\clear-status-screen.cmd on the installed machine.
+	Keep bool `yaml:"keep,omitempty"`
+}
+
+// Enabled reports whether a status screen was asked for.
+func (s *StatusScreen) Enabled() bool { return s != nil }
+
+// SuccessImage reports the configured success artwork, if any.
+func (s *StatusScreen) SuccessImage() (path, ref string) {
+	if s == nil {
+		return "", ""
+	}
+	return s.Success, s.SuccessRef
 }
 
 // DomainSpec joins the imaged machine to an Active Directory domain. There are
@@ -501,6 +534,9 @@ func (r *Recipe) Validate() error {
 			if err := d.validate(fail); err != nil {
 				return err
 			}
+		}
+		if s := r.Windows.StatusScreen; s != nil && s.Success != "" && s.SuccessRef != "" {
+			return fail("windows.status_screen sets both success and success_ref — pick one")
 		}
 		if fb.Mode == "template" && fb.Template == "" {
 			return fail("windows.firstboot.mode template requires windows.firstboot.template")

@@ -298,6 +298,33 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		stage.AddFile(apPath, path.Join(scriptsImg, "apps.ps1"))
 	}
 
+	// The operator's success artwork, staged under the name the generated
+	// script looks for.
+	if s := w.StatusScreen; s.Enabled() {
+		src, ref := s.SuccessImage()
+		switch {
+		case ref != "":
+			file, err := materializeFile(req, ref)
+			if err != nil {
+				return nil, fmt.Errorf("compose: windows.status_screen.success_ref: %w", err)
+			}
+			stage.AddFile(file.host, path.Join(scriptsImg, file.name))
+		case src != "":
+			host := filepath.Join(ws.Dir, filepath.FromSlash(src))
+			if _, err := os.Stat(host); err != nil {
+				return nil, fmt.Errorf("compose: windows.status_screen.success %s: %w", src, err)
+			}
+			stage.AddFile(host, path.Join(scriptsImg, filepath.Base(host)))
+		}
+		// A way back to the Windows default, since the screens are the
+		// imaging bench's signal and not the customer's wallpaper.
+		clPath := filepath.Join(buildTmp, "clear-status-screen.cmd")
+		if err := os.WriteFile(clPath, []byte(recipe.GenerateClearStatusScreen()), 0o644); err != nil {
+			return nil, err
+		}
+		stage.AddFile(clPath, path.Join(scriptsImg, "clear-status-screen.cmd"))
+	}
+
 	// The post-install check. Generated because only this build knows what it
 	// promised, and staged beside the scripts that deliver it so the imaged
 	// machine can be checked without installing anything on it.
