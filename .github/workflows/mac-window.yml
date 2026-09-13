@@ -5,6 +5,11 @@ name: mac-window
 # there, checks what it did, and keeps screenshots as evidence.
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Test this published release's binary (e.g. v0.7.3) instead of building from source"
+        required: false
+        default: ""
   push:
     paths:
       - internal/cli/window_darwin.go
@@ -39,9 +44,21 @@ jobs:
         timeout-minutes: 4
         env:
           CGO_ENABLED: "0"
+          RELEASE: ${{ inputs.release }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -u
-          go build -o dsky ./cmd/dsky
+          if [ -n "${RELEASE:-}" ]; then
+            # The artifact people download, cross-compiled on Linux by the
+            # release workflow -- not a build of this checkout.
+            ARCH=$(uname -m); [ "$ARCH" = x86_64 ] && ARCH=amd64
+            gh release download "$RELEASE" -R "$GITHUB_REPOSITORY" -p "dsky-$RELEASE-darwin-$ARCH" -p SHA256SUMS.txt
+            grep " dsky-$RELEASE-darwin-$ARCH\$" SHA256SUMS.txt | shasum -a 256 -c
+            mv "dsky-$RELEASE-darwin-$ARCH" dsky && chmod +x dsky
+            ./dsky version
+          else
+            go build -o dsky ./cmd/dsky
+          fi
           file dsky
           ./dsky app > app.log 2>&1 &
           APP=$!
