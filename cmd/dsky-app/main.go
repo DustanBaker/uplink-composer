@@ -4,6 +4,13 @@
 // (-ldflags -H=windowsgui) so nothing flashes when the Start-menu icon is
 // clicked; the portal's Quit button (or a signal) stops it. Errors go to a
 // log file since there is no console to show them.
+//
+// The icon is a Windows resource in rsrc_windows_*.syso, which the Go linker
+// picks up by filename for Windows builds only. Regenerate both commands'
+// copies after changing dsky.ico:
+//
+//go:generate go run github.com/tc-hib/go-winres@v0.3.3 make --in ../../winres/winres.json --out rsrc --arch amd64,arm64
+//go:generate go run github.com/tc-hib/go-winres@v0.3.3 make --in ../../winres/winres.json --out ../dsky/rsrc --arch amd64,arm64
 package main
 
 import (

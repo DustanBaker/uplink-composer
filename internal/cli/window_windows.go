@@ -28,6 +28,10 @@ func showWindow(url, title string) bool {
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
+			// Icon group #1, embedded from dsky.ico by the rsrc_windows_*.syso
+			// files in cmd/. Without it the title bar, taskbar and Alt-Tab show
+			// Windows' generic program icon.
+			IconId: 1,
 			Title:  title,
 			Width:  width,
 			Height: height,

@@ -49,6 +49,12 @@ var indexHTML []byte
 //go:embed logo.webp
 var logoWebP []byte
 
+// The app icon at page scale: the browser tab when the portal is opened in a
+// browser, and the window icon Chromium's app mode takes from the page.
+//
+//go:embed favicon.png
+var faviconPNG []byte
+
 // Server holds the wiring for one serve session. The workspace is optional
 // and switchable at runtime, so the app can launch to a home screen and let
 // the operator open a workspace from the page.
@@ -158,6 +164,11 @@ func (s *Server) handler() http.Handler {
 		w.Header().Set("Content-Type", "image/webp")
 		w.Header().Set("Cache-Control", "max-age=86400")
 		w.Write(logoWebP)
+	})
+	mux.HandleFunc("GET /favicon.png", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Write(faviconPNG)
 	})
 	mux.HandleFunc("GET /api/state", s.auth(s.handleState))
 	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
