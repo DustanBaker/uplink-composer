@@ -129,7 +129,7 @@ func WingetIDs(ids []string) ([]string, error) {
 type UnknownError struct{ ID string }
 
 func (e *UnknownError) Error() string {
-	return "unknown program " + e.ID + " — see `bootwright apps` for the list"
+	return "unknown program " + e.ID + " — see `dsky apps` for the list"
 }
 
 // UnavailableError is a known program with no package for the target OS.

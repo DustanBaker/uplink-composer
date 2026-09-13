@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/oscatalog"
+	"github.com/uplinkresearch/dsky/internal/oscatalog"
 )
 
 func main() {
@@ -57,7 +57,7 @@ func die(err error) {
 // rather than in the repository, where it would eventually be committed.
 func defaultKeyPath() string {
 	if base, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(base, "bootwright", "catalog-signing-key")
+		return filepath.Join(base, "dsky", "catalog-signing-key")
 	}
 	return "catalog-signing-key"
 }

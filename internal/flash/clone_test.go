@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 // memTarget is a disk in memory. Cloning is the one operation here whose

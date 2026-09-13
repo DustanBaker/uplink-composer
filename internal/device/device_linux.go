@@ -29,7 +29,7 @@ type lsblkDev struct {
 
 func list(ctx context.Context) ([]Device, error) {
 	if isWSL() {
-		return nil, fmt.Errorf("device: running under WSL, which cannot see USB block devices — use the Windows bootwright.exe instead")
+		return nil, fmt.Errorf("device: running under WSL, which cannot see USB block devices — use the Windows dsky.exe instead")
 	}
 	cmd := exec.CommandContext(ctx, "lsblk", "-J", "-b", "-o", "NAME,MODEL,SERIAL,SIZE,TRAN,RM,TYPE,MOUNTPOINT")
 	out, err := cmd.Output()

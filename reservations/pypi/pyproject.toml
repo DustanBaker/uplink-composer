@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "bootwright"
+name = "dsky"
 version = "0.0.1"
 description = "Builds customized Windows and Linux OS install media: debloated installs, local-account-only setup, and driver injection."
 readme = "README.md"
@@ -34,9 +34,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/uplinkresearch/bootwright"
-Repository = "https://github.com/uplinkresearch/bootwright"
-Issues = "https://github.com/uplinkresearch/bootwright/issues"
+Homepage = "https://github.com/uplinkresearch/dsky"
+Repository = "https://github.com/uplinkresearch/dsky"
+Issues = "https://github.com/uplinkresearch/dsky/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bootwright"]
+packages = ["src/dsky"]

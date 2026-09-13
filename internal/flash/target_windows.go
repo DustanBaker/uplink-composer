@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 type darwinTarget struct {

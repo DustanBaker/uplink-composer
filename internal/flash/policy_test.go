@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 // TestCheckTarget is the write policy, and the property that matters is the

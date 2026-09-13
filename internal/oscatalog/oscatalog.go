@@ -12,14 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/appcatalog"
-	"github.com/uplinkresearch/bootwright/internal/compose"
-	"github.com/uplinkresearch/bootwright/internal/driverresolve"
-	"github.com/uplinkresearch/bootwright/internal/helpers"
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/manifest"
-	"github.com/uplinkresearch/bootwright/internal/recipe"
-	"github.com/uplinkresearch/bootwright/internal/workspace"
+	"github.com/uplinkresearch/dsky/internal/appcatalog"
+	"github.com/uplinkresearch/dsky/internal/compose"
+	"github.com/uplinkresearch/dsky/internal/driverresolve"
+	"github.com/uplinkresearch/dsky/internal/helpers"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/manifest"
+	"github.com/uplinkresearch/dsky/internal/recipe"
+	"github.com/uplinkresearch/dsky/internal/workspace"
 )
 
 //go:embed templates/*.tmpl
@@ -168,7 +168,7 @@ func (e Entry) ImportOnlyError() error {
 	if where == "" {
 		where = "the vendor"
 	}
-	return fmt.Errorf("%s cannot be downloaded automatically — get the ISO from %s, then: bootwright install %s --iso <file>",
+	return fmt.Errorf("%s cannot be downloaded automatically — get the ISO from %s, then: dsky install %s --iso <file>",
 		e.Name, where, e.ID)
 }
 

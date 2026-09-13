@@ -1,4 +1,4 @@
-// Command bootwright-app is the windowless launcher for the local portal: it
+// Command dsky-app is the windowless launcher for the local portal: it
 // starts the server and opens the page in the default browser with no
 // console window. On Windows it is linked for the GUI subsystem
 // (-ldflags -H=windowsgui) so nothing flashes when the Start-menu icon is
@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/uplinkresearch/bootwright/internal/appconfig"
-	"github.com/uplinkresearch/bootwright/internal/cli"
+	"github.com/uplinkresearch/dsky/internal/appconfig"
+	"github.com/uplinkresearch/dsky/internal/cli"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 		defer f.Close()
 	}
 	if err := cli.AppMain(); err != nil {
-		log.Printf("bootwright-app: %v", err)
+		log.Printf("dsky-app: %v", err)
 		os.Exit(1)
 	}
 }

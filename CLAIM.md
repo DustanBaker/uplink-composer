@@ -1,82 +1,56 @@
-# Claiming the name: Bootwright
+# Claiming the name: DSKY
 
-Everything here has to be done by hand — account creation, payment, and 2FA
-enrolment are not things to automate, and none of it was done for you.
+Checked **2026-09-13**. Availability is a snapshot, not a hold — re-check
+anything still unclaimed a week from now.
 
-Availability was checked on **2026-09-13**. All of it was free. None of it is
-reserved until you do the steps below, and availability is a snapshot, not a
-hold — re-check anything you have not claimed within a week or so.
+Everything here is done by hand. Account creation, payment and 2FA enrolment
+are not things to automate, and none of it was done for you.
 
-## Do these first (today or tomorrow)
+## What is free, and what is gone
 
-The order matters: the packages all point at `github.com/uplinkresearch/bootwright`,
-so publishing before the org exists ships a listing whose links 404.
-
-### 1. GitHub organisation — <https://github.com/organizations/plan>
-
-Create the org **`uplinkresearch`**. Everything lives under it: Bootwright,
-Tailboard, and whatever comes next.
-
-- Plan: **Free**
-- Organization name: `uplinkresearch`
-- This organization belongs to: *My personal account*
-
-Then **transfer** the existing repo rather than creating a fresh one:
-`DustanBaker/uplink-composer` → Settings → Danger Zone → *Transfer ownership* →
-`uplinkresearch`, then rename it to `bootwright`.
-
-Transfer rather than recreate, for three reasons. The releases and their assets
-come with it — the product page links to `releases/latest/download/uplink-setup-amd64.exe`
-and that link dies on an empty repo. GitHub leaves a redirect behind, which is
-what every installed copy follows to find updates. And the stars, issues and
-history come too.
-
-Afterwards:
-
-    git remote set-url origin https://github.com/uplinkresearch/bootwright.git
-
-Enable 2FA on your own account first, or the org will nag you about it:
-<https://github.com/settings/security>
-
-**Why a company org rather than a product org:** `tailboard` was already gone —
-taken in February 2024 by an unrelated, empty org called TailboardUAS. Product
-names are contested; a coined company name is not. One org also means one set of
-members, secrets and settings no matter how many products follow.
-
-Worth ten seconds while you are there: the `bootwright` org handle is currently
-free. Claiming it costs nothing and stops the Tailboard situation happening
-again. The code still lives in `uplinkresearch` either way.
-
-### 2. Domains — pick a registrar and buy in one sitting
-
-All six were unregistered. Buy at least `.com` and `.dev`; the rest are
-cheap insurance against somebody landing on a squatter later.
-
-| Domain | Roughly |
+| Target | Status |
 |---|---|
-| bootwright.com | $10–15/yr |
-| bootwright.dev | $12–15/yr |
-| bootwright.org | $10–15/yr |
-| bootwright.io | $35–60/yr |
-| bootwright.sh | $30–50/yr |
-| bootwright.app | $12–20/yr |
+| npm `dsky` | **free** |
+| PyPI `dsky` | **free** |
+| crates.io `dsky` | **free** |
+| dsky.sh | **free** |
+| GitHub `dsky` | **taken** — a User account, 0 repos, created and abandoned in December 2020 |
+| dsky.com | taken — registered 2000-11-01 |
+| dsky.net | taken — registered 2002-05-09 |
+| dsky.dev · dsky.org · dsky.io · dsky.app | taken |
 
-Registrars that do not mark up renewals: <https://www.cloudflare.com/products/registrar/>
-(at-cost, but you must already have a Cloudflare account), or
-<https://porkbun.com>, or <https://www.namecheap.com>.
+Two things follow from that table.
 
-Buy WHOIS privacy — it is free at all three. Turn on auto-renew. Registrar
-lock too, which is on by default nearly everywhere.
+**The GitHub handle is gone and is not coming back.** It is held by a dormant
+account with nothing in it, which is the most annoying kind of unavailable —
+GitHub does not release names merely for being unused. This does not block
+anything: the repo lives at `uplinkresearch/dsky`, inside the org you already
+own, exactly as decided when Tailboard's own name turned out to be taken too.
 
-**This is the genuinely time-sensitive one.** Domain availability is public and
-continuously scraped; checking a domain can itself attract front-running from
-some registrar search boxes. Use a registrar's cart directly rather than
-shopping the name around several search boxes first.
+**The domain situation is worse than the last name's.** `dsky.com` has been held
+for twenty-five years, so it is somebody's, not a squatter's. Only `.sh` is
+available. If a memorable domain matters, that is an argument about the name
+itself and belongs before the registry grabs below, not after.
 
-### 3. Registry accounts + 2FA
+## Order of operations
 
-None of these reserve the name by themselves — they are the prerequisite for
-step 4, and 2FA is mandatory on all three for publishing now.
+### 1. Rename the repo — first, and free
+
+`uplinkresearch/bootwright` → Settings → *Repository name* → `dsky`.
+
+GitHub leaves a redirect, so the old path keeps resolving. Then locally:
+
+    git remote set-url origin https://github.com/uplinkresearch/dsky.git
+
+This is the time-sensitive item now, not because anybody is racing you for it,
+but because everything else points at it. `internal/selfupdate` already reads
+`uplinkresearch/dsky`, and installed copies keep updating through the redirect —
+but do not create anything at the old path afterwards, or installed copies will
+be asking a stranger's repository what version to become.
+
+### 2. Registry accounts and 2FA
+
+Prerequisites for step 3, and none of them reserve the name by themselves.
 
 | Registry | Sign up | 2FA |
 |---|---|---|
@@ -84,104 +58,65 @@ step 4, and 2FA is mandatory on all three for publishing now.
 | PyPI | <https://pypi.org/account/register/> | <https://pypi.org/help/#twofa> — required to upload |
 | crates.io | <https://crates.io> (sign in with GitHub) | inherits your GitHub 2FA |
 
-PyPI also wants an API token rather than a password for uploads:
-<https://pypi.org/manage/account/token/>. Same for npm if you publish from CI:
-<https://docs.npmjs.com/creating-and-viewing-access-tokens>.
+PyPI wants an API token rather than a password:
+<https://pypi.org/manage/account/token/>.
 
-crates.io signs in with GitHub, so do step 1 before this.
+### 3. Publish the three placeholders
 
-### 4. Publish the three placeholders
+Scaffolded in [`reservations/`](reservations/) and not published. Commands are
+in [reservations/README.md](reservations/README.md). Do this **after** the repo
+rename, so the listings do not link to a path that has moved.
 
-Scaffolded and ready in [`reservations/`](reservations/), not published. The
-exact commands are in [reservations/README.md](reservations/README.md).
+### 4. dsky.sh, if you want it
 
-Do this **after** the GitHub org exists.
+The only one available. <https://porkbun.com> or
+<https://www.cloudflare.com/products/registrar/> (at cost, needs an account
+already). Privacy on, auto-renew on.
 
-## Worth knowing before you publish
+Worth deciding whether a `.sh` alone is the domain story or whether the missing
+`.com` changes your mind about the name. That question is cheaper to answer now
+than after three registries carry it.
 
-**A placeholder is a delay, not a deed.** npm's
+## Before publishing anything
+
+**A placeholder buys time, not title.** npm's
 [dispute policy](https://docs.npmjs.com/policies/disputes) and
-[PEP 541](https://peps.python.org/pep-0541/) both exist to transfer names away
-from people sitting on them unused. Neither is automatic — a human has to file
-and a human decides — and both weigh whether the project is real. A 0.0.1 stub
-that becomes a working package within a few weeks is fine. One that sits there
-for a year is the exact case those policies undo.
+[PEP 541](https://peps.python.org/pep-0541/) both exist to take names off people
+sitting on them unused. Neither is automatic and both weigh whether the project
+is real. A 0.0.1 stub that becomes a working package within weeks is fine; one
+that sits for a year is the case those policies were written for.
 
-crates.io has no equivalent reclamation process, so that publish is effectively
-permanent.
+crates.io has no equivalent process. That publish is effectively permanent.
 
-**Not checked, and worth your own look if the name matters commercially:** a
-USPTO trademark search (<https://tmsearch.uspto.gov>). "Bootwright" is a coined
-compound, which is a good position to be in, but I did not check it and a
-software trademark is the one collision that is expensive to discover late.
+**Not checked:** a USPTO search (<https://tmsearch.uspto.gov>). DSKY is a real
+historical acronym for a NASA-era instrument rather than a coined word, which
+makes it likelier than "Bootwright" was to collide with something — worth your
+own look before it goes on anything commercial.
 
-## What the rename already changed
+## Your own machine, after installing a DSKY build
 
-The code rename is done — module path, commands, product name, on-disk paths.
-Two consequences that live outside this repo:
+The library moves itself: `%LOCALAPPDATA%\bootwright` is renamed to `…\dsky` on
+first run, instantly however many gigabytes are in it.
 
-**The installer asset is renamed.** It builds as `bootwright-setup-amd64.exe`
-now, not `uplink-setup-amd64.exe`. The product page on uplinkresearch.com links
-to the old filename at `releases/latest/download/...`, so **that download link
-breaks on the next release** until the site is updated. It is a different repo,
-so nothing here can fix it.
+Config does not, because moving it would break any older build still installed.
+Once you are on DSKY:
 
-**The update feed moved.** `internal/selfupdate/selfupdate.go` now reads:
+    move "%APPDATA%\bootwright" "%APPDATA%\dsky"
 
-    const Repo = "uplinkresearch/bootwright"
-
-Every copy already installed — including your v0.4.1 — still polls the old
-path. Transferring the repo leaves a GitHub redirect behind, and that redirect
-covers the API, so existing installs should find the new releases through it.
-Confirm that once rather than assuming it.
-
-**Your local data.** The library migrates itself: `%LOCALAPPDATA%\uplink-composer`
-is renamed to `...\bootwright` on first run, which is an instant directory
-rename however many gigabytes are in it. Config and workspaces do not migrate —
-move them by hand *after* installing the renamed build, because your current
-v0.4.1 is still reading the old paths:
-
-    mv "$APPDATA/uplink" "$APPDATA/bootwright"
-
-That is the one holding the catalog signing key, which cannot be regenerated.
-
-The thing not to do is **re-create a repo at `DustanBaker/uplink-composer`**
-after moving away from it. A new repo at the old path replaces the redirect, and
-every installed copy would then be asking a stranger's repository what version
-it should upgrade itself to. Leave the old path empty.
-
-## Collisions
-
-Nothing is taken. But four GitHub repos already use the name, found on
-2026-09-13, none with a single star between them:
-
-| Repo | What it is | Why it matters |
-|---|---|---|
-| [crmarques/bootwright](https://github.com/crmarques/bootwright) | Provisioning fleets of OpenShift/OKD clusters. **Go**, Apache-2.0, actively pushed Aug 2026, has a docs site | Closest collision: same language, adjacent problem space (provisioning machines) |
-| [EdenCompiler/bootwright](https://github.com/EdenCompiler/bootwright) | Common Lisp framework for bare-metal OS development | Adjacent by subject — it is literally about booting |
-| [ThomasHoussin/Bootwright](https://github.com/ThomasHoussin/Bootwright) | SaaS boilerplate — a "bootstrap" pun | Unrelated, dormant since Mar 2026 |
-| [gleson/Bootwright-Wysiwyg-Editor](https://github.com/gleson/Bootwright-Wysiwyg-Editor) | Bootstrap WYSIWYG editor | Unrelated |
-
-None of them hold the org handle, any registry name, or any domain. The cost is
-shared search results rather than a blocked name — but the first two are close
-enough to your subject that somebody searching "bootwright" for an OS tool could
-land on the wrong one. Your call whether that is worth anything.
+That directory holds the catalog signing key, which cannot be regenerated.
 
 ## Checklist
 
-- [ ] GitHub account 2FA on
-- [ ] GitHub org `uplinkresearch` created — **do first**
-- [ ] `DustanBaker/uplink-composer` transferred to `uplinkresearch`, renamed `bootwright`
+- [ ] Repo renamed to `uplinkresearch/dsky`
 - [ ] `git remote set-url origin` updated locally
-- [ ] `bootwright` org handle claimed as defensive insurance (optional)
-- [ ] bootwright.com registered, privacy + auto-renew on — **time-sensitive**
-- [ ] bootwright.dev registered
-- [ ] Other domains registered (.org/.io/.sh/.app) as desired
+- [ ] Nothing re-created at the old repo path
 - [ ] npm account + 2FA
 - [ ] PyPI account + 2FA + API token
 - [ ] crates.io signed in via GitHub
 - [ ] `npm publish --access public`
 - [ ] `python -m build && twine upload dist/*`
 - [ ] `cargo publish`
-- [ ] Trademark search, if the name matters commercially
+- [ ] dsky.sh registered, or a decision made about the domain story
+- [ ] `%APPDATA%\bootwright` moved to `%APPDATA%\dsky`
+- [ ] Trademark search, if the name is going on anything commercial
 - [ ] Re-check availability if more than a week has passed since 2026-09-13

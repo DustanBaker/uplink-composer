@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 	"howett.net/plist"
 )
 

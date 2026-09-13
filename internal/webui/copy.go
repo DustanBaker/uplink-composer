@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
-	"github.com/uplinkresearch/bootwright/internal/diskutil"
-	"github.com/uplinkresearch/bootwright/internal/flash"
-	"github.com/uplinkresearch/bootwright/internal/flashrun"
-	"github.com/uplinkresearch/bootwright/internal/jobs"
+	"github.com/uplinkresearch/dsky/internal/device"
+	"github.com/uplinkresearch/dsky/internal/diskutil"
+	"github.com/uplinkresearch/dsky/internal/flash"
+	"github.com/uplinkresearch/dsky/internal/flashrun"
+	"github.com/uplinkresearch/dsky/internal/jobs"
 )
 
 // handleIdentify describes one disk well enough for somebody to recognise it

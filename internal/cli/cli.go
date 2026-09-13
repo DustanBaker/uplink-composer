@@ -1,4 +1,4 @@
-// Package cli implements the bootwright command line.
+// Package cli implements the dsky command line.
 package cli
 
 import (
@@ -9,20 +9,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/appcatalog"
-	"github.com/uplinkresearch/bootwright/internal/buildinfo"
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/oscatalog"
-	"github.com/uplinkresearch/bootwright/internal/selfupdate"
-	"github.com/uplinkresearch/bootwright/internal/workspace"
+	"github.com/uplinkresearch/dsky/internal/appcatalog"
+	"github.com/uplinkresearch/dsky/internal/buildinfo"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/oscatalog"
+	"github.com/uplinkresearch/dsky/internal/selfupdate"
+	"github.com/uplinkresearch/dsky/internal/workspace"
 )
 
-const usage = `Bootwright — build bootable installation USB media from recipes.
+const usage = `DSKY — build bootable installation USB media from recipes.
 
-Usage: bootwright <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
-       bootwright <file.iso> [device]  write any ISO or disk image you already have
-       bootwright                     same, in a workspace with a single recipe
-       bootwright <command> [args]
+Usage: dsky <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
+       dsky <file.iso> [device]  write any ISO or disk image you already have
+       dsky                     same, in a workspace with a single recipe
+       dsky <command> [args]
 
 One-shot
   go <recipe|image> [device]  pull sources, build, flash, verify (--yes, --build-only)
@@ -199,7 +199,7 @@ func Main(args []string) int {
 	var err error
 	switch cmd {
 	case "version", "--version":
-		fmt.Println("bootwright", buildinfo.Version)
+		fmt.Println("dsky", buildinfo.Version)
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	case "go":

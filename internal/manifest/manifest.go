@@ -81,7 +81,7 @@ type Source struct {
 	Filename string `yaml:"filename,omitempty"`
 	Notes    string `yaml:"notes,omitempty"`
 
-	// Driver packs found by `bootwright drivers search/resolve` describe the
+	// Driver packs found by `dsky drivers search/resolve` describe the
 	// machine they serve and how to install them, so a recipe's
 	// windows.hardware entries pick them up without naming them.
 	Hardware *HardwareRef `yaml:"hardware,omitempty"`

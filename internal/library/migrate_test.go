@@ -38,7 +38,7 @@ func TestMigratesFromEveryFormerName(t *testing.T) {
 			base := t.TempDir()
 			seed(t, filepath.Join(base, old))
 
-			root := filepath.Join(base, "bootwright")
+			root := filepath.Join(base, "dsky")
 			if _, err := Open(root); err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +57,7 @@ func TestMigratesFromEveryFormerName(t *testing.T) {
 // the current one.
 func TestKeepsAnExistingLibrary(t *testing.T) {
 	base := t.TempDir()
-	root := filepath.Join(base, "bootwright")
+	root := filepath.Join(base, "dsky")
 	seed(t, root)
 	if err := os.MkdirAll(filepath.Join(base, formerNames[0], "blobs"), 0o755); err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestKeepsAnExistingLibrary(t *testing.T) {
 
 // TestOpensCleanWithNothingToMigrate: the ordinary first run.
 func TestOpensCleanWithNothingToMigrate(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "bootwright")
+	root := filepath.Join(t.TempDir(), "dsky")
 	l, err := Open(root)
 	if err != nil {
 		t.Fatal(err)

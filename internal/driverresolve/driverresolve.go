@@ -2,7 +2,7 @@
 // in a workspace: it searches the vendor (Dell/Lenovo/HP) and Microsoft
 // Update Catalog feeds, writes a pinned self-describing manifest per pack,
 // and pulls the bytes into the library. It is the one implementation behind
-// `bootwright drivers search/resolve`, the `compose` build path, and Quick
+// `dsky drivers search/resolve`, the `compose` build path, and Quick
 // Install's hardware auto-detect.
 package driverresolve
 
@@ -14,13 +14,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/drivers/catalog"
-	"github.com/uplinkresearch/bootwright/internal/fetch"
-	"github.com/uplinkresearch/bootwright/internal/hwdetect"
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/manifest"
-	"github.com/uplinkresearch/bootwright/internal/recipe"
-	"github.com/uplinkresearch/bootwright/internal/workspace"
+	"github.com/uplinkresearch/dsky/internal/drivers/catalog"
+	"github.com/uplinkresearch/dsky/internal/fetch"
+	"github.com/uplinkresearch/dsky/internal/hwdetect"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/manifest"
+	"github.com/uplinkresearch/dsky/internal/recipe"
+	"github.com/uplinkresearch/dsky/internal/workspace"
 )
 
 // Progress mirrors the compose/flash progress callback: a stage name plus
@@ -125,7 +125,7 @@ func AddPack(ctx context.Context, ws *workspace.Workspace, lib *library.Library,
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "id: %s\nkind: driver-pack\nformat: %s\n", id, p.Format)
-		fmt.Fprintf(&b, "# Found in the %s driver catalog by `bootwright drivers`.\n", feed.Vendor())
+		fmt.Fprintf(&b, "# Found in the %s driver catalog by `dsky drivers`.\n", feed.Vendor())
 		fmt.Fprintf(&b, "url: %s\n", p.URL)
 		fmt.Fprintf(&b, "sha256: %q\n", p.SHA256)
 		if p.SHA1 != "" {
@@ -302,7 +302,7 @@ func resolveModel(ctx context.Context, ws *workspace.Workspace, lib *library.Lib
 		return "", err
 	}
 	if len(packs) == 0 {
-		return "", fmt.Errorf("no %s driver pack for %q (%s) — check the model with `bootwright drivers search %s %q`", h.Vendor, h.Model, osName, h.Vendor, h.Model)
+		return "", fmt.Errorf("no %s driver pack for %q (%s) — check the model with `dsky drivers search %s %q`", h.Vendor, h.Model, osName, h.Vendor, h.Model)
 	}
 	ref := manifest.HardwareRef{Vendor: h.Vendor, Model: h.Model, OS: osName}
 	return AddPack(ctx, ws, lib, feed, packs[0], ref, true, progress)

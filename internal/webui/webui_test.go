@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/uplinkresearch/bootwright/internal/jobs"
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/workspace"
+	"github.com/uplinkresearch/dsky/internal/jobs"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/workspace"
 )
 
 func testServer(t *testing.T) *Server {
@@ -38,7 +38,7 @@ func do(t *testing.T, h http.Handler, method, path, host, origin, token string) 
 		req.Header.Set("Origin", origin)
 	}
 	if token != "" {
-		req.Header.Set("X-Bootwright-Token", token)
+		req.Header.Set("X-DSKY-Token", token)
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -83,7 +83,7 @@ func TestFlashRefusesBadConfirm(t *testing.T) {
 	h := s.handler()
 	req := httptest.NewRequest("POST", "/api/flash", nil)
 	req.Host = "127.0.0.1:8931"
-	req.Header.Set("X-Bootwright-Token", "sekrit")
+	req.Header.Set("X-DSKY-Token", "sekrit")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {

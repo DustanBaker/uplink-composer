@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/dsky/internal/buildinfo"
 )
 
 // The catalog index: the OS list, published separately from the program.
@@ -58,7 +58,7 @@ var signingKey = catalogPublicKey
 // Raw file hosting on the repository's default branch: updating the catalog
 // is a push, and no release is involved.
 const (
-	IndexURL    = "https://raw.githubusercontent.com/uplinkresearch/bootwright/main/catalog/index.json"
+	IndexURL    = "https://raw.githubusercontent.com/uplinkresearch/dsky/main/catalog/index.json"
 	IndexSigURL = IndexURL + ".sig"
 )
 
@@ -102,7 +102,7 @@ func Catalog() []Entry {
 	return builtin
 }
 
-// Source describes where the current list came from, for `bootwright catalog`
+// Source describes where the current list came from, for `dsky catalog`
 // and the portal to show. Someone debugging a wrong entry needs to know
 // whether they are looking at a published list or a compiled-in one.
 func Source() string {

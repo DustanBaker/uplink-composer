@@ -21,7 +21,7 @@ func TestLooksLikeImagePath(t *testing.T) {
 	}
 	// Recipe ids must keep routing to the builder. A word that merely contains
 	// "iso" or "img" is not a path, and treating it as one would break
-	// `bootwright flash <recipe>` for anyone whose recipe is named that way.
+	// `dsky flash <recipe>` for anyone whose recipe is named that way.
 	no := []string{"nuc-win11", "windows-11", "isolinux", "my-img-recipe", "iso", "img", ""}
 	for _, w := range no {
 		if looksLikeImagePath(w) {

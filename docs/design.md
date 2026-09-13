@@ -1,4 +1,4 @@
-# Making Bootwright feel like something
+# Making DSKY feel like something
 
 ## What is actually wrong
 
@@ -19,7 +19,7 @@ the interesting moments their due rather than decorating the dull ones.
 ## The brand gap
 
 uplinkresearch.com is distinctive: mono type, cyan and orange on near-black, a
-CRT treatment. Bootwright is generic dark-mode blue. Somebody arriving from the
+CRT treatment. DSKY is generic dark-mode blue. Somebody arriving from the
 site meets what looks like a different company's product.
 
 Close the gap, but restrained. Scanlines, curvature and Press Start 2P are

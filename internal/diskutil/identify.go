@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 // Identity is what a person needs in order to recognise a disk before

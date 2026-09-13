@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/compose"
-	"github.com/uplinkresearch/bootwright/internal/device"
-	"github.com/uplinkresearch/bootwright/internal/elevate"
-	"github.com/uplinkresearch/bootwright/internal/flashrun"
+	"github.com/uplinkresearch/dsky/internal/compose"
+	"github.com/uplinkresearch/dsky/internal/device"
+	"github.com/uplinkresearch/dsky/internal/elevate"
+	"github.com/uplinkresearch/dsky/internal/flashrun"
 )
 
 func cmdFlash(ctx context.Context, env *Env, args []string) error {
@@ -131,7 +131,7 @@ func cmdClone(ctx context.Context, env *Env, args []string) error {
 	}
 	fmt.Printf("Read into %s (%s)\n", outPath, result)
 	if len(targets) == 0 {
-		fmt.Printf("\nWrite it to blanks with:\n  bootwright flash %s <device> [<device> …]\n", filepath.Base(outPath))
+		fmt.Printf("\nWrite it to blanks with:\n  dsky flash %s <device> [<device> …]\n", filepath.Base(outPath))
 		return nil
 	}
 

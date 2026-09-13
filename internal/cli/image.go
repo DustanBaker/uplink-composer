@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/compose"
+	"github.com/uplinkresearch/dsky/internal/compose"
 )
 
 // imageExts are the extensions that mean "this argument is a file to write",

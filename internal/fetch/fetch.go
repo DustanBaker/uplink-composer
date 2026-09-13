@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/dsky/internal/buildinfo"
 )
 
 // Progress receives byte counts as a download advances. total is -1 when the

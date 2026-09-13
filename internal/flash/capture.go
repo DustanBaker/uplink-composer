@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 // Capture reads a device into outPath, from sector 0 through the end of its
@@ -18,7 +18,7 @@ import (
 // GPT note: the on-disk backup GPT at the very end of the device is not
 // captured; writing the image to another stick leaves it absent until a
 // repair (Windows and Linux mount such disks fine; gdisk/diskpart can
-// rebuild it). Bootwright-built media is MBR and unaffected.
+// rebuild it). DSKY-built media is MBR and unaffected.
 func Capture(ctx context.Context, dev device.Device, outPath string, progress Progress) (string, error) {
 	if progress == nil {
 		progress = func(string, int64, int64) {}

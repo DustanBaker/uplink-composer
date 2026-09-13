@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 	"github.com/yusufpapurcu/wmi"
 )
 
@@ -108,7 +108,7 @@ func prepare(ctx context.Context, dev device.Device, opts Options, progress func
 	fmt.Fprintf(&b, "assign\r\n")
 	fmt.Fprintf(&b, "exit\r\n")
 
-	script, err := os.CreateTemp("", "bootwright-diskpart-*.txt")
+	script, err := os.CreateTemp("", "dsky-diskpart-*.txt")
 	if err != nil {
 		return err
 	}

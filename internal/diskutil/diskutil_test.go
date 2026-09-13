@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 func usb(size int64) device.Device {
@@ -72,7 +72,7 @@ func TestValidate(t *testing.T) {
 		opts Options
 		ok   bool
 	}{
-		{"exfat default", big, Options{Scheme: GPT, FS: ExFAT, Label: "BOOTWRIGHT"}, true},
+		{"exfat default", big, Options{Scheme: GPT, FS: ExFAT, Label: "DSKY"}, true},
 		{"fat32 under 32G", small, Options{Scheme: MBR, FS: FAT32, Label: "BOOT"}, true},
 		// Windows' formatter refuses FAT32 past 32 GB; saying so beats
 		// letting the format fail halfway with a worse message.

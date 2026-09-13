@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/fetch"
-	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/dsky/internal/fetch"
+	"github.com/uplinkresearch/dsky/internal/manifest"
 )
 
 // Entry is one catalog record.
@@ -41,40 +41,40 @@ type Library struct {
 // DefaultRoot picks the per-user store location: never a roaming or
 // cloud-synced path (multi-GB blobs).
 func DefaultRoot() string {
-	if env := os.Getenv("BOOTWRIGHT_LIBRARY"); env != "" {
+	if env := os.Getenv("DSKY_LIBRARY"); env != "" {
 		return env
 	}
 	switch runtime.GOOS {
 	case "windows":
 		if la := os.Getenv("LOCALAPPDATA"); la != "" {
-			return filepath.Join(la, "bootwright")
+			return filepath.Join(la, "dsky")
 		}
 	case "darwin":
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, "Library", "Application Support", "bootwright")
+			return filepath.Join(home, "Library", "Application Support", "dsky")
 		}
 	default:
 		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-			return filepath.Join(xdg, "bootwright")
+			return filepath.Join(xdg, "dsky")
 		}
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, ".local", "share", "bootwright")
+			return filepath.Join(home, ".local", "share", "dsky")
 		}
 	}
-	return filepath.Join(".", "bootwright-library")
+	return filepath.Join(".", "dsky-library")
 }
 
 // formerNames are the directory names this library has lived under, newest
 // first. The tool has been renamed twice and the library is the one thing that
 // must not be lost to it: a full cache is tens of gigabytes of ISOs, and losing
 // it looks like the tool forgetting everything and silently re-downloading.
-var formerNames = []string{"uplink-composer", "the-composer"}
+var formerNames = []string{"bootwright", "uplink-composer", "the-composer"}
 
 // Open ensures the directory layout exists and returns the library. A library
 // left under one of the tool's former names is migrated once, so an existing
 // cache of ISOs and driver packs survives the rename.
 func Open(root string) (*Library, error) {
-	if filepath.Base(root) == "bootwright" {
+	if filepath.Base(root) == "dsky" {
 		if _, err := os.Stat(root); os.IsNotExist(err) {
 			for _, name := range formerNames {
 				old := filepath.Join(filepath.Dir(root), name)
@@ -246,7 +246,7 @@ func (l *Library) Pull(ctx context.Context, src *manifest.Source, pinTOFU bool, 
 		}
 	}
 	if url == "" {
-		return Entry{}, fmt.Errorf("library: source %s has no url; use `bootwright sources import %s <file>`", src.ID, src.ID)
+		return Entry{}, fmt.Errorf("library: source %s has no url; use `dsky sources import %s <file>`", src.ID, src.ID)
 	}
 	dest := filepath.Join(l.TmpDir(), src.ID+"-"+src.DownloadFilename())
 	sum, err := fetch.Download(ctx, url, dest, progress)
@@ -303,7 +303,7 @@ func (l *Library) Resolve(id string) (Entry, error) {
 	}
 	e, ok := cat[id]
 	if !ok {
-		return Entry{}, fmt.Errorf("library: %s is not in the local library — run `bootwright sources pull %s` or `bootwright sources import %s <file>`", id, id, id)
+		return Entry{}, fmt.Errorf("library: %s is not in the local library — run `dsky sources pull %s` or `dsky sources import %s <file>`", id, id, id)
 	}
 	if _, err := os.Stat(l.BlobPath(e.SHA256)); err != nil {
 		return Entry{}, fmt.Errorf("library: %s is cataloged but its blob is missing (%s) — re-pull or re-import", id, l.BlobPath(e.SHA256))

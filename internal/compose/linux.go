@@ -15,9 +15,9 @@ import (
 	"github.com/diskfs/go-diskfs/filesystem"
 	"github.com/diskfs/go-diskfs/partition/gpt"
 
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/recipe"
-	"github.com/uplinkresearch/bootwright/internal/stream"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/recipe"
+	"github.com/uplinkresearch/dsky/internal/stream"
 )
 
 const (
@@ -69,7 +69,7 @@ func buildLinuxAutoinstall(ctx context.Context, req Request, entry library.Entry
 	if !strings.HasPrefix(strings.TrimSpace(userData), "#cloud-config") {
 		return nil, fmt.Errorf("compose: %s must start with #cloud-config (cloud-init ignores it otherwise)", a.UserData)
 	}
-	metaData := fmt.Sprintf("instance-id: bootwright-%s-%s\n", r.ID, key)
+	metaData := fmt.Sprintf("instance-id: dsky-%s-%s\n", r.ID, key)
 	if a.MetaData != "" {
 		if metaData, err = recipe.RenderTemplate(filepath.Join(ws.Dir, filepath.FromSlash(a.MetaData)), tctx); err != nil {
 			return nil, err

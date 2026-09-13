@@ -60,7 +60,7 @@ func liveInstance(libRoot string) (instance, bool) {
 	if err != nil {
 		return instance{}, false
 	}
-	req.Header.Set("X-Bootwright-Token", inst.Token)
+	req.Header.Set("X-DSKY-Token", inst.Token)
 	// Short: this is a loopback call to a process that is either there or not.
 	resp, err := (&http.Client{Timeout: 1500 * time.Millisecond}).Do(req)
 	if err != nil {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/fetch"
-	"github.com/uplinkresearch/bootwright/internal/helpers"
+	"github.com/uplinkresearch/dsky/internal/fetch"
+	"github.com/uplinkresearch/dsky/internal/helpers"
 )
 
 // Cache keeps vendor catalogs on disk (they are hundreds of KB to a few MB

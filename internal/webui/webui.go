@@ -21,22 +21,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/appcatalog"
-	"github.com/uplinkresearch/bootwright/internal/appconfig"
-	"github.com/uplinkresearch/bootwright/internal/buildinfo"
-	"github.com/uplinkresearch/bootwright/internal/compose"
-	"github.com/uplinkresearch/bootwright/internal/device"
-	"github.com/uplinkresearch/bootwright/internal/diskutil"
-	"github.com/uplinkresearch/bootwright/internal/driverresolve"
-	"github.com/uplinkresearch/bootwright/internal/filepicker"
-	"github.com/uplinkresearch/bootwright/internal/flashrun"
-	"github.com/uplinkresearch/bootwright/internal/hwdetect"
-	"github.com/uplinkresearch/bootwright/internal/jobs"
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/oscatalog"
-	"github.com/uplinkresearch/bootwright/internal/recipe"
-	"github.com/uplinkresearch/bootwright/internal/selfupdate"
-	"github.com/uplinkresearch/bootwright/internal/workspace"
+	"github.com/uplinkresearch/dsky/internal/appcatalog"
+	"github.com/uplinkresearch/dsky/internal/appconfig"
+	"github.com/uplinkresearch/dsky/internal/buildinfo"
+	"github.com/uplinkresearch/dsky/internal/compose"
+	"github.com/uplinkresearch/dsky/internal/device"
+	"github.com/uplinkresearch/dsky/internal/diskutil"
+	"github.com/uplinkresearch/dsky/internal/driverresolve"
+	"github.com/uplinkresearch/dsky/internal/filepicker"
+	"github.com/uplinkresearch/dsky/internal/flashrun"
+	"github.com/uplinkresearch/dsky/internal/hwdetect"
+	"github.com/uplinkresearch/dsky/internal/jobs"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/oscatalog"
+	"github.com/uplinkresearch/dsky/internal/recipe"
+	"github.com/uplinkresearch/dsky/internal/selfupdate"
+	"github.com/uplinkresearch/dsky/internal/workspace"
 )
 
 //go:embed index.html
@@ -205,9 +205,9 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tok := r.Header.Get("X-Bootwright-Token")
+		tok := r.Header.Get("X-DSKY-Token")
 		if subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) != 1 {
-			http.Error(w, "missing or wrong token — open the exact URL bootwright serve printed", http.StatusUnauthorized)
+			http.Error(w, "missing or wrong token — open the exact URL dsky serve printed", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
@@ -965,10 +965,10 @@ func suggestWorkspaceParent() string {
 	for _, candidate := range []string{"Documents", "documents"} {
 		p := filepath.Join(home, candidate)
 		if st, err := os.Stat(p); err == nil && st.IsDir() {
-			return filepath.Join(p, "Bootwright Workspaces")
+			return filepath.Join(p, "DSKY Workspaces")
 		}
 	}
-	return filepath.Join(home, "Bootwright Workspaces")
+	return filepath.Join(home, "DSKY Workspaces")
 }
 
 // handleNewWorkspace scaffolds a workspace and opens it.
@@ -1107,7 +1107,7 @@ func (s *Server) handleDiskPrepare(w http.ResponseWriter, r *http.Request) {
 		opts.FS = diskutil.ExFAT
 	}
 	if opts.Label == "" {
-		opts.Label = "BOOTWRIGHT"
+		opts.Label = "DSKY"
 	}
 	if err := opts.Validate(dev); err != nil {
 		httpErr(w, 400, "%v", err)

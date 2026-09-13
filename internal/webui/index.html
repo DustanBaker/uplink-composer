@@ -3,12 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bootwright</title>
+<title>DSKY</title>
 <style>
   :root {
-    --bg: #101418; --panel: #171d24; --panel2: #1d242d; --line: #2a333e;
-    --text: #d7dee7; --dim: #8a97a5; --accent: #5aa9e6; --ok: #6fd08c;
-    --warn: #e6c05a; --err: #e66a5a; --danger: #b8434a;
+    /* Instrument — the Uplink palette, pulled well back from the site's neon.
+       The ground is near-black with a blue-green bias rather than a neutral
+       grey, because a grey chosen by not choosing is what this replaces. */
+    --bg: #0b0f12; --panel: #131a1f; --panel2: #1a242a; --line: #24313a;
+    --text: #d4dde2; --dim: #7d8f99; --accent: #37c9d9; --ok: #5fd08c;
+    --warn: #e0b44a; --err: #d9524a; --danger: #c0453e;
+    /* Data is set in mono: serials, sizes, partition tables, device paths,
+       hashes. 931.5 lines up under 929.5 and two serials are comparable at a
+       glance — function, not theme.
+
+       No webfont. This page makes no network request at all, and a bench
+       imaging machines is often the least-connected room in the building, so a
+       hosted face would be a blank line exactly where it matters. Everything
+       below ships with the OS it runs on. */
+    --mono: "Cascadia Mono", "SF Mono", "JetBrains Mono", Consolas, ui-monospace, monospace;
     /* A <select>'s popup list is drawn by the browser, not by this stylesheet.
        Without this it comes up white against a dark page. */
     color-scheme: dark;
@@ -186,6 +198,27 @@
      is the layout equivalent of clearing your throat. */
   #jobsSec { order: 99; }
 
+  /* ── Where the mono earns its place ──────────────────────────────────────
+     Everything a person compares, copies or checks: device paths, sizes,
+     serials, partition tables, hashes and anything counting up. Prose stays in
+     the sans — a warning set in mono reads as output rather than as a sentence
+     somebody wrote, and the warning is the one thing here that must be read. */
+  .row .sub, .dstrow .sub, .idcard .idhead, .idcard ul,
+  .jobline .stage, .jobline .pct, .arm input, .hashline {
+    font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .idcard .idhead { font-size: 12.5px; letter-spacing: -.1px; }
+  .idcard ul { font-size: 11.5px; }
+  .jobline .pct { font-weight: 600; color: var(--text); }
+  /* Throughput and time-left, under the bar. */
+  .jobstats { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--mono);
+    font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--dim); }
+  /* The verify pass is its own phase and reads as one: every write is read back
+     and hashed, and until now nothing on screen admitted that happened. */
+  .bar.verify i { background: var(--ok); }
+  .jobdone { display: flex; align-items: flex-start; gap: 7px; color: var(--ok);
+    font-size: 12.5px; line-height: 1.5; }
+  .hashline { font-size: 10.5px; color: var(--dim); word-break: break-all; }
+
   #err { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
     background: var(--danger); color: #fff; padding: 9px 16px; border-radius: 8px;
     max-width: 80%; display: none; font-size: 13px; }
@@ -194,7 +227,7 @@
 <body>
 <header>
   <button id="backBtn" title="Back to the start" onclick="setDoor('home')" hidden>‹ Back</button>
-  <h1>Bootwright</h1>
+  <h1>DSKY</h1>
   <span class="doorname" id="doorName"></span>
   <span class="org" id="org"></span>
   <span class="ws" id="ws"></span>
@@ -359,7 +392,7 @@ const $ = id => document.getElementById(id);
 let state = { recipes: [], devices: [], artifacts: [], sources: [], recent: [], catalog: [], apps: [], has_workspace: false };
 
 async function api(path, body) {
-  const opts = { headers: { "X-Bootwright-Token": token } };
+  const opts = { headers: { "X-DSKY-Token": token } };
   if (body) { opts.method = "POST"; opts.body = JSON.stringify(body);
     opts.headers["Content-Type"] = "application/json"; }
   const r = await fetch(path, opts);
@@ -523,7 +556,7 @@ function openPrepare(disk) {
     ["exfat", "exFAT — Windows, macOS, Linux; no file-size limit"],
     ["fat32", "FAT32 — maximum compatibility, 4 GB file limit"],
     ["ntfs", "NTFS — Windows only"]]);
-  const label = textOpt("Volume label", "BOOTWRIGHT");
+  const label = textOpt("Volume label", "DSKY");
   opts.append(scheme.wrap, fs.wrap, label.wrap);
   $("prepTarget").textContent = `${disk.model || disk.id} — ${disk.id} — ${disk.size_gib} GiB`;
   $("prepSize").textContent = disk.confirm;
@@ -531,7 +564,7 @@ function openPrepare(disk) {
   $("prepGo").onclick = () => {
     api("/api/disks/prepare", {
       device_id: disk.id, scheme: scheme.get(), fs: fs.get(),
-      label: label.get() || "BOOTWRIGHT", confirm: input.value.trim(),
+      label: label.get() || "DSKY", confirm: input.value.trim(),
     }).then(() => setTimeout(loadDisks, 4000)).catch(e => showErr(e.message));
     $("prepDialog").close();
   };
@@ -1255,6 +1288,59 @@ function onJobFinished(jobId, fn) {
   if (!jobId) return;
   jobWaiters.set(jobId, fn);
 }
+// showRate puts throughput and time remaining under the bar.
+//
+// A percentage alone answers "how far" and not "how long", and these runs are
+// minutes long. The rate is measured over a three-second window rather than
+// since the start, so a write that slows down says so while it is slow instead
+// of reporting the healthy average it had a minute ago.
+function showRate(j, ev) {
+  const now = Date.now();
+  if (!j.mark || now - j.mark.at > 3000) {
+    if (j.mark && ev.done > j.mark.done) {
+      j.rate = (ev.done - j.mark.done) * 1000 / (now - j.mark.at);
+    }
+    j.mark = { at: now, done: ev.done };
+  }
+  const bits = [`${bytes(ev.done)} / ${bytes(ev.total)}`];
+  if (j.rate > 0) {
+    bits.push(`${(j.rate / (1 << 20)).toFixed(1)} MB/s`);
+    const left = (ev.total - ev.done) / j.rate;
+    if (left > 0 && isFinite(left)) bits.push(secs(left) + " left");
+  }
+  j.stats.replaceChildren(...bits.map(b => el("span", "", b)));
+}
+
+// doneLine is the sentence this tool most wants to be able to say.
+function doneLine(ev, elapsed) {
+  const wrap = el("div", "jobdone");
+  const said = (ev.result || "done").trim();
+  wrap.append(el("span", "", "✓"),
+    el("span", "", said + (elapsed > 1500 ? ` · ${secs(elapsed / 1000)}` : "")));
+  const out = el("div", "");
+  out.append(wrap);
+  // A hash is evidence, not decoration: it is what makes "verified" a claim
+  // somebody could check rather than a word the program chose to print.
+  const hash = /sha256:[0-9a-f]{64}/i.exec(said);
+  if (hash) out.append(el("div", "hashline", hash[0]));
+  return out;
+}
+
+function bytes(n) {
+  if (!(n > 0)) return "0 B";
+  if (n >= 1 << 30) return (n / (1 << 30)).toFixed(2) + " GB";
+  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(0) + " MB";
+  return n + " B";
+}
+
+function secs(s) {
+  s = Math.round(s);
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m " + String(s % 60).padStart(2, "0") + "s";
+  return Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0") + "m";
+}
+
 function upsertJob(ev) {
   const jobs = $("jobs");
   const emptyEl = jobs.querySelector(".empty"); if (emptyEl) emptyEl.remove();
@@ -1267,29 +1353,41 @@ function upsertJob(ev) {
     const pct = el("span", "pct");
     line.append(title, stage, pct);
     const bar = el("div", "bar"); bar.append(el("i"));
-    row.append(line, bar);
+    const stats = el("div", "jobstats");
+    row.append(line, bar, stats);
     jobs.prepend(row);
-    j = { row, stage, pct, bar };
+    // rate is sampled over a short window rather than averaged from the start:
+    // a flash that stalls on a bad sector should say so while it is stalled,
+    // not report the healthy average it had ten seconds ago.
+    j = { row, stage, pct, bar, stats, t0: Date.now(), mark: null };
     jobEls.set(ev.job_id, j);
   }
   j.stage.textContent = ev.error ? ev.error : ev.stage;
   j.stage.classList.toggle("error", !!ev.error);
   if (ev.error) { j.stage.style.color = "var(--err)"; j.bar.querySelector("i").style.background = "var(--err)"; }
+  // Reading a disk back and hashing it is a different act from writing it, and
+  // it is the one that proves the write. It gets its own colour so the run
+  // visibly changes phase rather than the bar simply going round twice.
+  j.bar.classList.toggle("verify", /verif/i.test(ev.stage || ""));
+
   if (ev.final && !ev.error) {
     j.bar.querySelector("i").style.background = "var(--ok)";
     j.bar.classList.remove("indet");
     j.bar.querySelector("i").style.width = "100%";
     j.pct.textContent = "done";
-    if (ev.result) j.stage.textContent = "done — " + ev.result;
+    j.stats.replaceChildren();
+    j.row.append(doneLine(ev, Date.now() - j.t0));
     loadState();
   } else if (ev.total > 0) {
     j.bar.classList.remove("indet");
     const pct = Math.floor(ev.done * 100 / ev.total);
     j.bar.querySelector("i").style.width = pct + "%";
     j.pct.textContent = pct + "%";
+    showRate(j, ev);
   } else if (!ev.final) {
     j.bar.classList.add("indet");
     j.pct.textContent = "";
+    j.stats.replaceChildren();
   }
   if (ev.final && ev.error) { j.bar.classList.remove("indet"); loadState(); }
   if (ev.final) {
@@ -1301,7 +1399,7 @@ function upsertJob(ev) {
 async function streamEvents() {
   while (true) {
     try {
-      const r = await fetch("/api/events", { headers: { "X-Bootwright-Token": token } });
+      const r = await fetch("/api/events", { headers: { "X-DSKY-Token": token } });
       if (!r.ok) throw new Error("events: " + r.status);
       const reader = r.body.getReader();
       const dec = new TextDecoder();
@@ -1412,12 +1510,12 @@ async function openWorkspace(dir) {
 }
 
 async function quitApp() {
-  if (!confirm("Stop Bootwright? Any running flash finishes first.")) return;
+  if (!confirm("Stop DSKY? Any running flash finishes first.")) return;
   try { await api("/api/quit", {}); } catch (e) {}
   document.body.innerHTML =
     '<div style="max-width:520px;margin:16vh auto;text-align:center;color:var(--dim);font:14px system-ui">' +
-    '<h2 style="color:var(--text)">Bootwright has stopped.</h2>' +
-    '<p>You can close this tab. Relaunch it from the Start menu (or <code>bootwright serve</code>).</p></div>';
+    '<h2 style="color:var(--text)">DSKY has stopped.</h2>' +
+    '<p>You can close this tab. Relaunch it from the Start menu (or <code>dsky serve</code>).</p></div>';
 }
 
 async function loadState() {

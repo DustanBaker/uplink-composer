@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/oscatalog"
+	"github.com/uplinkresearch/dsky/internal/device"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/oscatalog"
 )
 
 func newTestModel(t *testing.T) *model {

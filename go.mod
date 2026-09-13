@@ -1,4 +1,4 @@
-module github.com/uplinkresearch/bootwright
+module github.com/uplinkresearch/dsky
 
 go 1.27.0
 

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 // CloneProgress reports one target's progress. target is the device ID, or ""

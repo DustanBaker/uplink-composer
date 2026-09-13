@@ -21,8 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/appconfig"
-	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/dsky/internal/appconfig"
+	"github.com/uplinkresearch/dsky/internal/library"
 )
 
 // Kind groups an item so callers can explain and gate it.

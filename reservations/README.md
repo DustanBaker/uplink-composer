@@ -1,25 +1,25 @@
 # Name reservations
 
-Placeholder packages for the name **Bootwright**, on the three registries where
+Placeholder packages for the name **DSKY**, on the three registries where
 a name is first-come and cannot be recovered once somebody else takes it.
 
 Nothing here is published. Nothing here is part of the build — these are not Go
 packages and `go build ./...` does not see them.
 
 Checked available on 2026-09-13: npm, PyPI, crates.io, the GitHub org handle,
-and bootwright.{com,org,dev,io,sh,app}. See [CLAIM.md](../CLAIM.md) for what has
+and dsky.{com,org,dev,io,sh,app}. See [CLAIM.md](../CLAIM.md) for what has
 to be done by hand, and in what order.
 
 | Directory | Registry | Name |
 |---|---|---|
-| `npm/` | npmjs.com | `bootwright` |
-| `pypi/` | pypi.org | `bootwright` |
-| `crate/` | crates.io | `bootwright` |
+| `npm/` | npmjs.com | `dsky` |
+| `pypi/` | pypi.org | `dsky` |
+| `crate/` | crates.io | `dsky` |
 
 ## Publish commands
 
 Do not run these until the GitHub org exists — every package points at
-`github.com/uplinkresearch/bootwright`, and publishing first means the registry
+`github.com/uplinkresearch/dsky`, and publishing first means the registry
 listing links to a 404 on day one.
 
 npm:

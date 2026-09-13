@@ -30,7 +30,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 // Scheme is the partition table to write.
@@ -101,7 +101,7 @@ func (o *Options) defaults() {
 		o.FS = ExFAT
 	}
 	if o.Label == "" {
-		o.Label = "BOOTWRIGHT"
+		o.Label = "DSKY"
 	}
 }
 

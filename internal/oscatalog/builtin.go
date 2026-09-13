@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/buildinfo"
-	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/dsky/internal/buildinfo"
+	"github.com/uplinkresearch/dsky/internal/manifest"
 )
 
 // builtin is the shipped OS list.

@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/fsimg"
-	"github.com/uplinkresearch/bootwright/internal/helpers"
-	"github.com/uplinkresearch/bootwright/internal/manifest"
-	"github.com/uplinkresearch/bootwright/internal/recipe"
-	"github.com/uplinkresearch/bootwright/internal/workspace"
+	"github.com/uplinkresearch/dsky/internal/fsimg"
+	"github.com/uplinkresearch/dsky/internal/helpers"
+	"github.com/uplinkresearch/dsky/internal/manifest"
+	"github.com/uplinkresearch/dsky/internal/recipe"
+	"github.com/uplinkresearch/dsky/internal/workspace"
 )
 
 // scriptsImg is where $OEM$ payload lands on the stick; Windows Setup copies
@@ -386,7 +386,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 
 // hardwarePacks turns windows.hardware entries into driver packs by finding
 // workspace manifests whose `hardware:` block matches (written by
-// `bootwright drivers resolve`). Each entry must have at least one pack.
+// `dsky drivers resolve`). Each entry must have at least one pack.
 func hardwarePacks(ws *workspace.Workspace, hw []recipe.HardwareSpec) ([]recipe.DriverPack, error) {
 	if len(hw) == 0 {
 		return nil, nil
@@ -431,7 +431,7 @@ func hardwarePacks(ws *workspace.Workspace, hw []recipe.HardwareSpec) ([]recipe.
 				if what == "" {
 					what = t.vendor + " " + t.model
 				}
-				return nil, fmt.Errorf("compose: no driver-pack manifest for hardware %q — run `bootwright drivers resolve %s`", what, ws.Dir)
+				return nil, fmt.Errorf("compose: no driver-pack manifest for hardware %q — run `dsky drivers resolve %s`", what, ws.Dir)
 			}
 		}
 	}
@@ -499,7 +499,7 @@ func materializeDir(ctx context.Context, req Request, buildTmp string, pack reci
 // extraction across builds (a .done marker gates reuse).
 func extractISOCached(ctx context.Context, req Request, isoPath, sha string) (string, error) {
 	dir := filepath.Join(req.Library.TmpDir(), "extract", sha[:16])
-	marker := filepath.Join(dir, ".bootwright-extracted")
+	marker := filepath.Join(dir, ".dsky-extracted")
 	if _, err := os.Stat(marker); err == nil {
 		return dir, nil
 	}
@@ -543,7 +543,7 @@ func splitOversizeWIM(ctx context.Context, req Request, stage fsimg.StageMap) er
 		return nil
 	}
 	// Split lives next to the extraction so it caches with it.
-	outDir := filepath.Join(filepath.Dir(host), "..", "bootwright-swm")
+	outDir := filepath.Join(filepath.Dir(host), "..", "dsky-swm")
 	outDir, err = filepath.Abs(outDir)
 	if err != nil {
 		return err

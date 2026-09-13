@@ -11,7 +11,7 @@ import (
 // port before deciding whether a portal is already running — without that it
 // finds the outgoing process still listening, concludes one is running, and
 // hands the window back to the version it just replaced.
-const RestartedEnv = "BOOTWRIGHT_RESTARTED"
+const RestartedEnv = "DSKY_RESTARTED"
 
 // Relaunch starts the newly installed build.
 //

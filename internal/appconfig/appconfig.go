@@ -19,13 +19,13 @@ type Config struct {
 	path string // where this was loaded from (not serialized)
 }
 
-// Dir is the per-user config directory (%AppData%\bootwright,
-// ~/Library/Application Support/bootwright, or ~/.config/bootwright).
+// Dir is the per-user config directory (%AppData%\dsky,
+// ~/Library/Application Support/dsky, or ~/.config/dsky).
 func Dir() string {
 	if base, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(base, "bootwright")
+		return filepath.Join(base, "dsky")
 	}
-	return filepath.Join(".", ".bootwright")
+	return filepath.Join(".", ".dsky")
 }
 
 // Load reads the config, returning an empty one if none exists.

@@ -14,8 +14,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/uplinkresearch/bootwright/internal/fsimg"
-	"github.com/uplinkresearch/bootwright/internal/vhd"
+	"github.com/uplinkresearch/dsky/internal/fsimg"
+	"github.com/uplinkresearch/dsky/internal/vhd"
 )
 
 func main() {

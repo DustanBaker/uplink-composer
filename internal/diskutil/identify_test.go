@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 func joined(s []string) string { return strings.ToLower(strings.Join(s, " | ")) }

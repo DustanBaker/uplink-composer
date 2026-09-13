@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
-	"github.com/uplinkresearch/bootwright/internal/diskutil"
+	"github.com/uplinkresearch/dsky/internal/device"
+	"github.com/uplinkresearch/dsky/internal/diskutil"
 )
 
 func dev(id string, size int64, bus string) device.Device {

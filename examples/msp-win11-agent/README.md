@@ -15,18 +15,18 @@ checked in by the time the desktop appears.
 | Big vendor cabs/exes, pinned by hash     | `manifests/*.yaml` + `sources pull`              |
 | Bloat-free, still official media         | `windows.debloat`                                |
 | Agent installs at FIRST BOOT             | `payload` ref + firstboot `msi:` step            |
-| Write and verify the stick               | `bootwright flash sff-win11-agent <device>`        |
+| Write and verify the stick               | `dsky flash sff-win11-agent <device>`        |
 
-To use it: `bootwright init --org "Your Org" <dir>`, copy `recipe.yaml` into
+To use it: `dsky init --org "Your Org" <dir>`, copy `recipe.yaml` into
 `recipes/`, drop your INF packs under `Drivers/`, then import the
 org-specific binaries once per machine:
 
 ```
-bootwright sources import rmm-agent-msi  YourAgent.msi
-bootwright sources import wifi-exe       WiFi-Driver64.exe
-bootwright sources pull   win11-iso
-bootwright build sff-win11-agent
-bootwright flash sff-win11-agent <device>
+dsky sources import rmm-agent-msi  YourAgent.msi
+dsky sources import wifi-exe       WiFi-Driver64.exe
+dsky sources pull   win11-iso
+dsky build sff-win11-agent
+dsky flash sff-win11-agent <device>
 ```
 
 Two production rules the linter enforces:

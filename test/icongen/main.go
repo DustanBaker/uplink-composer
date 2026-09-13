@@ -1,5 +1,5 @@
-// Command icongen renders bootwright.ico — the app icon used by the Start-menu
-// and desktop shortcuts. Run once to (re)generate: go run ./test/icongen bootwright.ico
+// Command icongen renders dsky.ico — the app icon used by the Start-menu
+// and desktop shortcuts. Run once to (re)generate: go run ./test/icongen dsky.ico
 package main
 
 import (
@@ -16,7 +16,7 @@ import (
 const size = 256
 
 func main() {
-	out := "bootwright.ico"
+	out := "dsky.ico"
 	if len(os.Args) > 1 {
 		out = os.Args[1]
 	}

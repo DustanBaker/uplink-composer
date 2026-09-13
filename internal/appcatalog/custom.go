@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/manifest"
 )
 
 // Custom programs: installers the operator supplies.
@@ -236,11 +236,11 @@ func UpdateCustom(root, id string, edit func(*Custom)) (Custom, error) {
 		}
 		return list[i], saveCustom(root, list)
 	}
-	return Custom{}, fmt.Errorf("no program %q — see `bootwright apps`", id)
+	return Custom{}, fmt.Errorf("no program %q — see `dsky apps`", id)
 }
 
 // RemoveCustom forgets a program. The installer stays in the library, which
-// `bootwright gc` reclaims once nothing references it — so removing the wrong one
+// `dsky gc` reclaims once nothing references it — so removing the wrong one
 // costs a re-add, not a re-download.
 func RemoveCustom(root, id string) (Custom, error) {
 	list := CustomApps()
@@ -249,7 +249,7 @@ func RemoveCustom(root, id string) (Custom, error) {
 			return c, saveCustom(root, append(list[:i:i], list[i+1:]...))
 		}
 	}
-	return Custom{}, fmt.Errorf("no program %q — see `bootwright apps`", id)
+	return Custom{}, fmt.Errorf("no program %q — see `dsky apps`", id)
 }
 
 // FormatForFile reports how an installer will be run, from its extension.

@@ -22,7 +22,7 @@ func keep(reason string) func() {
 	}
 	cmd := exec.Command("systemd-inhibit",
 		"--what=sleep:idle", "--mode=block",
-		"--who=bootwright", "--why="+reason,
+		"--who=dsky", "--why="+reason,
 		"sleep", "infinity")
 	if err := cmd.Start(); err != nil {
 		return func() {}

@@ -1,17 +1,17 @@
 {
-  "name": "bootwright",
+  "name": "dsky",
   "version": "0.0.1",
   "description": "Builds customized Windows and Linux OS install media: debloated installs, local-account-only setup, and driver injection.",
   "main": "index.js",
   "license": "MIT",
   "author": "Dustan Baker",
-  "homepage": "https://github.com/uplinkresearch/bootwright",
+  "homepage": "https://github.com/uplinkresearch/dsky",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/uplinkresearch/bootwright.git"
+    "url": "git+https://github.com/uplinkresearch/dsky.git"
   },
   "bugs": {
-    "url": "https://github.com/uplinkresearch/bootwright/issues"
+    "url": "https://github.com/uplinkresearch/dsky/issues"
   },
   "keywords": [
     "bootable",

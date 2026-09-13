@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/dsky/internal/buildinfo"
 )
 
 // The Microsoft Update Catalog has no API; this mirrors what the site's own

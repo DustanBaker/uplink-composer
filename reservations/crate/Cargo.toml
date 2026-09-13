@@ -1,5 +1,5 @@
 [package]
-name = "bootwright"
+name = "dsky"
 version = "0.0.1"
 edition = "2021"
 rust-version = "1.70"
@@ -7,8 +7,8 @@ description = "Builds customized Windows and Linux OS install media: debloated i
 authors = ["Dustan Baker"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/uplinkresearch/bootwright"
-repository = "https://github.com/uplinkresearch/bootwright"
+homepage = "https://github.com/uplinkresearch/dsky"
+repository = "https://github.com/uplinkresearch/dsky"
 # crates.io allows at most five keywords, each 20 characters or fewer.
 keywords = ["bootable", "usb", "iso", "installer", "imaging"]
 categories = ["command-line-utilities"]

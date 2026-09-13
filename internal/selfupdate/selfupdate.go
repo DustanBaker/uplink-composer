@@ -1,4 +1,4 @@
-// Package selfupdate replaces the running bootwright binary with the newest
+// Package selfupdate replaces the running dsky binary with the newest
 // published release.
 //
 // The release assets are plain files on a public GitHub release, so this
@@ -27,11 +27,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/dsky/internal/buildinfo"
 )
 
 // Repo is the published source of releases.
-const Repo = "uplinkresearch/bootwright"
+const Repo = "uplinkresearch/dsky"
 
 // Release is a published version and the asset for this platform.
 type Release struct {
@@ -56,7 +56,7 @@ type ghRelease struct {
 }
 
 // AssetName is the release asset for a given version and program. prog is
-// "bootwright" or "bootwright-app" (the windowless launcher).
+// "dsky" or "dsky-app" (the windowless launcher).
 func AssetName(prog, version, goos, goarch string) string {
 	name := fmt.Sprintf("%s-%s-%s-%s", prog, version, goos, goarch)
 	if goos == "windows" {
@@ -117,18 +117,18 @@ func Check(ctx context.Context) (*Release, error) {
 }
 
 // programName is the binary being run, normalised back to its release name,
-// so `bootwright-app` updates itself rather than pulling down the console build.
+// so `dsky-app` updates itself rather than pulling down the console build.
 func programName() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "bootwright"
+		return "dsky"
 	}
 	base := strings.ToLower(filepath.Base(exe))
 	base = strings.TrimSuffix(base, ".exe")
-	if strings.HasPrefix(base, "bootwright-app") {
-		return "bootwright-app"
+	if strings.HasPrefix(base, "dsky-app") {
+		return "dsky-app"
 	}
-	return "bootwright"
+	return "dsky"
 }
 
 // Apply downloads the release asset, verifies it, and swaps it in for the
@@ -145,7 +145,7 @@ func Apply(ctx context.Context, rel *Release, progress func(done, total int64)) 
 
 	// Staged in the destination directory: a cross-volume rename is not
 	// atomic, and this has to land in one step.
-	tmp, err := os.CreateTemp(dir, ".bootwright-update-*")
+	tmp, err := os.CreateTemp(dir, ".dsky-update-*")
 	if err != nil {
 		return "", fmt.Errorf("cannot write to %s — reinstall instead, or run with rights to that directory: %w", dir, err)
 	}

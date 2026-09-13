@@ -1,10 +1,10 @@
-; Inno Setup script for Bootwright.
+; Inno Setup script for DSKY.
 ;
 ; Deliberately a per-user install: PrivilegesRequired=lowest puts everything
-; under %LOCALAPPDATA%\Programs\bootwright and touches only HKCU, so nobody needs
+; under %LOCALAPPDATA%\Programs\dsky and touches only HKCU, so nobody needs
 ; administrator rights to install a tool they are going to run as themselves.
 ; That also matches the paths install.ps1 uses, so the two agree and
-; `bootwright uninstall` knows the same places.
+; `dsky uninstall` knows the same places.
 ;
 ; Built by the release workflow; version comes in as /DAppVersion=v0.0.0.
 
@@ -18,24 +18,24 @@
 [Setup]
 ; Stable across versions so upgrades replace rather than stack up.
 AppId={{8F3C2A61-5D74-4E2B-9C18-7A6B0E4D9F23}
-AppName=Bootwright
+AppName=DSKY
 AppVersion={#AppVersion}
 AppPublisher=Uplink Research LLC
 AppPublisherURL=https://uplinkresearch.com
-AppSupportURL=https://github.com/uplinkresearch/bootwright
-AppUpdatesURL=https://github.com/uplinkresearch/bootwright/releases
-DefaultDirName={localappdata}\Programs\bootwright
-DefaultGroupName=Bootwright
+AppSupportURL=https://github.com/uplinkresearch/dsky
+AppUpdatesURL=https://github.com/uplinkresearch/dsky/releases
+DefaultDirName={localappdata}\Programs\dsky
+DefaultGroupName=DSKY
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
 ; No version in the name: the product page links to
 ; releases/latest/download/<this>, which only works if the name never moves.
-OutputBaseFilename=bootwright-setup-amd64
-SetupIconFile=..\bootwright.ico
-UninstallDisplayIcon={app}\bootwright-app.exe
-UninstallDisplayName=Bootwright
+OutputBaseFilename=dsky-setup-amd64
+SetupIconFile=..\dsky.ico
+UninstallDisplayIcon={app}\dsky-app.exe
+UninstallDisplayName=DSKY
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -45,27 +45,27 @@ LicenseFile=..\LICENSE
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
-Name: "addtopath"; Description: "Add bootwright to my PATH (so it works in any terminal)"; GroupDescription: "Command line:"
+Name: "addtopath"; Description: "Add dsky to my PATH (so it works in any terminal)"; GroupDescription: "Command line:"
 
 [Files]
-Source: "{#SourceDir}\bootwright.exe";     DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\dsky.exe";     DestDir: "{app}"; Flags: ignoreversion
 ; The `compose` alias, kept because the original one-shot workflow is spelled
 ; that way and people have it in muscle memory and scripts.
-Source: "{#SourceDir}\bootwright.exe";     DestDir: "{app}"; DestName: "compose.exe"; Flags: ignoreversion
-Source: "{#SourceDir}\bootwright-app.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\bootwright.ico";               DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\dsky.exe";     DestDir: "{app}"; DestName: "compose.exe"; Flags: ignoreversion
+Source: "{#SourceDir}\dsky-app.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dsky.ico";               DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Bootwright"; Filename: "{app}\bootwright-app.exe"; IconFilename: "{app}\bootwright.ico"; Comment: "Build and flash bootable OS installers"
-Name: "{group}\Uninstall Bootwright"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Bootwright"; Filename: "{app}\bootwright-app.exe"; IconFilename: "{app}\bootwright.ico"; Tasks: desktopicon
+Name: "{group}\DSKY"; Filename: "{app}\dsky-app.exe"; IconFilename: "{app}\dsky.ico"; Comment: "Build and flash bootable OS installers"
+Name: "{group}\Uninstall DSKY"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\DSKY"; Filename: "{app}\dsky-app.exe"; IconFilename: "{app}\dsky.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
   ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}')); Tasks: addtopath
 
 [Run]
-Filename: "{app}\bootwright-app.exe"; Description: "Open Bootwright"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\dsky-app.exe"; Description: "Open DSKY"; Flags: nowait postinstall skipifsilent
 
 [Code]
 // NeedsAddPath keeps PATH idempotent: reinstalling must not append the same
@@ -114,7 +114,7 @@ begin
   // of downloading, and keeping it makes a reinstall instant — so ask, and
   // default to keeping. Workspaces are never touched: they are the
   // operator's own git repositories and live wherever they keep code.
-  LibDir := ExpandConstant('{localappdata}\bootwright');
+  LibDir := ExpandConstant('{localappdata}\dsky');
   if not DirExists(LibDir) then
     exit;
   if MsgBox('Also delete the downloaded operating systems and built media?' #13#10#13#10

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/dsky/internal/device"
 )
 
 // multiProgress renders progress for several sticks being written at once.

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/fetch"
-	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/dsky/internal/fetch"
+	"github.com/uplinkresearch/dsky/internal/manifest"
 )
 
 // Fido (github.com/pbatard/Fido, GPLv3, by the Rufus author) resolves
@@ -111,7 +111,7 @@ func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoS
 			detail = strings.TrimSpace(detail + "\n" + strings.TrimSpace(string(ee.Stderr)))
 		}
 		if strings.Contains(detail, "Sentinel") {
-			return "", fmt.Errorf("Microsoft's rate limiter rejected this IP for roughly 24 hours (\"%s\").\nOptions: retry tomorrow; use another network/VPN; or download the ISO in a browser from microsoft.com/software-download/windows11 and run `bootwright sources import <id> <path-to.iso>`", detail)
+			return "", fmt.Errorf("Microsoft's rate limiter rejected this IP for roughly 24 hours (\"%s\").\nOptions: retry tomorrow; use another network/VPN; or download the ISO in a browser from microsoft.com/software-download/windows11 and run `dsky sources import <id> <path-to.iso>`", detail)
 		}
 		return "", fmt.Errorf("Fido could not resolve a download URL: %w\n%s", err, detail)
 	}

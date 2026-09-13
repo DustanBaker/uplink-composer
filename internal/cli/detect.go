@@ -5,9 +5,9 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/uplinkresearch/bootwright/internal/driverresolve"
-	"github.com/uplinkresearch/bootwright/internal/hwdetect"
-	"github.com/uplinkresearch/bootwright/internal/oscatalog"
+	"github.com/uplinkresearch/dsky/internal/driverresolve"
+	"github.com/uplinkresearch/dsky/internal/hwdetect"
+	"github.com/uplinkresearch/dsky/internal/oscatalog"
 )
 
 // cmdDetect profiles this machine and shows what Quick Install would hunt
@@ -52,15 +52,15 @@ func cmdDetect(ctx context.Context, env *Env, args []string) error {
 	}
 	if !*resolve {
 		fmt.Println("\nBuild media with those drivers staged:")
-		fmt.Println("  bootwright install windows-11 --drivers")
+		fmt.Println("  dsky install windows-11 --drivers")
 		fmt.Println("Or see what the catalogs actually have, and cache it now:")
-		fmt.Println("  bootwright detect --resolve")
+		fmt.Println("  dsky detect --resolve")
 		return nil
 	}
 
 	e, ok := oscatalog.Get(*osID)
 	if !ok {
-		return fmt.Errorf("unknown OS %q — see `bootwright catalog`", *osID)
+		return fmt.Errorf("unknown OS %q — see `dsky catalog`", *osID)
 	}
 	if e.Family != oscatalog.Windows {
 		return fmt.Errorf("--resolve applies to Windows — Linux ships its drivers in the kernel")
@@ -98,6 +98,6 @@ func cmdDetect(ctx context.Context, env *Env, args []string) error {
 			fmt.Printf("  %s\n", m)
 		}
 	}
-	fmt.Println("\nThese are cached — `bootwright install " + e.ID + " --drivers` will reuse them.")
+	fmt.Println("\nThese are cached — `dsky install " + e.ID + " --drivers` will reuse them.")
 	return nil
 }

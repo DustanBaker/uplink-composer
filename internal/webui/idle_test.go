@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/uplinkresearch/bootwright/internal/jobs"
+	"github.com/uplinkresearch/dsky/internal/jobs"
 )
 
 // idleServer is a Server wired only for the lifecycle: no library, no

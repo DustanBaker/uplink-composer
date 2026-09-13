@@ -10,20 +10,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/uplinkresearch/bootwright/internal/compose"
-	"github.com/uplinkresearch/bootwright/internal/device"
-	"github.com/uplinkresearch/bootwright/internal/elevate"
-	"github.com/uplinkresearch/bootwright/internal/flashrun"
-	"github.com/uplinkresearch/bootwright/internal/helpers"
-	"github.com/uplinkresearch/bootwright/internal/library"
-	"github.com/uplinkresearch/bootwright/internal/manifest"
-	"github.com/uplinkresearch/bootwright/internal/recipe"
-	"github.com/uplinkresearch/bootwright/internal/workspace"
+	"github.com/uplinkresearch/dsky/internal/compose"
+	"github.com/uplinkresearch/dsky/internal/device"
+	"github.com/uplinkresearch/dsky/internal/elevate"
+	"github.com/uplinkresearch/dsky/internal/flashrun"
+	"github.com/uplinkresearch/dsky/internal/helpers"
+	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/manifest"
+	"github.com/uplinkresearch/dsky/internal/recipe"
+	"github.com/uplinkresearch/dsky/internal/workspace"
 )
 
 // cmdGo is the one-shot pipeline — "compose this": pull whatever pinned
 // sources are missing, build, pick the attached USB stick, arm, flash,
-// verify. `bootwright <recipe>` and a bare `bootwright` in a one-recipe
+// verify. `dsky <recipe>` and a bare `dsky` in a one-recipe
 // workspace both land here.
 func cmdGo(ctx context.Context, env *Env, args []string) error {
 	fs := flag.NewFlagSet("go", flag.ContinueOnError)
@@ -106,7 +106,7 @@ func pickDevice(ctx context.Context, arg string) (device.Device, error) {
 			return device.Device{}, err
 		}
 		if !dev.Flashable() {
-			return device.Device{}, fmt.Errorf("%s is not flashable (bus=%s, system=%v) — `bootwright devices` shows valid targets", dev.ID, dev.Bus, dev.System)
+			return device.Device{}, fmt.Errorf("%s is not flashable (bus=%s, system=%v) — `dsky devices` shows valid targets", dev.ID, dev.Bus, dev.System)
 		}
 		return dev, nil
 	}
@@ -120,7 +120,7 @@ func pickDevice(ctx context.Context, arg string) (device.Device, error) {
 	case 1:
 		return usable[0], nil
 	case 0:
-		return device.Device{}, fmt.Errorf("no USB stick attached — plug one in and re-run (`bootwright devices` lists targets)")
+		return device.Device{}, fmt.Errorf("no USB stick attached — plug one in and re-run (`dsky devices` lists targets)")
 	default:
 		var ids []string
 		for _, d := range usable {
@@ -209,10 +209,10 @@ func ensureSources(ctx context.Context, ws *workspace.Workspace, lib *library.Li
 		}
 		src, err := ws.Source(ref)
 		if err != nil {
-			return fmt.Errorf("%s is not in the library and has no manifest — add one, or `bootwright sources import %s <file>`", ref, ref)
+			return fmt.Errorf("%s is not in the library and has no manifest — add one, or `dsky sources import %s <file>`", ref, ref)
 		}
 		if src.URL == "" && src.Provider == "" {
-			return fmt.Errorf("%s is not in the library and its manifest has no url/provider — `bootwright sources import %s <file>`", ref, ref)
+			return fmt.Errorf("%s is not in the library and its manifest has no url/provider — `dsky sources import %s <file>`", ref, ref)
 		}
 		fmt.Printf("pulling %s...\n", ref)
 		prog := &stageProgress{}

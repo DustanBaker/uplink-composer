@@ -12,7 +12,7 @@ import (
 // installDir is where install.ps1 puts the program.
 func installDir() string {
 	if la := os.Getenv("LOCALAPPDATA"); la != "" {
-		return filepath.Join(la, "Programs", "bootwright")
+		return filepath.Join(la, "Programs", "dsky")
 	}
 	return ""
 }
@@ -26,10 +26,10 @@ func programItems(self string) []Item {
 	// Named individually rather than removing the directory wholesale, so a
 	// copy someone dropped in there is not swept up with ours.
 	for _, f := range []struct{ name, what string }{
-		{"bootwright.exe", "the bootwright program"},
+		{"dsky.exe", "the dsky program"},
 		{"compose.exe", "the compose alias"},
-		{"bootwright-app.exe", "the click-to-launch app"},
-		{"bootwright.ico", "the app icon"},
+		{"dsky-app.exe", "the click-to-launch app"},
+		{"dsky.ico", "the app icon"},
 	} {
 		p := filepath.Join(dir, f.name)
 		items = append(items, Item{Path: p, What: f.what, Kind: KindProgram, Self: sameFile(p, self)})
@@ -50,9 +50,9 @@ func shortcutPaths() []string {
 		}
 		switch env {
 		case "APPDATA":
-			out = append(out, filepath.Join(base, "Microsoft", "Windows", "Start Menu", "Programs", "Bootwright.lnk"))
+			out = append(out, filepath.Join(base, "Microsoft", "Windows", "Start Menu", "Programs", "DSKY.lnk"))
 		case "USERPROFILE":
-			out = append(out, filepath.Join(base, "Desktop", "Bootwright.lnk"))
+			out = append(out, filepath.Join(base, "Desktop", "DSKY.lnk"))
 		}
 	}
 	return out
