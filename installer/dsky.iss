@@ -26,6 +26,13 @@ AppSupportURL=https://github.com/uplinkresearch/dsky
 AppUpdatesURL=https://github.com/uplinkresearch/dsky/releases
 DefaultDirName={localappdata}\Programs\dsky
 DefaultGroupName=DSKY
+; The AppId has survived two renames, so by default Setup finds the previous
+; install and reuses its directory and Start-menu group: DSKY lands inside
+; Programs\bootwright, beside a Bootwright shortcut that still launches the
+; old build, where `dsky uninstall` never looks. The name moved; so does the
+; install. [InstallDelete] clears out what the old names left behind.
+UsePreviousAppDir=no
+UsePreviousGroup=no
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
@@ -54,6 +61,37 @@ Source: "{#SourceDir}\dsky.exe";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\dsky.exe";     DestDir: "{app}"; DestName: "compose.exe"; Flags: ignoreversion
 Source: "{#SourceDir}\dsky-app.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dsky.ico";               DestDir: "{app}"; Flags: ignoreversion
+
+; Earlier releases of this same AppId: Bootwright (v0.5-0.6) and The Uplink
+; CompOSer (v0.4 and before, whose install.ps1 also used Programs\uplink).
+; This is Setup upgrading its own previous install, so it removes those files
+; by name, then the folders only if nothing else was put in them. Left alone,
+; the old compose.exe keeps answering to `compose` and the old shortcuts keep
+; launching a build that can no longer update itself.
+[InstallDelete]
+Type: files; Name: "{localappdata}\Programs\bootwright\bootwright.exe"
+Type: files; Name: "{localappdata}\Programs\bootwright\bootwright-app.exe"
+Type: files; Name: "{localappdata}\Programs\bootwright\bootwright.ico"
+Type: files; Name: "{localappdata}\Programs\bootwright\compose.exe"
+Type: files; Name: "{localappdata}\Programs\bootwright\unins000.exe"
+Type: files; Name: "{localappdata}\Programs\bootwright\unins000.dat"
+Type: dirifempty; Name: "{localappdata}\Programs\bootwright"
+Type: files; Name: "{localappdata}\Programs\uplink\uplink.exe"
+Type: files; Name: "{localappdata}\Programs\uplink\uplink-app.exe"
+Type: files; Name: "{localappdata}\Programs\uplink\uplink.ico"
+Type: files; Name: "{localappdata}\Programs\uplink\compose.exe"
+Type: files; Name: "{localappdata}\Programs\uplink\unins000.exe"
+Type: files; Name: "{localappdata}\Programs\uplink\unins000.dat"
+Type: dirifempty; Name: "{localappdata}\Programs\uplink"
+Type: files; Name: "{userprograms}\Bootwright\Bootwright.lnk"
+Type: files; Name: "{userprograms}\Bootwright\Uninstall Bootwright.lnk"
+Type: dirifempty; Name: "{userprograms}\Bootwright"
+Type: files; Name: "{userprograms}\The Uplink CompOSer\The Uplink CompOSer.lnk"
+Type: files; Name: "{userprograms}\The Uplink CompOSer\Uninstall The Uplink CompOSer.lnk"
+Type: dirifempty; Name: "{userprograms}\The Uplink CompOSer"
+Type: files; Name: "{userprograms}\The Uplink CompOSer.lnk"
+Type: files; Name: "{userdesktop}\Bootwright.lnk"
+Type: files; Name: "{userdesktop}\The Uplink CompOSer.lnk"
 
 [Icons]
 Name: "{group}\DSKY"; Filename: "{app}\dsky-app.exe"; IconFilename: "{app}\dsky.ico"; Comment: "Build and flash bootable OS installers"
@@ -99,6 +137,19 @@ begin
   // Trim the sentinel semicolons added above.
   NewPath := Copy(NewPath, 2, Length(NewPath) - 2);
   RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', NewPath);
+end;
+
+// After an upgrade from an older name, drop that name's folder from PATH —
+// but only once [InstallDelete] has actually emptied and removed it. A folder
+// still holding somebody else's files keeps its PATH entry.
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep <> ssPostInstall then
+    exit;
+  if not DirExists(ExpandConstant('{localappdata}\Programs\bootwright')) then
+    RemoveFromPath(ExpandConstant('{localappdata}\Programs\bootwright'));
+  if not DirExists(ExpandConstant('{localappdata}\Programs\uplink')) then
+    RemoveFromPath(ExpandConstant('{localappdata}\Programs\uplink'));
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
