@@ -34,6 +34,8 @@ jobs:
               -o "dist/dsky-app-${VERSION}-windows-${GOARCH}.exe" ./cmd/dsky-app
           done
           cp dsky.ico dist/dsky.ico
+          # The Linux app-drawer icon install.sh fetches, hashed with the rest.
+          cp dsky.png dist/dsky.png
           (cd dist && sha256sum * > SHA256SUMS.txt)
       - name: Create release
         env:
