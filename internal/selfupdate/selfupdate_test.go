@@ -7,7 +7,7 @@ import (
 
 // TestCompareVersions pins the ordering that decides whether an update is
 // offered. The dev-build case is the one that matters day to day: a local
-// build must see its own release as newer, or `uplink update` would tell
+// build must see its own release as newer, or `bootwright update` would tell
 // everyone running a dev binary that they are current.
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
@@ -35,10 +35,10 @@ func TestCompareVersions(t *testing.T) {
 // TestAssetName matches the names the release workflow actually publishes.
 func TestAssetName(t *testing.T) {
 	cases := []struct{ prog, os, arch, want string }{
-		{"uplink", "windows", "amd64", "uplink-v0.2.0-windows-amd64.exe"},
-		{"uplink", "linux", "arm64", "uplink-v0.2.0-linux-arm64"},
-		{"uplink", "darwin", "arm64", "uplink-v0.2.0-darwin-arm64"},
-		{"uplink-app", "windows", "amd64", "uplink-app-v0.2.0-windows-amd64.exe"},
+		{"bootwright", "windows", "amd64", "bootwright-v0.2.0-windows-amd64.exe"},
+		{"bootwright", "linux", "arm64", "bootwright-v0.2.0-linux-arm64"},
+		{"bootwright", "darwin", "arm64", "bootwright-v0.2.0-darwin-arm64"},
+		{"bootwright-app", "windows", "amd64", "bootwright-app-v0.2.0-windows-amd64.exe"},
 	}
 	for _, c := range cases {
 		if got := AssetName(c.prog, "v0.2.0", c.os, c.arch); got != c.want {

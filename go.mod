@@ -1,4 +1,4 @@
-module github.com/DustanBaker/uplink-composer
+module github.com/uplinkresearch/bootwright
 
 go 1.27.0
 

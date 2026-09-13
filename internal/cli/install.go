@@ -8,17 +8,17 @@ import (
 
 	"path/filepath"
 
-	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
-	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
-	"github.com/DustanBaker/uplink-composer/internal/hwdetect"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/appcatalog"
+	"github.com/uplinkresearch/bootwright/internal/driverresolve"
+	"github.com/uplinkresearch/bootwright/internal/hwdetect"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/oscatalog"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
 )
 
 func cmdCatalog(ctx context.Context, env *Env, _ []string) error {
 	refreshCatalog(ctx, env)
-	fmt.Printf("Operating systems (uplink install <id>) — list: %s\n", oscatalog.Source())
+	fmt.Printf("Operating systems (bootwright install <id>) — list: %s\n", oscatalog.Source())
 	headings := map[oscatalog.Category]string{
 		oscatalog.Desktop:   "Desktop",
 		oscatalog.Server:    "Server",
@@ -66,7 +66,7 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	var driversFor stringList
 	fs.Var(&driversFor, "drivers-for", "Windows: stage drivers for another machine, e.g.\n"+
 		"\"dell:OptiPlex 7010\" (repeatable; one stick can carry several models)")
-	apps := fs.String("apps", "", "Windows: programs to install at first boot (see `uplink apps`)")
+	apps := fs.String("apps", "", "Windows: programs to install at first boot (see `bootwright apps`)")
 	domainBlob := fs.String("domain-blob", "", "Windows: join a domain using a blob from\n"+
 		"`djoin /provision` (one machine per blob). A credentialed join belongs\n"+
 		"in a workspace recipe, so its password is not left in shell history.")
@@ -82,7 +82,7 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	refreshCatalog(ctx, env)
 	e, ok := oscatalog.Get(fs.Arg(0))
 	if !ok {
-		return fmt.Errorf("unknown OS %q — see `uplink catalog`", fs.Arg(0))
+		return fmt.Errorf("unknown OS %q — see `bootwright catalog`", fs.Arg(0))
 	}
 	lib, err := env.library()
 	if err != nil {
@@ -199,7 +199,7 @@ func hardwareForModel(spec string, e oscatalog.Entry) (recipe.HardwareSpec, erro
 func importISO(lib *library.Library, e oscatalog.Entry, path string) error {
 	if oscatalog.InLibrary(lib, e) {
 		fmt.Printf("%s is already in the library — using that, ignoring --iso.\n", e.ID)
-		fmt.Println("  (to replace it: uplink gc, or delete the blob the catalog names)")
+		fmt.Println("  (to replace it: bootwright gc, or delete the blob the catalog names)")
 		return nil
 	}
 	if err := oscatalog.CheckISO(path); err != nil {

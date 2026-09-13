@@ -12,14 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
-	"github.com/DustanBaker/uplink-composer/internal/compose"
-	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
-	"github.com/DustanBaker/uplink-composer/internal/helpers"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/manifest"
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/appcatalog"
+	"github.com/uplinkresearch/bootwright/internal/compose"
+	"github.com/uplinkresearch/bootwright/internal/driverresolve"
+	"github.com/uplinkresearch/bootwright/internal/helpers"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
 //go:embed templates/*.tmpl
@@ -168,7 +168,7 @@ func (e Entry) ImportOnlyError() error {
 	if where == "" {
 		where = "the vendor"
 	}
-	return fmt.Errorf("%s cannot be downloaded automatically — get the ISO from %s, then: uplink install %s --iso <file>",
+	return fmt.Errorf("%s cannot be downloaded automatically — get the ISO from %s, then: bootwright install %s --iso <file>",
 		e.Name, where, e.ID)
 }
 

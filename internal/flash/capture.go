@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/uplinkresearch/bootwright/internal/device"
 )
 
 // Capture reads a device into outPath, from sector 0 through the end of its
@@ -18,7 +18,7 @@ import (
 // GPT note: the on-disk backup GPT at the very end of the device is not
 // captured; writing the image to another stick leaves it absent until a
 // repair (Windows and Linux mount such disks fine; gdisk/diskpart can
-// rebuild it). Composer-built media is MBR and unaffected.
+// rebuild it). Bootwright-built media is MBR and unaffected.
 func Capture(ctx context.Context, dev device.Device, outPath string, progress Progress) (string, error) {
 	if progress == nil {
 		progress = func(string, int64, int64) {}

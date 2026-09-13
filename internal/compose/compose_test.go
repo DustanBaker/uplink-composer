@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DustanBaker/uplink-composer/internal/fsimg"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/manifest"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/fsimg"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
 // TestComposeWindowsTreeMode drives the full Windows pipeline against a

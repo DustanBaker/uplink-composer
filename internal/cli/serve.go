@@ -13,10 +13,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/DustanBaker/uplink-composer/internal/appconfig"
-	"github.com/DustanBaker/uplink-composer/internal/jobs"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/webui"
+	"github.com/uplinkresearch/bootwright/internal/appconfig"
+	"github.com/uplinkresearch/bootwright/internal/jobs"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/webui"
 )
 
 // idleGrace is how long the portal waits after the last page closes. Long
@@ -44,7 +44,7 @@ func cmdServe(ctx context.Context, env *Env, args []string) error {
 			if *open {
 				openBrowser(inst.url())
 			}
-			fmt.Println("\n(`uplink serve --new` starts a second one anyway.)")
+			fmt.Println("\n(`bootwright serve --new` starts a second one anyway.)")
 			return nil
 		}
 	}
@@ -71,7 +71,7 @@ func cmdServe(ctx context.Context, env *Env, args []string) error {
 	return nil
 }
 
-// AppMain is the entry point for the windowless launcher (uplink-app): open
+// AppMain is the entry point for the windowless launcher (bootwright-app): open
 // the portal in the browser and serve until the page's Quit button or a
 // signal stops it.
 func AppMain() error {
@@ -128,7 +128,7 @@ func AppMain() error {
 }
 
 // appTitle is what the window is called in the taskbar and the title bar.
-const appTitle = "The Uplink CompOSer"
+const appTitle = "Bootwright"
 
 // startServer binds a free port at or after base, wires the workspace
 // (explicit -w if present, else the last-opened one), optionally opens the
@@ -157,9 +157,9 @@ func startServer(ctx context.Context, lib *library.Library, vars map[string]stri
 	url := fmt.Sprintf("http://127.0.0.1:%d/#t=%s", port, s.Token)
 	if announce {
 		if name := s.WorkspaceName(); name != "" {
-			fmt.Printf("The Uplink CompOSer — workspace %q\n", name)
+			fmt.Printf("Bootwright — workspace %q\n", name)
 		} else {
-			fmt.Println("The Uplink CompOSer — no workspace open yet (pick one in the page)")
+			fmt.Println("Bootwright — no workspace open yet (pick one in the page)")
 		}
 	}
 	// Recorded before serving, so a second launch a moment later finds it.

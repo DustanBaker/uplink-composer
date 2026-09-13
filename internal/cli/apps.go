@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
+	"github.com/uplinkresearch/bootwright/internal/appcatalog"
 )
 
 const appsUsage = `Manage the programs Quick Install can add.
@@ -25,8 +25,8 @@ add flags:
   --replace          update an existing id instead of refusing
 
 Example:
-  uplink apps add "C:\\installers\\MaculaAgent.msi" --id macula --name "Macula Agent"
-  uplink install windows-11 --apps macula,chrome
+  bootwright apps add "C:\\installers\\MaculaAgent.msi" --id macula --name "Macula Agent"
+  bootwright install windows-11 --apps macula,chrome
 `
 
 func cmdApps(ctx context.Context, env *Env, args []string) error {
@@ -50,7 +50,7 @@ func cmdApps(ctx context.Context, env *Env, args []string) error {
 }
 
 func listApps() error {
-	fmt.Println("Programs `uplink install --apps` can add (comma-separated ids):")
+	fmt.Println("Programs `bootwright install --apps` can add (comma-separated ids):")
 	for _, cat := range appcatalog.Categories() {
 		fmt.Printf("\n  %s\n", cat)
 		for _, a := range appcatalog.Catalog() {
@@ -70,11 +70,11 @@ func listApps() error {
 		}
 	}
 	fmt.Println("\nExample:")
-	fmt.Println("  uplink install windows-11 --drivers --apps chrome,7zip,vlc")
+	fmt.Println("  bootwright install windows-11 --drivers --apps chrome,7zip,vlc")
 	fmt.Println("\nBuilt-in programs install at first boot with winget, so the machine")
 	fmt.Println("needs to be online then — staging its network driver (--drivers) helps.")
 	fmt.Println("Your own installers ride on the stick and need no network.")
-	fmt.Println("\nAdd one:  uplink apps add <installer.msi> --id <name>")
+	fmt.Println("\nAdd one:  bootwright apps add <installer.msi> --id <name>")
 	return nil
 }
 
@@ -116,7 +116,7 @@ func appsAdd(env *Env, args []string) error {
 	}
 	fmt.Printf("Added %s (%s) — %d MiB, sha256 %s\n", c.ID, c.Name, c.Size>>20, c.SHA256[:16])
 	fmt.Printf("  runs as: %s\n", c.RunLine())
-	fmt.Printf("\nUse it:  uplink install windows-11 --apps %s\n", c.ID)
+	fmt.Printf("\nUse it:  bootwright install windows-11 --apps %s\n", c.ID)
 	return nil
 }
 
@@ -165,7 +165,7 @@ func appsRemove(env *Env, args []string) error {
 		return err
 	}
 	fmt.Printf("Removed %s (%s).\n", c.ID, c.Name)
-	fmt.Printf("  %s is still in the library; `uplink gc` reclaims it once nothing refers to it.\n", c.Filename)
+	fmt.Printf("  %s is still in the library; `bootwright gc` reclaims it once nothing refers to it.\n", c.Filename)
 	return nil
 }
 
@@ -175,7 +175,7 @@ func appsShow(args []string) error {
 	}
 	a, ok := appcatalog.Get(args[0])
 	if !ok {
-		return fmt.Errorf("unknown program %q — see `uplink apps`", args[0])
+		return fmt.Errorf("unknown program %q — see `bootwright apps`", args[0])
 	}
 	fmt.Printf("%s — %s\n", a.ID, a.Name)
 	fmt.Printf("  category: %s\n", a.Category)

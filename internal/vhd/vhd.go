@@ -1,7 +1,7 @@
 // Package vhd wraps and unwraps raw disk images as fixed VHDs.
 //
 // A fixed VHD is exactly the raw image followed by a 512-byte footer, so
-// wrapping lets the native OS attach a Composer-built raw image (Windows
+// wrapping lets the native OS attach a Bootwright-built raw image (Windows
 // Mount-DiskImage, macOS/Linux via qemu-nbd or loop after stripping) without
 // copying the payload. Used by the verification path and the loopback
 // VolumeBuilder contingency.
@@ -23,7 +23,7 @@ const (
 
 	cookie     = "conectix"
 	diskFixed  = 2
-	creatorApp = "cmpr" // The Uplink CompOSer
+	creatorApp = "cmpr" // Bootwright
 	creatorOS  = "Wi2k"
 )
 

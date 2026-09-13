@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
-	"github.com/DustanBaker/uplink-composer/internal/stream"
+	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/bootwright/internal/stream"
 )
 
 // buildRaw handles linux-iso and raw-img recipes: the artifact IS the blob

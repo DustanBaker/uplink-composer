@@ -1,6 +1,6 @@
 // Package workspace loads an org's composition workspace: a git-friendly
 // directory of workspace.yaml, manifests/, recipes/, templates/, payload/,
-// and gitignored vars.local.yaml. The Uplink CompOSer is org-agnostic; everything
+// and gitignored vars.local.yaml. Bootwright is org-agnostic; everything
 // org-specific lives here.
 package workspace
 
@@ -13,8 +13,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/DustanBaker/uplink-composer/internal/manifest"
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
 )
 
 // Config is workspace.yaml.
@@ -50,7 +50,7 @@ func Find(dir string) (string, error) {
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
-			return "", fmt.Errorf("no workspace.yaml found in %s or any parent — run `uplink init` to create a workspace", dir)
+			return "", fmt.Errorf("no workspace.yaml found in %s or any parent — run `bootwright init` to create a workspace", dir)
 		}
 		d = parent
 	}
@@ -144,7 +144,7 @@ func (w *Workspace) Recipe(id string) (*recipe.Recipe, error) {
 			return r, nil
 		}
 	}
-	return nil, fmt.Errorf("no recipe %q in %s (uplink recipes list)", id, filepath.Join(w.Dir, "recipes"))
+	return nil, fmt.Errorf("no recipe %q in %s (bootwright recipes list)", id, filepath.Join(w.Dir, "recipes"))
 }
 
 // MergedVars implements the precedence chain: workspace < recipe <

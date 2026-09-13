@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/manifest"
 )
 
 // freshStore points the package at an empty store and restores the previous

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
 // TestWriteSampleAnswerFiles writes the two answer files a real build

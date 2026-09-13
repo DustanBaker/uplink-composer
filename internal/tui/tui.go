@@ -14,15 +14,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
-	"github.com/DustanBaker/uplink-composer/internal/compose"
-	"github.com/DustanBaker/uplink-composer/internal/device"
-	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
-	"github.com/DustanBaker/uplink-composer/internal/flashrun"
-	"github.com/DustanBaker/uplink-composer/internal/hwdetect"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/appcatalog"
+	"github.com/uplinkresearch/bootwright/internal/compose"
+	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/bootwright/internal/driverresolve"
+	"github.com/uplinkresearch/bootwright/internal/flashrun"
+	"github.com/uplinkresearch/bootwright/internal/hwdetect"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/oscatalog"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
 )
 
 // Adaptive so the wizard stays legible on light and dark terminals alike.
@@ -529,7 +529,7 @@ func (m *model) start() tea.Cmd {
 
 func (m *model) View() string {
 	var b strings.Builder
-	b.WriteString(cTitle.Render("The Uplink CompOSer") + cDim.Render("  ·  install an operating system") + "\n\n")
+	b.WriteString(cTitle.Render("Bootwright") + cDim.Render("  ·  install an operating system") + "\n\n")
 	switch m.stage {
 	case stageOS:
 		b.WriteString(m.viewOS())

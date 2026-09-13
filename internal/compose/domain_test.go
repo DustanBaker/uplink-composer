@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
 )
 
 // writeBytes is a tiny helper so the render tests can lay down a blob file.

@@ -19,9 +19,9 @@ func TestPlanNeverIncludesWorkspaces(t *testing.T) {
 		t.Skip("no home directory")
 	}
 	decoys := []string{
-		filepath.Join(home, "code", "uplink-workspace"),
-		filepath.Join(home, "uplink"),
-		filepath.Join(home, ".local", "share", "uplink-composer-workspace"),
+		filepath.Join(home, "code", "bootwright-workspace"),
+		filepath.Join(home, "bootwright"),
+		filepath.Join(home, ".local", "share", "bootwright-workspace"),
 	}
 
 	plan, err := Build()
@@ -52,8 +52,8 @@ func TestPlanItemsAreOurs(t *testing.T) {
 	for _, it := range plan.Items {
 		base := strings.ToLower(filepath.Base(it.Path))
 		dir := strings.ToLower(it.Path)
-		ours := strings.Contains(base, "uplink") || strings.Contains(base, "compose") ||
-			strings.Contains(dir, "uplink")
+		ours := strings.Contains(base, "bootwright") || strings.Contains(base, "compose") ||
+			strings.Contains(dir, "bootwright")
 		if !ours {
 			t.Errorf("plan includes %s, which is not obviously ours", it.Path)
 		}
@@ -82,8 +82,8 @@ func TestLibraryIsSeparable(t *testing.T) {
 		t.Error("library bytes are counted even when it is being kept")
 	}
 	for _, it := range plan.Items {
-		if it.Kind == KindLibrary && !strings.Contains(strings.ToLower(it.Path), "uplink") {
-			t.Errorf("library item %s is not an uplink path", it.Path)
+		if it.Kind == KindLibrary && !strings.Contains(strings.ToLower(it.Path), "bootwright") {
+			t.Errorf("library item %s is not a Bootwright path", it.Path)
 		}
 	}
 }
@@ -92,8 +92,8 @@ func TestLibraryIsSeparable(t *testing.T) {
 // confirms a default uninstall leaves the library alone.
 func TestRunKeepsLibraryUnlessAsked(t *testing.T) {
 	dir := t.TempDir()
-	prog := filepath.Join(dir, "uplink-fake")
-	lib := filepath.Join(dir, "uplink-library")
+	prog := filepath.Join(dir, "bootwright-fake")
+	lib := filepath.Join(dir, "bootwright-library")
 	if err := os.WriteFile(prog, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
 )
 
 // Domain join, both ways.

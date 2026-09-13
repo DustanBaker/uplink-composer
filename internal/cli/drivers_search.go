@@ -5,12 +5,12 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/DustanBaker/uplink-composer/internal/driverresolve"
-	"github.com/DustanBaker/uplink-composer/internal/drivers/catalog"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/manifest"
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/driverresolve"
+	"github.com/uplinkresearch/bootwright/internal/drivers/catalog"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
 // driversSearch queries a vendor catalog (dell/lenovo/hp by model) or the
@@ -53,7 +53,7 @@ func driversSearch(ctx context.Context, env *Env, args []string) error {
 	}
 	printPacks(packs, *limit)
 	if !*add {
-		fmt.Printf("\nAdd one:  uplink drivers search %s %q --add --pick N\n", fs.Arg(0), fs.Arg(1))
+		fmt.Printf("\nAdd one:  bootwright drivers search %s %q --add --pick N\n", fs.Arg(0), fs.Arg(1))
 		return nil
 	}
 	if *pick < 1 || *pick > len(packs) {
@@ -149,6 +149,6 @@ func driversResolve(ctx context.Context, env *Env, args []string) error {
 	if err := resolveHardware(ctx, ws, lib, r); err != nil {
 		return err
 	}
-	fmt.Println("all hardware entries have driver packs in the library — build with: uplink", r.ID)
+	fmt.Println("all hardware entries have driver packs in the library — build with: bootwright", r.ID)
 	return nil
 }

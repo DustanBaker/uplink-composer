@@ -247,7 +247,7 @@ func TestImportOnlyRefusalSaysWhatToDo(t *testing.T) {
 	e := Entry{ID: "rhel-10", Name: "Red Hat Enterprise Linux 10",
 		Requires: []string{FeatureImportOnly}, ImportFrom: "https://access.redhat.com/downloads"}
 	msg := e.ImportOnlyError().Error()
-	for _, want := range []string{e.Name, e.ImportFrom, "--iso", "uplink install rhel-10"} {
+	for _, want := range []string{e.Name, e.ImportFrom, "--iso", "bootwright install rhel-10"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal does not mention %q: %s", want, msg)
 		}

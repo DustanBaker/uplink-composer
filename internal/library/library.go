@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DustanBaker/uplink-composer/internal/fetch"
-	"github.com/DustanBaker/uplink-composer/internal/manifest"
+	"github.com/uplinkresearch/bootwright/internal/fetch"
+	"github.com/uplinkresearch/bootwright/internal/manifest"
 )
 
 // Entry is one catalog record.
@@ -41,38 +41,51 @@ type Library struct {
 // DefaultRoot picks the per-user store location: never a roaming or
 // cloud-synced path (multi-GB blobs).
 func DefaultRoot() string {
-	if env := os.Getenv("UPLINK_LIBRARY"); env != "" {
+	if env := os.Getenv("BOOTWRIGHT_LIBRARY"); env != "" {
 		return env
 	}
 	switch runtime.GOOS {
 	case "windows":
 		if la := os.Getenv("LOCALAPPDATA"); la != "" {
-			return filepath.Join(la, "uplink-composer")
+			return filepath.Join(la, "bootwright")
 		}
 	case "darwin":
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, "Library", "Application Support", "uplink-composer")
+			return filepath.Join(home, "Library", "Application Support", "bootwright")
 		}
 	default:
 		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-			return filepath.Join(xdg, "uplink-composer")
+			return filepath.Join(xdg, "bootwright")
 		}
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, ".local", "share", "uplink-composer")
+			return filepath.Join(home, ".local", "share", "bootwright")
 		}
 	}
-	return filepath.Join(".", "uplink-composer-library")
+	return filepath.Join(".", "bootwright-library")
 }
 
-// Open ensures the directory layout exists and returns the library. A
-// library left under the tool's former name is migrated once, so an
-// existing cache of ISOs and driver packs survives the rename.
+// formerNames are the directory names this library has lived under, newest
+// first. The tool has been renamed twice and the library is the one thing that
+// must not be lost to it: a full cache is tens of gigabytes of ISOs, and losing
+// it looks like the tool forgetting everything and silently re-downloading.
+var formerNames = []string{"uplink-composer", "the-composer"}
+
+// Open ensures the directory layout exists and returns the library. A library
+// left under one of the tool's former names is migrated once, so an existing
+// cache of ISOs and driver packs survives the rename.
 func Open(root string) (*Library, error) {
-	if filepath.Base(root) == "uplink-composer" {
+	if filepath.Base(root) == "bootwright" {
 		if _, err := os.Stat(root); os.IsNotExist(err) {
-			old := filepath.Join(filepath.Dir(root), "the-composer")
-			if st, err := os.Stat(old); err == nil && st.IsDir() {
-				_ = os.Rename(old, root) // best-effort; falls through to a fresh dir on failure
+			for _, name := range formerNames {
+				old := filepath.Join(filepath.Dir(root), name)
+				if st, err := os.Stat(old); err == nil && st.IsDir() {
+					// Best-effort: a rename within one directory is atomic and
+					// instant whatever the size, and if it fails we fall
+					// through to a fresh directory rather than refusing to run.
+					if os.Rename(old, root) == nil {
+						break
+					}
+				}
 			}
 		}
 	}
@@ -233,7 +246,7 @@ func (l *Library) Pull(ctx context.Context, src *manifest.Source, pinTOFU bool, 
 		}
 	}
 	if url == "" {
-		return Entry{}, fmt.Errorf("library: source %s has no url; use `uplink sources import %s <file>`", src.ID, src.ID)
+		return Entry{}, fmt.Errorf("library: source %s has no url; use `bootwright sources import %s <file>`", src.ID, src.ID)
 	}
 	dest := filepath.Join(l.TmpDir(), src.ID+"-"+src.DownloadFilename())
 	sum, err := fetch.Download(ctx, url, dest, progress)
@@ -290,7 +303,7 @@ func (l *Library) Resolve(id string) (Entry, error) {
 	}
 	e, ok := cat[id]
 	if !ok {
-		return Entry{}, fmt.Errorf("library: %s is not in the local library — run `uplink sources pull %s` or `uplink sources import %s <file>`", id, id, id)
+		return Entry{}, fmt.Errorf("library: %s is not in the local library — run `bootwright sources pull %s` or `bootwright sources import %s <file>`", id, id, id)
 	}
 	if _, err := os.Stat(l.BlobPath(e.SHA256)); err != nil {
 		return Entry{}, fmt.Errorf("library: %s is cataloged but its blob is missing (%s) — re-pull or re-import", id, l.BlobPath(e.SHA256))

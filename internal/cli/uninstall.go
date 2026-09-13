@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/uninstall"
+	"github.com/uplinkresearch/bootwright/internal/uninstall"
 )
 
 // cmdUninstall removes the installed program, and optionally the library of
@@ -26,7 +26,7 @@ func cmdUninstall(_ context.Context, _ *Env, args []string) error {
 		return err
 	}
 	if len(plan.Items) == 0 {
-		fmt.Println("Nothing of The Uplink CompOSer found on this machine.")
+		fmt.Println("Nothing of Bootwright found on this machine.")
 		return nil
 	}
 

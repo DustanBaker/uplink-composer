@@ -1,4 +1,4 @@
-// Command uplink builds bootable installation USB media from org
+// Command bootwright builds bootable installation USB media from org
 // workspaces: pull pinned OS images and driver packs, compose unattended
 // install media, and write verified USB sticks — on Windows, macOS, and
 // Linux.
@@ -7,7 +7,7 @@ package main
 import (
 	"os"
 
-	"github.com/DustanBaker/uplink-composer/internal/cli"
+	"github.com/uplinkresearch/bootwright/internal/cli"
 )
 
 func main() {

@@ -1,0 +1,32 @@
+{
+  "name": "bootwright",
+  "version": "0.0.1",
+  "description": "Builds customized Windows and Linux OS install media: debloated installs, local-account-only setup, and driver injection.",
+  "main": "index.js",
+  "license": "MIT",
+  "author": "Dustan Baker",
+  "homepage": "https://github.com/uplinkresearch/bootwright",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uplinkresearch/bootwright.git"
+  },
+  "bugs": {
+    "url": "https://github.com/uplinkresearch/bootwright/issues"
+  },
+  "keywords": [
+    "bootable",
+    "usb",
+    "iso",
+    "install-media",
+    "unattended",
+    "windows",
+    "linux",
+    "imaging",
+    "deployment"
+  ],
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ]
+}

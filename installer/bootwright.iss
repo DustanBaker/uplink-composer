@@ -1,10 +1,10 @@
-; Inno Setup script for The Uplink CompOSer.
+; Inno Setup script for Bootwright.
 ;
 ; Deliberately a per-user install: PrivilegesRequired=lowest puts everything
-; under %LOCALAPPDATA%\Programs\uplink and touches only HKCU, so nobody needs
+; under %LOCALAPPDATA%\Programs\bootwright and touches only HKCU, so nobody needs
 ; administrator rights to install a tool they are going to run as themselves.
 ; That also matches the paths install.ps1 uses, so the two agree and
-; `uplink uninstall` knows the same places.
+; `bootwright uninstall` knows the same places.
 ;
 ; Built by the release workflow; version comes in as /DAppVersion=v0.0.0.
 
@@ -18,24 +18,24 @@
 [Setup]
 ; Stable across versions so upgrades replace rather than stack up.
 AppId={{8F3C2A61-5D74-4E2B-9C18-7A6B0E4D9F23}
-AppName=The Uplink CompOSer
+AppName=Bootwright
 AppVersion={#AppVersion}
-AppPublisher=Uplink Research LLC
+AppPublisher=Bootwright Research LLC
 AppPublisherURL=https://uplinkresearch.com
-AppSupportURL=https://github.com/DustanBaker/uplink-composer
-AppUpdatesURL=https://github.com/DustanBaker/uplink-composer/releases
-DefaultDirName={localappdata}\Programs\uplink
-DefaultGroupName=The Uplink CompOSer
+AppSupportURL=https://github.com/uplinkresearch/bootwright
+AppUpdatesURL=https://github.com/uplinkresearch/bootwright/releases
+DefaultDirName={localappdata}\Programs\bootwright
+DefaultGroupName=Bootwright
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
 ; No version in the name: the product page links to
 ; releases/latest/download/<this>, which only works if the name never moves.
-OutputBaseFilename=uplink-setup-amd64
-SetupIconFile=..\uplink.ico
-UninstallDisplayIcon={app}\uplink-app.exe
-UninstallDisplayName=The Uplink CompOSer
+OutputBaseFilename=bootwright-setup-amd64
+SetupIconFile=..\bootwright.ico
+UninstallDisplayIcon={app}\bootwright-app.exe
+UninstallDisplayName=Bootwright
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -45,27 +45,27 @@ LicenseFile=..\LICENSE
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
-Name: "addtopath"; Description: "Add uplink to my PATH (so it works in any terminal)"; GroupDescription: "Command line:"
+Name: "addtopath"; Description: "Add bootwright to my PATH (so it works in any terminal)"; GroupDescription: "Command line:"
 
 [Files]
-Source: "{#SourceDir}\uplink.exe";     DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\bootwright.exe";     DestDir: "{app}"; Flags: ignoreversion
 ; The `compose` alias, kept because the original one-shot workflow is spelled
 ; that way and people have it in muscle memory and scripts.
-Source: "{#SourceDir}\uplink.exe";     DestDir: "{app}"; DestName: "compose.exe"; Flags: ignoreversion
-Source: "{#SourceDir}\uplink-app.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\uplink.ico";               DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\bootwright.exe";     DestDir: "{app}"; DestName: "compose.exe"; Flags: ignoreversion
+Source: "{#SourceDir}\bootwright-app.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\bootwright.ico";               DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\The Uplink CompOSer"; Filename: "{app}\uplink-app.exe"; IconFilename: "{app}\uplink.ico"; Comment: "Build and flash bootable OS installers"
-Name: "{group}\Uninstall The Uplink CompOSer"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\The Uplink CompOSer"; Filename: "{app}\uplink-app.exe"; IconFilename: "{app}\uplink.ico"; Tasks: desktopicon
+Name: "{group}\Bootwright"; Filename: "{app}\bootwright-app.exe"; IconFilename: "{app}\bootwright.ico"; Comment: "Build and flash bootable OS installers"
+Name: "{group}\Uninstall Bootwright"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Bootwright"; Filename: "{app}\bootwright-app.exe"; IconFilename: "{app}\bootwright.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
   ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}')); Tasks: addtopath
 
 [Run]
-Filename: "{app}\uplink-app.exe"; Description: "Open The Uplink CompOSer"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\bootwright-app.exe"; Description: "Open Bootwright"; Flags: nowait postinstall skipifsilent
 
 [Code]
 // NeedsAddPath keeps PATH idempotent: reinstalling must not append the same
@@ -114,7 +114,7 @@ begin
   // of downloading, and keeping it makes a reinstall instant — so ask, and
   // default to keeping. Workspaces are never touched: they are the
   // operator's own git repositories and live wherever they keep code.
-  LibDir := ExpandConstant('{localappdata}\uplink-composer');
+  LibDir := ExpandConstant('{localappdata}\bootwright');
   if not DirExists(LibDir) then
     exit;
   if MsgBox('Also delete the downloaded operating systems and built media?' #13#10#13#10

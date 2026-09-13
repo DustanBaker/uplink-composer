@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The Uplink CompOSer</title>
+<title>Bootwright</title>
 <style>
   :root {
     --bg: #101418; --panel: #171d24; --panel2: #1d242d; --line: #2a333e;
@@ -124,7 +124,7 @@
 </head>
 <body>
 <header>
-  <h1>The Uplink CompOSer</h1>
+  <h1>Bootwright</h1>
   <span class="org" id="org"></span>
   <span class="ws" id="ws"></span>
   <span class="ver" id="ver" title="Check for a newer release"></span>
@@ -237,7 +237,7 @@ const $ = id => document.getElementById(id);
 let state = { recipes: [], devices: [], artifacts: [], sources: [], recent: [], catalog: [], apps: [], has_workspace: false };
 
 async function api(path, body) {
-  const opts = { headers: { "X-Uplink-Token": token } };
+  const opts = { headers: { "X-Bootwright-Token": token } };
   if (body) { opts.method = "POST"; opts.body = JSON.stringify(body);
     opts.headers["Content-Type"] = "application/json"; }
   const r = await fetch(path, opts);
@@ -401,7 +401,7 @@ function openPrepare(disk) {
     ["exfat", "exFAT — Windows, macOS, Linux; no file-size limit"],
     ["fat32", "FAT32 — maximum compatibility, 4 GB file limit"],
     ["ntfs", "NTFS — Windows only"]]);
-  const label = textOpt("Volume label", "UPLINK");
+  const label = textOpt("Volume label", "BOOTWRIGHT");
   opts.append(scheme.wrap, fs.wrap, label.wrap);
   $("prepTarget").textContent = `${disk.model || disk.id} — ${disk.id} — ${disk.size_gib} GiB`;
   $("prepSize").textContent = disk.confirm;
@@ -409,7 +409,7 @@ function openPrepare(disk) {
   $("prepGo").onclick = () => {
     api("/api/disks/prepare", {
       device_id: disk.id, scheme: scheme.get(), fs: fs.get(),
-      label: label.get() || "UPLINK", confirm: input.value.trim(),
+      label: label.get() || "BOOTWRIGHT", confirm: input.value.trim(),
     }).then(() => setTimeout(loadDisks, 4000)).catch(e => showErr(e.message));
     $("prepDialog").close();
   };
@@ -982,7 +982,7 @@ function upsertJob(ev) {
 async function streamEvents() {
   while (true) {
     try {
-      const r = await fetch("/api/events", { headers: { "X-Uplink-Token": token } });
+      const r = await fetch("/api/events", { headers: { "X-Bootwright-Token": token } });
       if (!r.ok) throw new Error("events: " + r.status);
       const reader = r.body.getReader();
       const dec = new TextDecoder();
@@ -1093,12 +1093,12 @@ async function openWorkspace(dir) {
 }
 
 async function quitApp() {
-  if (!confirm("Stop The Uplink CompOSer? Any running flash finishes first.")) return;
+  if (!confirm("Stop Bootwright? Any running flash finishes first.")) return;
   try { await api("/api/quit", {}); } catch (e) {}
   document.body.innerHTML =
     '<div style="max-width:520px;margin:16vh auto;text-align:center;color:var(--dim);font:14px system-ui">' +
-    '<h2 style="color:var(--text)">The Uplink CompOSer has stopped.</h2>' +
-    '<p>You can close this tab. Relaunch it from the Start menu (or <code>uplink serve</code>).</p></div>';
+    '<h2 style="color:var(--text)">Bootwright has stopped.</h2>' +
+    '<p>You can close this tab. Relaunch it from the Start menu (or <code>bootwright serve</code>).</p></div>';
 }
 
 async function loadState() {

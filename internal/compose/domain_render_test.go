@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
-// renderScaffolded renders the unattend template a real `uplink init` produces,
+// renderScaffolded renders the unattend template a real `bootwright init` produces,
 // with the vars a real build would supply. Testing the shipped template rather
 // than a fixture is the point: a domain block that is correct in a test file
 // and absent from what people actually get would be worse than no test.

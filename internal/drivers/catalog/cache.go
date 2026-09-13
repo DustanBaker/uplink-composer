@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DustanBaker/uplink-composer/internal/fetch"
-	"github.com/DustanBaker/uplink-composer/internal/helpers"
+	"github.com/uplinkresearch/bootwright/internal/fetch"
+	"github.com/uplinkresearch/bootwright/internal/helpers"
 )
 
 // Cache keeps vendor catalogs on disk (they are hundreds of KB to a few MB

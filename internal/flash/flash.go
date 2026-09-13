@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/DustanBaker/uplink-composer/internal/compose"
-	"github.com/DustanBaker/uplink-composer/internal/device"
-	"github.com/DustanBaker/uplink-composer/internal/stream"
+	"github.com/uplinkresearch/bootwright/internal/compose"
+	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/bootwright/internal/stream"
 )
 
 // SectorSize is the only supported logical sector size; Target opens verify
@@ -86,7 +86,7 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 		case devSize == 0:
 			devSize = tSize
 		case tSize < devSize || tSize-devSize > enumTolerance:
-			return fmt.Errorf("flash: %s size mismatch: enumeration saw %d, device reports %d — device changed since listing; replug and re-run `uplink devices`", dev.ID, devSize, tSize)
+			return fmt.Errorf("flash: %s size mismatch: enumeration saw %d, device reports %d — device changed since listing; replug and re-run `bootwright devices`", dev.ID, devSize, tSize)
 		default:
 			devSize = tSize
 		}

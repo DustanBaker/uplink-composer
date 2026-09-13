@@ -1,4 +1,4 @@
-// Package cli implements the uplink command line.
+// Package cli implements the bootwright command line.
 package cli
 
 import (
@@ -9,20 +9,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
-	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/oscatalog"
-	"github.com/DustanBaker/uplink-composer/internal/selfupdate"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/appcatalog"
+	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/oscatalog"
+	"github.com/uplinkresearch/bootwright/internal/selfupdate"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
-const usage = `The Uplink CompOSer — build bootable installation USB media from recipes.
+const usage = `Bootwright — build bootable installation USB media from recipes.
 
-Usage: uplink <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
-       uplink <file.iso> [device]  write any ISO or disk image you already have
-       uplink                     same, in a workspace with a single recipe
-       uplink <command> [args]
+Usage: bootwright <recipe>            the whole thing: pull sources, build, flash the attached stick, verify
+       bootwright <file.iso> [device]  write any ISO or disk image you already have
+       bootwright                     same, in a workspace with a single recipe
+       bootwright <command> [args]
 
 One-shot
   go <recipe|image> [device]  pull sources, build, flash, verify (--yes, --build-only)
@@ -199,7 +199,7 @@ func Main(args []string) int {
 	var err error
 	switch cmd {
 	case "version", "--version":
-		fmt.Println("uplink", buildinfo.Version)
+		fmt.Println("bootwright", buildinfo.Version)
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	case "go":

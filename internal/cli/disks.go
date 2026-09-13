@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/device"
-	"github.com/DustanBaker/uplink-composer/internal/diskutil"
-	"github.com/DustanBaker/uplink-composer/internal/elevate"
-	"github.com/DustanBaker/uplink-composer/internal/flashrun"
+	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/bootwright/internal/diskutil"
+	"github.com/uplinkresearch/bootwright/internal/elevate"
+	"github.com/uplinkresearch/bootwright/internal/flashrun"
 )
 
 func cmdDisks(ctx context.Context, env *Env, args []string) error {
@@ -52,7 +52,7 @@ func disksList(ctx context.Context) error {
 		printLayout(l, "      ")
 	}
 	fmt.Println("\nFix a stick that will not mount or shows the wrong size:")
-	fmt.Println("  uplink disks prepare <device> [--fs exfat|fat32|ntfs] [--label NAME] [--scheme gpt|mbr]")
+	fmt.Println("  bootwright disks prepare <device> [--fs exfat|fat32|ntfs] [--label NAME] [--scheme gpt|mbr]")
 	return nil
 }
 
@@ -99,7 +99,7 @@ func disksPrepare(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("disks prepare", flag.ContinueOnError)
 	fsType := fs.String("fs", "exfat", "filesystem: exfat | fat32 | ntfs")
 	scheme := fs.String("scheme", "gpt", "partition table: gpt | mbr")
-	label := fs.String("label", "UPLINK", "volume label")
+	label := fs.String("label", "BOOTWRIGHT", "volume label")
 	yes := fs.Bool("yes", false, "skip the typed size confirmation")
 	if err := parseFlags(fs, args); err != nil {
 		return err

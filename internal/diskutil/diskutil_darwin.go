@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/uplinkresearch/bootwright/internal/device"
 	"howett.net/plist"
 )
 

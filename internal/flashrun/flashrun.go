@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DustanBaker/uplink-composer/internal/awake"
-	"github.com/DustanBaker/uplink-composer/internal/compose"
-	"github.com/DustanBaker/uplink-composer/internal/device"
-	"github.com/DustanBaker/uplink-composer/internal/diskutil"
-	"github.com/DustanBaker/uplink-composer/internal/elevate"
-	"github.com/DustanBaker/uplink-composer/internal/flash"
+	"github.com/uplinkresearch/bootwright/internal/awake"
+	"github.com/uplinkresearch/bootwright/internal/compose"
+	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/bootwright/internal/diskutil"
+	"github.com/uplinkresearch/bootwright/internal/elevate"
+	"github.com/uplinkresearch/bootwright/internal/flash"
 )
 
 // Progress mirrors flash.Progress.
@@ -154,7 +154,7 @@ func flashAll(ctx context.Context, art *compose.Artifact, devs []device.Device, 
 // runElevated hands the job to a UAC/pkexec-relaunched worker and tails its
 // progress file, forwarding events to progress. Returns the worker's Result.
 func runElevated(ctx context.Context, job Job, progress DeviceProgress) (string, error) {
-	jobFile, err := os.CreateTemp("", "composer-job-*.json")
+	jobFile, err := os.CreateTemp("", "bootwright-job-*.json")
 	if err != nil {
 		return "", err
 	}

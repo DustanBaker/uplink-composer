@@ -26,7 +26,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/device"
+	"github.com/uplinkresearch/bootwright/internal/device"
 )
 
 // Scheme is the partition table to write.
@@ -93,7 +93,7 @@ func (o *Options) defaults() {
 		o.FS = ExFAT
 	}
 	if o.Label == "" {
-		o.Label = "UPLINK"
+		o.Label = "BOOTWRIGHT"
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 // — plenty of other tools live in ~/.local/bin — so only our own files are
 // ever named, and the directory itself is never removed.
 func installDir() string {
-	if env := os.Getenv("UPLINK_BIN"); env != "" {
+	if env := os.Getenv("BOOTWRIGHT_BIN"); env != "" {
 		return env
 	}
 	if home, err := os.UserHomeDir(); err == nil {
@@ -24,7 +24,7 @@ func programItems(self string) []Item {
 	var items []Item
 	if dir := installDir(); dir != "" {
 		for _, f := range []struct{ name, what string }{
-			{"uplink", "the uplink program"},
+			{"bootwright", "the bootwright program"},
 			{"compose", "the compose alias"},
 		} {
 			p := filepath.Join(dir, f.name)
@@ -36,9 +36,9 @@ func programItems(self string) []Item {
 		return items
 	}
 	items = append(items,
-		Item{Path: filepath.Join(home, ".local", "share", "applications", "uplink-composer.desktop"),
+		Item{Path: filepath.Join(home, ".local", "share", "applications", "bootwright.desktop"),
 			What: "app-drawer launcher", Kind: KindProgram},
-		Item{Path: filepath.Join(home, ".local", "share", "icons", "uplink.png"),
+		Item{Path: filepath.Join(home, ".local", "share", "icons", "bootwright.png"),
 			What: "app icon", Kind: KindProgram},
 	)
 	return items

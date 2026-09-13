@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DustanBaker/uplink-composer/internal/appcatalog"
-	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/appcatalog"
+	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
 // TestSynthesizedRecipesValid builds the ephemeral workspace for every

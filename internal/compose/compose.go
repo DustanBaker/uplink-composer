@@ -16,11 +16,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/recipe"
-	"github.com/DustanBaker/uplink-composer/internal/stream"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/recipe"
+	"github.com/uplinkresearch/bootwright/internal/stream"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
 // defaultSourceDateEpoch fixes FAT timestamps for reproducible images when
@@ -46,7 +46,7 @@ func (r *Request) progress(stage string, done, total int64) {
 }
 
 // Artifact is a flashable build product, persisted as a JSON sidecar so
-// `uplink flash` can run in a later invocation.
+// `bootwright flash` can run in a later invocation.
 type Artifact struct {
 	RecipeID  string    `json:"recipe_id"`
 	Kind      string    `json:"kind"` // "image" (composed) | "raw" (blob passthrough)

@@ -19,21 +19,21 @@ jobs:
           set -eu
           mkdir -p dist
           VERSION="${GITHUB_REF_NAME}"
-          LDFLAGS="-s -w -X github.com/DustanBaker/uplink-composer/internal/buildinfo.Version=${VERSION}"
+          LDFLAGS="-s -w -X github.com/uplinkresearch/bootwright/internal/buildinfo.Version=${VERSION}"
           for target in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
             GOOS="${target%/*}"; GOARCH="${target#*/}"
             ext=""; [ "$GOOS" = "windows" ] && ext=".exe"
-            out="dist/uplink-${VERSION}-${GOOS}-${GOARCH}${ext}"
+            out="dist/bootwright-${VERSION}-${GOOS}-${GOARCH}${ext}"
             CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-              go build -trimpath -ldflags "$LDFLAGS" -o "$out" ./cmd/uplink
+              go build -trimpath -ldflags "$LDFLAGS" -o "$out" ./cmd/bootwright
           done
           # Windowless launcher for the click-to-launch app (Windows GUI subsystem).
           for GOARCH in amd64 arm64; do
             CGO_ENABLED=0 GOOS=windows GOARCH="$GOARCH" \
               go build -trimpath -ldflags "$LDFLAGS -H=windowsgui" \
-              -o "dist/uplink-app-${VERSION}-windows-${GOARCH}.exe" ./cmd/uplink-app
+              -o "dist/bootwright-app-${VERSION}-windows-${GOARCH}.exe" ./cmd/bootwright-app
           done
-          cp uplink.ico dist/uplink.ico
+          cp bootwright.ico dist/bootwright.ico
           (cd dist && sha256sum * > SHA256SUMS.txt)
       - name: Create release
         env:
@@ -70,7 +70,7 @@ jobs:
           # Converge rather than fail: re-running a release (a fixed workflow,
           # a retag) should correct the existing one, not abort on "already
           # exists" and leave it half-wrong.
-          title="The Uplink CompOSer ${GITHUB_REF_NAME}"
+          title="Bootwright ${GITHUB_REF_NAME}"
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             # --draft=false --latest are not cosmetic: deleting a tag demotes its
             # release to a draft, so the release a re-run finds is usually one
@@ -97,11 +97,11 @@ jobs:
         run: |
           set -eu
           mkdir -p dist
-          LDFLAGS="-s -w -X github.com/DustanBaker/uplink-composer/internal/buildinfo.Version=${GITHUB_REF_NAME}"
+          LDFLAGS="-s -w -X github.com/uplinkresearch/bootwright/internal/buildinfo.Version=${GITHUB_REF_NAME}"
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
-            go build -trimpath -ldflags "$LDFLAGS" -o dist/uplink.exe ./cmd/uplink
+            go build -trimpath -ldflags "$LDFLAGS" -o dist/bootwright.exe ./cmd/bootwright
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
-            go build -trimpath -ldflags "$LDFLAGS -H=windowsgui" -o dist/uplink-app.exe ./cmd/uplink-app
+            go build -trimpath -ldflags "$LDFLAGS -H=windowsgui" -o dist/bootwright-app.exe ./cmd/bootwright-app
       - name: Compile the installer
         shell: pwsh
         run: |
@@ -111,18 +111,18 @@ jobs:
             choco install innosetup --no-progress -y
             $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           }
-          & $iscc /DAppVersion=$env:GITHUB_REF_NAME installer\uplink.iss
+          & $iscc /DAppVersion=$env:GITHUB_REF_NAME installer\bootwright.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
-          Get-Item dist\uplink-setup-amd64.exe | ForEach-Object { "built {0} ({1:N1} MB)" -f $_.Name, ($_.Length/1MB) }
+          Get-Item dist\bootwright-setup-amd64.exe | ForEach-Object { "built {0} ({1:N1} MB)" -f $_.Name, ($_.Length/1MB) }
       - name: Attach it to the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          # The product page links to releases/latest/download/uplink-setup-amd64.exe,
+          # The product page links to releases/latest/download/bootwright-setup-amd64.exe,
           # so this name must stay version-free and must land on every release.
-          sha=$(sha256sum dist/uplink-setup-amd64.exe | cut -d' ' -f1)
-          echo "$sha  uplink-setup-amd64.exe" > dist/uplink-setup-amd64.exe.sha256
+          sha=$(sha256sum dist/bootwright-setup-amd64.exe | cut -d' ' -f1)
+          echo "$sha  bootwright-setup-amd64.exe" > dist/bootwright-setup-amd64.exe.sha256
           gh release upload "${GITHUB_REF_NAME}" \
-            dist/uplink-setup-amd64.exe dist/uplink-setup-amd64.exe.sha256 --clobber
+            dist/bootwright-setup-amd64.exe dist/bootwright-setup-amd64.exe.sha256 --clobber

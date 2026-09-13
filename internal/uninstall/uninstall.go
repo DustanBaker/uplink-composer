@@ -21,8 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/appconfig"
-	"github.com/DustanBaker/uplink-composer/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/appconfig"
+	"github.com/uplinkresearch/bootwright/internal/library"
 )
 
 // Kind groups an item so callers can explain and gate it.

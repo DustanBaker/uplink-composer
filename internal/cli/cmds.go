@@ -9,12 +9,12 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/compose"
-	"github.com/DustanBaker/uplink-composer/internal/device"
-	"github.com/DustanBaker/uplink-composer/internal/helpers"
-	"github.com/DustanBaker/uplink-composer/internal/library"
-	"github.com/DustanBaker/uplink-composer/internal/manifest"
-	"github.com/DustanBaker/uplink-composer/internal/workspace"
+	"github.com/uplinkresearch/bootwright/internal/compose"
+	"github.com/uplinkresearch/bootwright/internal/device"
+	"github.com/uplinkresearch/bootwright/internal/helpers"
+	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/manifest"
+	"github.com/uplinkresearch/bootwright/internal/workspace"
 )
 
 func cmdInit(args []string) error {
@@ -35,7 +35,7 @@ func cmdInit(args []string) error {
 	}
 	abs, _ := filepath.Abs(dir)
 	fmt.Printf("Workspace for %q created at %s\n", *org, abs)
-	fmt.Println("Next: edit recipes/example-win11.yaml, add manifests, then `uplink build example-win11`.")
+	fmt.Println("Next: edit recipes/example-win11.yaml, add manifests, then `bootwright build example-win11`.")
 	fmt.Println("Commit the workspace to a private git repo; vars.local.yaml stays out (gitignored).")
 	return nil
 }
@@ -45,11 +45,11 @@ func cmdDoctor(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("The Uplink CompOSer — doctor")
+	fmt.Println("Bootwright — doctor")
 	fmt.Println()
 	fmt.Printf("library root:  %s\n", lib.Root)
 	if strings.Contains(strings.ToLower(lib.Root), "onedrive") {
-		fmt.Println("  WARNING: library sits under a OneDrive-synced path; multi-GB blobs will sync — set UPLINK_LIBRARY elsewhere")
+		fmt.Println("  WARNING: library sits under a OneDrive-synced path; multi-GB blobs will sync — set BOOTWRIGHT_LIBRARY elsewhere")
 	}
 	if entries, err := lib.List(); err == nil {
 		var total int64
@@ -83,7 +83,7 @@ func cmdDoctor(ctx context.Context, env *Env) error {
 			fmt.Printf("recipes:       ERROR %v\n", err)
 		}
 	} else {
-		fmt.Printf("workspace:     none found from %s (uplink init)\n", env.WorkspaceDir)
+		fmt.Printf("workspace:     none found from %s (bootwright init)\n", env.WorkspaceDir)
 	}
 	devs, err := device.List(ctx)
 	if err != nil {
@@ -116,7 +116,7 @@ func cmdDevices(ctx context.Context) error {
 	for _, d := range devs {
 		fmt.Println(" ", d.String())
 	}
-	fmt.Println("\nFlash with: uplink flash <recipe> <device-id>")
+	fmt.Println("\nFlash with: bootwright flash <recipe> <device-id>")
 	return nil
 }
 

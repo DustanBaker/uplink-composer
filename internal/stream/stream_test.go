@@ -15,13 +15,14 @@ import (
 
 // payload is deliberately compressible so every codec produces a real
 // container rather than a stored block.
-var payload = bytes.Repeat([]byte("uplink composer raw image payload\n"), 512)
+var payload = bytes.Repeat([]byte("bootwright composer raw image payload\n"), 512)
 
 // The standard library can decompress bzip2 but not produce it, so this
 // fixture is a real `bzip2 -9` of payload, committed rather than generated:
 // the test must not need a bzip2 binary on the machine running it.
-const bz2Base64 = "QlpoOTFBWSZTWa+d4M0AH//RgAAQQAAur9qgMAD4ApkxMgyMKZMTIMjAqqMmmQwE6AFABoATAGABc" +
-	"AWAEABgAeAD0AVAGQBAARAGABkAdgDYA0APgByAJADQAkAJgDYAsALgCIAoANgCoAfi7kinChIV87wZoA=="
+const bz2Base64 = "QlpoOTFBWSZTWfun4bgACf/RgAAQQAA+5tygMAEYAUyYmQZGFMmJkGRgVVGmjIDZJuAIAEgC4AgAY" +
+	"AGABQAQALgDkAdAD0ASAKACABsALADcAZAFQB0AMgCQBIA8AFQBYAegD4AUAGABUAZAGoA+AEgDUA" +
+	"fi7kinChIfdPw3AA=="
 
 var bz2Payload = mustBase64(bz2Base64)
 

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/DustanBaker/uplink-composer/internal/buildinfo"
-	"github.com/DustanBaker/uplink-composer/internal/selfupdate"
+	"github.com/uplinkresearch/bootwright/internal/buildinfo"
+	"github.com/uplinkresearch/bootwright/internal/selfupdate"
 )
 
 // cmdUpdate replaces this binary with the newest published release.
@@ -36,7 +36,7 @@ func cmdUpdate(ctx context.Context, _ *Env, args []string) error {
 		fmt.Printf("\n%s\n", notes)
 	}
 	if *check {
-		fmt.Println("\nInstall it with: uplink update")
+		fmt.Println("\nInstall it with: bootwright update")
 		return nil
 	}
 
