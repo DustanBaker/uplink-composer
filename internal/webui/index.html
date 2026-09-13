@@ -117,6 +117,44 @@
   .opt.check { display: flex; align-items: center; gap: 8px; }
   .opt.check input { width: auto; }
   .opt.check label { margin: 0; color: var(--text); }
+  /* ── The three doors ────────────────────────────────────────────────────
+     Everything used to be on screen at once, which showed a newcomer nine
+     panels and no idea which one their job started in. Each door is a job
+     somebody turned up to do; the panels behind it are the ones that job
+     needs. */
+  #home { grid-column: 1 / -1; background: none; border: none; }
+  .doors { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 14px; }
+  .door { display: flex; flex-direction: column; align-items: flex-start; gap: 7px;
+    text-align: left; padding: 20px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--line); cursor: pointer;
+    font: inherit; color: var(--text); }
+  .door:hover { border-color: var(--accent); background: var(--panel2); }
+  .door-k { font-size: 16px; font-weight: 600; }
+  .door-d { color: var(--dim); font-size: 13px; line-height: 1.5; flex: 1; }
+  .door-go { color: var(--accent); font-size: 13px; font-weight: 600; }
+  .homefoot { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    margin-top: 14px; color: var(--dim); font-size: 12px; }
+  .homefoot .linkish { margin-left: auto; background: none; border: none;
+    padding: 0; font-size: 12px; }
+  header .doorname { color: var(--dim); }
+  #backBtn { margin-right: 2px; }
+  /* A panel is shown when the current door is in its data-door list. The
+     attribute is a space-separated set, so ~= matches one whole word and
+     "disks" cannot match "disksomething". */
+  main > .col > section { display: none; }
+  body[data-door="install"]  section[data-door~="install"],
+  body[data-door="clone"]    section[data-door~="clone"],
+  body[data-door="disks"]    section[data-door~="disks"],
+  body[data-door="advanced"] section[data-door~="advanced"] { display: block; }
+  body:not([data-door="home"]) #home { display: none; }
+  /* With one door open the second column is usually empty, so the grid
+     collapses to a single readable column rather than leaving a gap. */
+  body[data-door="install"] main, body[data-door="advanced"] main {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); }
+  body[data-door="home"] main, body[data-door="clone"] main, body[data-door="disks"] main {
+    grid-template-columns: minmax(0, 1fr); max-width: 900px; }
+
   #err { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
     background: var(--danger); color: #fff; padding: 9px 16px; border-radius: 8px;
     max-width: 80%; display: none; font-size: 13px; }
@@ -124,7 +162,9 @@
 </head>
 <body>
 <header>
+  <button id="backBtn" title="Back to the start" onclick="setDoor('home')" hidden>‹ Back</button>
   <h1>Bootwright</h1>
+  <span class="doorname" id="doorName"></span>
   <span class="org" id="org"></span>
   <span class="ws" id="ws"></span>
   <span class="ver" id="ver" title="Check for a newer release"></span>
@@ -132,28 +172,57 @@
   <button id="quitBtn" title="Stop the app" onclick="quitApp()">Quit</button>
 </header>
 <main>
-  <div style="display:flex;flex-direction:column;gap:16px">
-    <section id="catalogSec"><h2>Install an OS <span class="spacer"></span><button onclick="writeOwnImage()" title="Write an ISO or disk image from your own disk">Use your own ISO…</button></h2>
+  <!-- The start screen. Three things this tool does, in the words someone
+       would use for the job they turned up with. -->
+  <section id="home">
+    <div class="doors">
+      <button class="door" onclick="setDoor('install')">
+        <span class="door-k">Install an operating system</span>
+        <span class="door-d">Pick an OS, choose what gets installed with it, and write a bootable
+          drive. Downloads and verifies the official media for you.</span>
+        <span class="door-go">Start ›</span>
+      </button>
+      <button class="door" onclick="setDoor('clone')">
+        <span class="door-k">Copy a drive</span>
+        <span class="door-d">Duplicate a drive you already have — onto one, or onto many at once.
+          Reads any disk, including an internal SSD.</span>
+        <span class="door-go">Start ›</span>
+      </button>
+      <button class="door" onclick="setDoor('disks')">
+        <span class="door-k">Disk utility</span>
+        <span class="door-d">See what is on a disk and what is using it, and put a disk back into
+          a state this computer can read.</span>
+        <span class="door-go">Start ›</span>
+      </button>
+    </div>
+    <div class="homefoot">
+      <span id="homeHint"></span>
+      <button class="linkish" onclick="setDoor('advanced')">Recipes, workspaces and artifacts ›</button>
+    </div>
+  </section>
+
+  <div class="col" style="display:flex;flex-direction:column;gap:16px">
+    <section data-door="install" id="catalogSec"><h2>Install an OS <span class="spacer"></span><button onclick="writeOwnImage()" title="Write an ISO or disk image from your own disk">Use your own ISO…</button></h2>
       <div class="pick">
         <select id="catalogPick" aria-label="Operating system"></select>
         <button class="primary" id="catalogGo">Install…</button>
       </div>
       <div class="picknote" id="catalogNote"></div>
     </section>
-    <section><h2>Workspace <span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
+    <section data-door="advanced"><h2>Workspace <span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
       <div class="rows" id="wsPanel"></div>
     </section>
-    <section id="jobsSec"><h2>Activity</h2><div class="rows" id="jobs"><div class="empty">No jobs yet — build a recipe or flash a stick.</div></div></section>
-    <section><h2>Recipes <span class="spacer"></span><button onclick="loadState()">Refresh</button></h2><div class="rows" id="recipes"></div></section>
-    <section><h2>Artifacts</h2><div class="rows" id="artifacts"></div></section>
+    <section data-door="install clone disks advanced" id="jobsSec"><h2>Activity</h2><div class="rows" id="jobs"><div class="empty">No jobs yet — build a recipe or flash a stick.</div></div></section>
+    <section data-door="advanced"><h2>Recipes <span class="spacer"></span><button onclick="loadState()">Refresh</button></h2><div class="rows" id="recipes"></div></section>
+    <section data-door="advanced"><h2>Artifacts</h2><div class="rows" id="artifacts"></div></section>
   </div>
-  <div style="display:flex;flex-direction:column;gap:16px">
-    <section><h2>Devices <span class="spacer"></span><button onclick="loadState()">Rescan</button></h2><div class="rows" id="devices"></div></section>
-    <section><h2>Disks <span class="spacer"></span><button onclick="loadDisks()">Refresh</button></h2><div class="rows" id="disks"><div class="empty">Reading disks…</div></div></section>
-    <section><h2>Your installers <span class="spacer"></span><button onclick="addInstaller()" title="Add a .msi or .exe from this machine">Add installer…</button></h2>
+  <div class="col" style="display:flex;flex-direction:column;gap:16px">
+    <section data-door="install clone disks"><h2>Devices <span class="spacer"></span><button onclick="loadState()">Rescan</button></h2><div class="rows" id="devices"></div></section>
+    <section data-door="clone disks"><h2>Disks <span class="spacer"></span><button onclick="loadDisks()">Refresh</button></h2><div class="rows" id="disks"><div class="empty">Reading disks…</div></div></section>
+    <section data-door="install"><h2>Your installers <span class="spacer"></span><button onclick="addInstaller()" title="Add a .msi or .exe from this machine">Add installer…</button></h2>
       <div class="rows" id="myapps"></div>
     </section>
-    <section><h2>Sources</h2><div class="rows" id="sources"></div></section>
+    <section data-door="advanced"><h2>Sources</h2><div class="rows" id="sources"></div></section>
   </div>
 </main>
 
@@ -519,6 +588,44 @@ function el(tag, cls, text) {
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+
+// ── Doors ─────────────────────────────────────────────────────────────────
+// Which door is open is UI state and nothing else: no panel is unmounted, no
+// request is cancelled, and a job started behind one door keeps running and
+// keeps reporting from Activity, which every door shows.
+const DOORS = {
+  home:     { name: "" },
+  install:  { name: "Install an operating system" },
+  clone:    { name: "Copy a drive" },
+  disks:    { name: "Disk utility" },
+  advanced: { name: "Recipes, workspaces and artifacts" },
+};
+let door = "home";
+
+function setDoor(name) {
+  if (!DOORS[name]) name = "home";
+  door = name;
+  document.body.setAttribute("data-door", name);
+  $("doorName").textContent = DOORS[name].name;
+  $("backBtn").hidden = name === "home";
+  // Coming back to a door should show what is true now, not what was true
+  // when it was last open — a stick may have been pulled out since.
+  if (name === "clone" || name === "disks") loadDisks();
+  try { localStorage.setItem("door", name); } catch (e) {}
+  window.scrollTo(0, 0);
+}
+
+// Reopening the app lands on the start screen deliberately. The exception is a
+// reload, which is usually someone recovering the page they were already on.
+function restoreDoor() {
+  let start = "home";
+  try {
+    if (performance.getEntriesByType("navigation")[0]?.type === "reload") {
+      start = localStorage.getItem("door") || "home";
+    }
+  } catch (e) {}
+  setDoor(start);
 }
 
 // catalogPick is the chosen entry's id, held outside the DOM because render()
@@ -1105,6 +1212,7 @@ async function loadState() {
   try { state = await api("/api/state"); render(); }
   catch (e) { showErr(e.message); }
 }
+restoreDoor();
 loadState();
 loadDisks();
 loadMyApps();
