@@ -1,4 +1,4 @@
-# DSKY
+<h1 align="center"><img src="docs/logo/dsky-cyan.png" alt="DSKY" width="480"></h1>
 
 One tool to build bootable installation USB media for a fleet: pull and store
 OS images, keep per-hardware driver packs, compose unattended install media
@@ -82,11 +82,16 @@ directory/zip/cab and reports class, versions, and hardware IDs; `drivers
 add` stages a pack you already have; `drivers scan` lists the local
 machine's devices that still need drivers, with the IDs to search for.
 
-Safety, inherited from the shell script this tool generalizes: only
-removable USB devices are ever flashable, the disk hosting the OS is
-hard-refused, flashing requires typing the target's exact size, stale GPT
-backup headers are wiped, and every write is verified by readback (which
-also catches counterfeit flash).
+Safety. The disk the running OS lives on is refused outright; that is not a
+confirmation anyone can click through. Install media is written only to
+removable USB. Copying a drive and the disk utility can also write to a fixed
+disk, but only when a person picked that disk for that job, and it is
+deliberately harder than writing to a stick. Before anything destructive, the
+confirmation describes the target the way its owner would recognise it —
+model, size, serial, partitions, labels, where it is mounted — and then asks
+for its exact size to be typed. Stale GPT backup headers are wiped, and every
+write is verified by readback (which also catches counterfeit flash). Reading
+is never restricted: the system disk can be the source of a copy.
 
 ## Install (no admin rights needed)
 
@@ -123,11 +128,13 @@ dsky catalog
 dsky install windows-11 --edition Pro --account local --debloat standard
 ```
 
-Sixteen operating systems ship in the list today: Windows 11 and 10 (fetched
-from Microsoft on demand via Fido); Ubuntu 26.04 LTS desktop and server plus
-24.04 LTS server; Fedora 44 Workstation and Server; Debian 13; Arch; Omarchy;
-CachyOS desktop and handheld; Linux Mint; NixOS 26.05; Raspberry Pi OS; and
-Valve's Steam Deck recovery image.
+Twenty-seven operating systems ship in the list today: Windows 11 and 10
+(fetched from Microsoft on demand via Fido); Ubuntu 26.04 LTS desktop and
+server plus 24.04 LTS server; Fedora 44 Workstation and Server; Debian 13;
+Arch; Omarchy; CachyOS desktop and handheld; Linux Mint; Pop!_OS; Bazzite;
+Nobara; Garuda; PikaOS; openSUSE Tumbleweed; NixOS 26.05; Red Hat Enterprise
+Linux 10, AlmaLinux and Rocky Linux; Proxmox VE; TrueNAS SCALE; Raspberry Pi
+OS; and Valve's Steam Deck recovery image.
 
 Nothing is bundled. Each entry is a pinned pointer — URL plus SHA-256, or a
 vendor checksum file for images whose URL always means "newest" — so the bytes
@@ -270,7 +277,7 @@ is built into the OS (Mount-DiskImage/hdiutil, DISM); Linux needs `7zz` and
 
 ## Status
 
-Early but real: the FAT32 dsky passes a native acid test (Windows mounts
+Early but real: the FAT32 image builder passes a native acid test (Windows mounts
 a composed image, `chkdsk` reports zero problems, 400+ files hash-identical
 through the Windows FAT driver, byte-reproducible builds), the full Windows
 pipeline — captured-master trees, ISO extraction, overlays, driver packs,
@@ -285,6 +292,13 @@ Known gaps, stated plainly:
 - **No physical Windows install has been done end to end yet** with drivers
   and programs staged. That is the next acceptance milestone, and until it
   passes, the first-boot driver and winget paths are reviewed but unproven.
+  Domain join has not yet joined a real domain.
+- **Copying a drive has never touched a real disk.** The clone engine's
+  logic is tested — fanning out to many targets, a stick pulled mid-write, a
+  drive that stores something other than what it was sent, every mistaken
+  pairing — but against an in-memory target. The platform write path it
+  depends on is not exercised by any of that.
+- **The race detector has never run** over the test suite.
 - **Parallel multi-stick writing has not been run on more than one stick.**
   The engine is there and its guards are tested; the concurrency is not
   hardware-proven.
