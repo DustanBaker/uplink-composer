@@ -1071,14 +1071,17 @@ func (s *Server) handleDiskPrepare(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, "%v", err)
 		return
 	}
-	if err := diskutil.Guard(dev, false); err != nil {
+	// Permission is derived from the disk named, never sent by the client: a
+	// fixed disk is allowed, and asking for one is what grants it.
+	if err := diskutil.Guard(dev, !dev.Routine()); err != nil {
 		httpErr(w, 400, "%v", err)
 		return
 	}
 	opts := diskutil.Options{
-		Scheme: diskutil.Scheme(strings.ToLower(req.Scheme)),
-		FS:     diskutil.FS(strings.ToLower(req.FS)),
-		Label:  req.Label,
+		Scheme:     diskutil.Scheme(strings.ToLower(req.Scheme)),
+		FS:         diskutil.FS(strings.ToLower(req.FS)),
+		Label:      req.Label,
+		AllowFixed: !dev.Routine(),
 	}
 	if opts.Scheme == "" {
 		opts.Scheme = diskutil.GPT
