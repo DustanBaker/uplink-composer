@@ -120,11 +120,32 @@ func TestVerifyWithOwnInstallerAndNoWingetApps(t *testing.T) {
 // answer has to be machine-readable, not just coloured text.
 func TestVerifyExitCodeIsUsable(t *testing.T) {
 	got := renderVerify(verifyRecipe(nil), ResolvedDrivers{})
-	if !strings.Contains(got, "exit 1") || !strings.Contains(got, "exit 0") {
-		t.Error("the check does not set an exit code, so it cannot be scripted over twenty machines")
+	for _, code := range []string{"exit 0", "exit 1", "exit 2"} {
+		if !strings.Contains(got, code) {
+			t.Errorf("the check never returns %q, so it cannot be scripted over twenty machines", code)
+		}
 	}
 	if !strings.Contains(got, "DOES NOT MATCH THE BUILD") {
 		t.Error("a failing machine is not called out unmistakably")
+	}
+}
+
+// TestVerifyTellsRunningApartFromFailed is the difference between a check
+// people trust and one they learn to ignore. Installing programs at first boot
+// takes minutes and needs the network, so someone running this at the first
+// logon prompt would otherwise get a red report that only means "not yet".
+func TestVerifyTellsRunningApartFromFailed(t *testing.T) {
+	got := renderVerify(verifyRecipe(nil), ResolvedDrivers{})
+	for _, want := range []string{
+		"LastWriteTime",               // how recently first boot wrote
+		"STILL RUNNING",               // said plainly
+		"exit 2",                      // and distinguishable by a script
+		"-Wait",                       // how to watch it finish
+		"has not been written to for", // the genuinely-stuck wording
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("cannot tell a running first boot from a failed one: missing %q", want)
+		}
 	}
 }
 
