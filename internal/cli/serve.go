@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/uplinkresearch/dsky/internal/appconfig"
@@ -116,6 +117,21 @@ func AppMain() error {
 	if err != nil {
 		return err
 	}
+	// The other direction: when the server stops first — Quit in the page, or
+	// the idle timeout — the window goes too, rather than staying on screen
+	// serving nothing. On macOS this is also what quits at all: closing a
+	// Chromium window there does not quit Chromium, so the window's browser
+	// outlives the window until the server's idle timeout reaches here.
+	//
+	// Not during an update restart, which stops the server on purpose and
+	// relaunches a moment later: closing the window there would end this
+	// process before the relaunch, and the app would never come back.
+	go func() {
+		<-done
+		if !restarting.Load() {
+			closeWindow()
+		}
+	}()
 	if showWindow(url, appTitle) {
 		// The window is the app. Closing it quits, which is the gesture
 		// everybody already uses and previously did nothing.
@@ -143,6 +159,10 @@ func AppMain() error {
 	return nil
 }
 
+// restarting is set while restartAfterUpdate is replacing this process, so the
+// server stopping is not taken as a reason to close the window.
+var restarting atomic.Bool
+
 // appTitle is what the window is called in the taskbar and the title bar.
 const appTitle = "DSKY"
 
@@ -169,6 +189,7 @@ func waitForPredecessor(libRoot string) {
 // process also waits, because "stopped" and "the socket is released" are not
 // the same instant.
 func restartAfterUpdate(stop func()) {
+	restarting.Store(true)
 	// Stop before starting, not after. The replacement wants this port and
 	// this instance record, and a new process that finds the old one still
 	// listening concludes a portal is already running and hands the window

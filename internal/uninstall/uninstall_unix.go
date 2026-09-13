@@ -5,6 +5,8 @@ package uninstall
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 // installDir is where install.sh puts the binaries. It is a shared directory
@@ -33,6 +35,16 @@ func programItems(self string) []Item {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
+		return items
+	}
+	if runtime.GOOS == "darwin" {
+		// The app bundle install.sh builds. Named in full: a DSKY.app that
+		// install.sh did not make (its Info.plist says otherwise) is not ours.
+		app := filepath.Join(home, "Applications", "DSKY.app")
+		if b, err := os.ReadFile(filepath.Join(app, "Contents", "Info.plist")); err == nil &&
+			strings.Contains(string(b), "com.uplinkresearch.dsky") {
+			items = append(items, Item{Path: app, What: "the app in ~/Applications", Kind: KindProgram})
+		}
 		return items
 	}
 	items = append(items,

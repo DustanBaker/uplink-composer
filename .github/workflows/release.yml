@@ -36,6 +36,8 @@ jobs:
           cp dsky.ico dist/dsky.ico
           # The Linux app-drawer icon install.sh fetches, hashed with the rest.
           cp dsky.png dist/dsky.png
+          # The macOS app icon, for the DSKY.app install.sh builds.
+          cp dsky.icns dist/dsky.icns
           (cd dist && sha256sum * > SHA256SUMS.txt)
       - name: Create release
         env:

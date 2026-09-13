@@ -61,8 +61,7 @@ chmod +x "$BIN/dsky"
 ln -sf dsky "$BIN/compose"
 echo "SHA-256 verified."
 
-# Linux: an app-drawer launcher (macOS has no equivalent drop-in; use the CLI).
-# The names match what `dsky uninstall` removes.
+# Linux: an app-drawer launcher. The names match what `dsky uninstall` removes.
 if [ "$OS" = "linux" ]; then
   APPS="$HOME/.local/share/applications"
   ICONS="$HOME/.local/share/icons"
@@ -84,6 +83,60 @@ Categories=System;Utility;
 EOF
   update-desktop-database "$APPS" >/dev/null 2>&1 || true
   echo "Added an app-drawer launcher (DSKY)."
+fi
+
+# macOS: ~/Applications/DSKY.app, so DSKY is in Launchpad and Spotlight like any
+# other app. It is a small bundle whose executable runs `dsky app`; the program
+# itself stays in $BIN, where `dsky update` replaces it.
+#
+# Built here rather than downloaded, on purpose. A downloaded, unsigned .app is
+# quarantined and Gatekeeper refuses to open it; files a script writes to disk
+# carry no quarantine flag, so this one opens without a warning.
+if [ "$OS" = "darwin" ]; then
+  APP="$HOME/Applications/DSKY.app"
+  # Replace only a DSKY.app that this script made; anything else with that name
+  # is somebody's, and is left alone.
+  if [ -e "$APP" ] && ! grep -q "com.uplinkresearch.dsky" "$APP/Contents/Info.plist" 2>/dev/null; then
+    echo "Not creating $APP: something else already has that name." >&2
+  else
+    rm -rf "$APP"
+    mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+    ICNS_URL=$(asset_url "dsky.icns")
+    ICON_KEY=""
+    if [ -n "$ICNS_URL" ] && (fetch_verified dsky.icns "$ICNS_URL" "$APP/Contents/Resources/dsky.icns") 2>/dev/null; then
+      ICON_KEY="<key>CFBundleIconFile</key><string>dsky</string>"
+    fi
+    printf '#!/bin/sh\nexec "%s/dsky" app\n' "$BIN" > "$APP/Contents/MacOS/DSKY"
+    chmod +x "$APP/Contents/MacOS/DSKY"
+    # LSUIElement: the launcher is a shell script with no window of its own, and
+    # without this it would sit in the Dock as an icon that does nothing when
+    # clicked. The DSKY window belongs to the browser that draws it.
+    cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>DSKY</string>
+  <key>CFBundleDisplayName</key><string>DSKY</string>
+  <key>CFBundleIdentifier</key><string>com.uplinkresearch.dsky</string>
+  <key>CFBundleExecutable</key><string>DSKY</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${TAG#v}</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  $ICON_KEY
+</dict>
+</plist>
+PLIST
+    # Tell LaunchServices now, so Spotlight and Launchpad find it without waiting
+    # for their next scan. Best effort: it is an app either way.
+    LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    if [ -x "$LSREGISTER" ]; then "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true; fi
+    touch "$APP"
+    echo "Added DSKY to ~/Applications (Launchpad and Spotlight find it there)."
+  fi
 fi
 
 echo ""
