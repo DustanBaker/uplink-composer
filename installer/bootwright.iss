@@ -20,7 +20,7 @@
 AppId={{8F3C2A61-5D74-4E2B-9C18-7A6B0E4D9F23}
 AppName=Bootwright
 AppVersion={#AppVersion}
-AppPublisher=Bootwright Research LLC
+AppPublisher=Uplink Research LLC
 AppPublisherURL=https://uplinkresearch.com
 AppSupportURL=https://github.com/uplinkresearch/bootwright
 AppUpdatesURL=https://github.com/uplinkresearch/bootwright/releases
