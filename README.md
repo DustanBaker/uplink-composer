@@ -115,7 +115,7 @@ directories. (Private fork? Set `GITHUB_TOKEN` first.)
 
 ## Quick Install — pick an OS, no setup
 
-Launch the app (Start-menu icon or `dsky serve --open`) and the home screen
+Launch the app (Start-menu or app-launcher icon, or `dsky app`) and the home screen
 has an **Install an OS** list, grouped into desktop, server, and single-board.
 Pick one, choose a couple of options — for Windows: edition, **local account
 vs. normal OOBE**, how much bloatware to strip, **drivers for this computer**,
