@@ -15,10 +15,14 @@
 //     formatted volume. It is destructive, so it runs through the same
 //     elevated worker and the same typed-size interlock as flashing.
 //
-// Scope is removable USB media only. The policy gate is device.Flashable(),
-// the same one the flash engine uses — a partition editor that can reach an
-// internal disk is a different tool with a different blast radius, and this
-// is not it.
+// Scope is every disk except the one the OS is running from. Removable media
+// is the ordinary case and needs no ceremony; a fixed disk is reachable too,
+// but only when the caller passes allowFixed — permission that has to be
+// carried explicitly from wherever a human was actually asked, and which the
+// zero value never grants.
+//
+// The running system disk is refused unconditionally and is not a confirmation
+// anyone can click through.
 package diskutil
 
 import (
@@ -83,6 +87,10 @@ type Options struct {
 	Scheme Scheme
 	FS     FS
 	Label  string
+	// AllowFixed lets Prepare erase a disk that is not removable media. It
+	// defaults to false so that a caller written before fixed disks were
+	// permitted cannot start erasing them by inheriting a wider policy.
+	AllowFixed bool
 }
 
 func (o *Options) defaults() {
@@ -129,13 +137,18 @@ func (o Options) Validate(dev device.Device) error {
 }
 
 // Guard is the policy gate shared by every destructive operation here.
-func Guard(dev device.Device) error {
-	if dev.System {
+//
+// allowFixed carries a human's explicit decision down from wherever it was
+// actually made. It is a parameter rather than a package setting so that it
+// cannot be switched on once and then silently apply to a later call nobody
+// was looking at.
+func Guard(dev device.Device, allowFixed bool) error {
+	if !dev.Writable() {
 		return fmt.Errorf("refusing %s: it hosts the running OS", dev.ID)
 	}
-	if !dev.Flashable() {
-		return fmt.Errorf("refusing %s: disk utilities are limited to removable USB media (bus=%s) — "+
-			"use the operating system's own disk manager for internal drives", dev.ID, dev.Bus)
+	if !dev.Routine() && !allowFixed {
+		return fmt.Errorf("refusing %s: this is a fixed disk (bus=%s), not removable media — "+
+			"it can be erased, but only after confirming which disk it is", dev.ID, dev.Bus)
 	}
 	return nil
 }
@@ -189,7 +202,7 @@ func mountsOf(l Layout) []string {
 // must run elevated; callers reach it through the flash worker.
 func Prepare(ctx context.Context, dev device.Device, opts Options, progress func(stage string)) error {
 	opts.defaults()
-	if err := Guard(dev); err != nil {
+	if err := Guard(dev, opts.AllowFixed); err != nil {
 		return err
 	}
 	if err := opts.Validate(dev); err != nil {

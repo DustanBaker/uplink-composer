@@ -1069,7 +1069,7 @@ func (s *Server) handleDiskPrepare(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, "%v", err)
 		return
 	}
-	if err := diskutil.Guard(dev); err != nil {
+	if err := diskutil.Guard(dev, false); err != nil {
 		httpErr(w, 400, "%v", err)
 		return
 	}

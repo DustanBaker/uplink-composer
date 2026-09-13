@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 
@@ -42,17 +43,36 @@ type Target interface {
 	Close() error
 }
 
+// ErrFixedDisk is returned when a target is writable but is not a removable
+// stick, and the caller has not said it means to write to a fixed disk.
+var ErrFixedDisk = errors.New("target is a fixed disk")
+
+// CheckTarget is the write policy in one place.
+//
+// The system disk is refused always and unconditionally. A fixed disk is
+// allowed only when the caller passes allowFixed, which exists so that
+// permission has to be carried explicitly from the place that actually asked a
+// human, rather than being the default anything inherits. Every caller written
+// before fixed disks were allowed passes false and keeps its old behaviour.
+func CheckTarget(dev device.Device, allowFixed bool) error {
+	if !dev.Writable() {
+		return fmt.Errorf("refusing %s: it hosts the running OS", dev.ID)
+	}
+	if !dev.Routine() && !allowFixed {
+		return fmt.Errorf("refusing %s: %w (bus=%s, removable=%v) — this needs an explicit confirmation the caller did not give",
+			dev.ID, ErrFixedDisk, dev.Bus, dev.Removable)
+	}
+	return nil
+}
+
 // Flash writes the artifact to dev and verifies by readback unless the
 // artifact says verify none. progress may be nil.
 func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progress Progress) error {
 	if progress == nil {
 		progress = func(string, int64, int64) {}
 	}
-	if !dev.Flashable() {
-		return fmt.Errorf("flash: refusing %s: not a removable USB device (bus=%s system=%v)", dev.ID, dev.Bus, dev.System)
-	}
-	if dev.System {
-		return fmt.Errorf("flash: refusing %s: it hosts the running OS", dev.ID)
+	if err := CheckTarget(dev, false); err != nil {
+		return err
 	}
 	if art.MinStick > 0 && dev.SizeBytes > 0 && dev.SizeBytes < art.MinStick {
 		return fmt.Errorf("flash: %s is %d MiB, recipe requires at least %d MiB", dev.ID, dev.SizeBytes>>20, art.MinStick>>20)

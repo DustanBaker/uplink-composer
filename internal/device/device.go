@@ -24,20 +24,42 @@ type Device struct {
 	Mounts    []string // mounted volumes/drive letters, informational
 }
 
-// Flashable is the single policy gate: USB-attached, removable-class, not
-// the system disk.
-func (d Device) Flashable() bool {
-	return d.Bus == "usb" && !d.System
-}
+// Writable reports whether this disk may be written to at all.
+//
+// One disk is refused and only one: the disk the running OS is on. That refusal
+// is absolute and is not a confirmation anybody can click through, because
+// overwriting the filesystem underneath a running kernel does not fail in a way
+// the user gets to learn from.
+//
+// Everything else is somebody's hardware and theirs to overwrite. Whether it
+// should be *easy* is a separate question — see Routine.
+func (d Device) Writable() bool { return !d.System }
+
+// Routine reports a write that needs no ceremony: a removable USB stick, which
+// is what this tool is usually pointed at and the cheapest thing to get wrong.
+//
+// A fixed disk is still Writable, and deliberately not Routine. The difference
+// is what the caller has to do first — a stick costs eight dollars and a
+// moment, somebody's second SSD costs an afternoon and possibly the only copy
+// of something.
+func (d Device) Routine() bool { return d.Bus == "usb" && !d.System }
+
+// Flashable is the old name for Routine, kept so that every caller which has
+// not been reviewed against the wider policy keeps the narrow behaviour it was
+// written for. New code should say which of the two it means.
+//
+// Deprecated: use Writable for "may I write here" or Routine for "is this the
+// ordinary case".
+func (d Device) Flashable() bool { return d.Routine() }
 
 // String renders one listing row.
 func (d Device) String() string {
 	size := float64(d.SizeBytes) / (1 << 30)
 	note := ""
 	if d.System {
-		note = "  [SYSTEM DISK — never flashable]"
-	} else if !d.Flashable() {
-		note = "  [not usb — not flashable]"
+		note = "  [SYSTEM DISK — never writable]"
+	} else if !d.Routine() {
+		note = "  [fixed disk — writable, but confirm carefully]"
 	}
 	return fmt.Sprintf("%-22s %7.1f GiB  %-4s  %s%s", d.ID, size, d.Bus, d.Model, note)
 }

@@ -118,7 +118,7 @@ func disksPrepare(ctx context.Context, args []string) error {
 	}
 	// Both gates before anything destructive: policy, then the options the
 	// platform tooling would reject later anyway.
-	if err := diskutil.Guard(dev); err != nil {
+	if err := diskutil.Guard(dev, false); err != nil {
 		return err
 	}
 	if err := opts.Validate(dev); err != nil {

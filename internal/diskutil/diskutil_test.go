@@ -11,30 +11,45 @@ func usb(size int64) device.Device {
 	return device.Device{ID: `\\.\PhysicalDrive9`, Bus: "usb", SizeBytes: size}
 }
 
-// TestGuardRefusesAnythingButRemovableUSB is the safety property. The whole
-// argument for shipping disk utilities is that they cannot reach an internal
-// drive; if this test ever passes something else, that argument is gone.
-func TestGuardRefusesAnythingButRemovableUSB(t *testing.T) {
+// TestGuardPolicy is the safety property, and it has two halves.
+//
+// The system disk is refused no matter what anyone passes: there is no
+// confirmation that makes overwriting the running OS survivable, so it is not
+// offered as a choice. Every other disk is the owner's to erase — but a fixed
+// disk only when permission was carried in explicitly, so that reaching one
+// always traces back to somewhere a human was asked.
+func TestGuardPolicy(t *testing.T) {
 	cases := []struct {
-		name string
-		dev  device.Device
-		ok   bool
+		name              string
+		dev               device.Device
+		plain, withPermit bool // allowed with allowFixed=false / =true
 	}{
-		{"removable usb", device.Device{ID: "d", Bus: "usb"}, true},
-		{"system disk", device.Device{ID: "d", Bus: "usb", System: true}, false},
-		{"internal nvme", device.Device{ID: "d", Bus: "nvme"}, false},
-		{"internal sata", device.Device{ID: "d", Bus: "scsi"}, false},
-		{"system nvme", device.Device{ID: "d", Bus: "nvme", System: true}, false},
-		{"unknown bus", device.Device{ID: "d"}, false},
+		{"removable usb", device.Device{ID: "d", Bus: "usb"}, true, true},
+		{"internal nvme", device.Device{ID: "d", Bus: "nvme"}, false, true},
+		{"internal sata", device.Device{ID: "d", Bus: "scsi"}, false, true},
+		{"unknown bus", device.Device{ID: "d"}, false, true},
+
+		// No permission reaches these.
+		{"system disk on usb", device.Device{ID: "d", Bus: "usb", System: true}, false, false},
+		{"system nvme", device.Device{ID: "d", Bus: "nvme", System: true}, false, false},
 	}
 	for _, c := range cases {
-		err := Guard(c.dev)
-		if c.ok && err != nil {
-			t.Errorf("%s: refused a valid target: %v", c.name, err)
+		if err := Guard(c.dev, false); (err == nil) != c.plain {
+			t.Errorf("%s: Guard(allowFixed=false) = %v, wanted allowed=%v", c.name, err, c.plain)
 		}
-		if !c.ok && err == nil {
-			t.Errorf("%s: ALLOWED a target it must refuse", c.name)
+		if err := Guard(c.dev, true); (err == nil) != c.withPermit {
+			t.Errorf("%s: Guard(allowFixed=true) = %v, wanted allowed=%v", c.name, err, c.withPermit)
 		}
+	}
+}
+
+// TestPermissionIsNotInheritedByDefault: the zero Options must not be able to
+// erase a fixed disk. Anything that forgets to think about this gets the narrow
+// behaviour, which is the only default worth having here.
+func TestPermissionIsNotInheritedByDefault(t *testing.T) {
+	fixed := device.Device{ID: `\\.\PhysicalDrive1`, Bus: "nvme", SizeBytes: 1 << 40}
+	if err := Prepare(nil, fixed, Options{}, nil); err == nil {
+		t.Fatal("the zero Options erased a fixed disk — permission must be explicit")
 	}
 }
 
