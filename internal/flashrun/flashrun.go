@@ -30,11 +30,19 @@ type Progress func(stage string, done, total int64)
 // twenty UAC prompts to image twenty sticks is not a workflow anyone would
 // use.
 type Job struct {
-	Op       string            `json:"op"` // "flash" | "clone" | "prepare"
+	Op       string            `json:"op"` // "flash" | "clone" | "duplicate" | "prepare"
 	Artifact *compose.Artifact `json:"artifact,omitempty"`
 	Devices  []device.Device   `json:"devices"`
 	OutPath  string            `json:"out_path,omitempty"` // clone
 	Disk     *diskutil.Options `json:"disk,omitempty"`     // prepare
+	// Source is the disk being copied for "duplicate"; Devices are where it
+	// goes. It is read and never written, so it may be any disk at all.
+	Source *device.Device `json:"source,omitempty"`
+	// AllowFixed carries a human's decision to write to something that is not
+	// removable media. It crosses the elevation boundary as part of the job
+	// because the worker re-checks the policy itself rather than trusting that
+	// the caller did.
+	AllowFixed bool `json:"allow_fixed,omitempty"`
 }
 
 // event is one progress-file line. Device tags which target it came from, so
@@ -76,6 +84,30 @@ func RunFlashMany(ctx context.Context, art *compose.Artifact, devs []device.Devi
 		})
 	}
 	_, err := runElevated(ctx, Job{Op: "flash", Artifact: art, Devices: devs}, progress)
+	return err
+}
+
+// RunDuplicate copies src onto every disk in dsts, elevating as needed.
+//
+// allowFixed is the caller's statement that a human chose a destination which
+// is not removable media. It is passed down rather than decided here, and the
+// worker checks the policy again on the far side of elevation — a decision made
+// in the UI should not become a decision made by whatever can reach this
+// function.
+func RunDuplicate(ctx context.Context, src device.Device, dsts []device.Device, allowFixed bool, progress DeviceProgress) error {
+	if len(dsts) == 0 {
+		return fmt.Errorf("no destination to copy onto")
+	}
+	if elevate.IsElevated() {
+		_, err := flash.Clone(ctx, src, dsts, allowFixed,
+			func(target, stage string, done, total int64) {
+				if progress != nil {
+					progress(target, stage, done, total)
+				}
+			})
+		return err
+	}
+	_, err := runElevated(ctx, Job{Op: "duplicate", Source: &src, Devices: dsts, AllowFixed: allowFixed}, progress)
 	return err
 }
 
@@ -305,6 +337,26 @@ func Worker(ctx context.Context, jobPath, progPath string) int {
 			return 1
 		}
 		emit(event{Stage: "done", Result: result})
+		return 0
+	case "duplicate":
+		if job.Source == nil {
+			emit(event{Error: "job has no source disk"})
+			return 2
+		}
+		res, err := flash.Clone(ctx, *job.Source, job.Devices, job.AllowFixed,
+			func(target, stage string, done, total int64) { report(target, stage, done, total) })
+		// Report each destination's own outcome before the overall one: with
+		// twenty sticks, "one failed" is useless without saying which.
+		for _, r := range res {
+			if r.Err != nil {
+				emit(event{Stage: "error", Device: r.Device.ID, Error: r.Err.Error()})
+			}
+		}
+		if err != nil {
+			emit(event{Stage: "error", Error: err.Error()})
+			return 1
+		}
+		emit(event{Stage: "done", Result: fmt.Sprintf("copied onto %d", len(res))})
 		return 0
 	case "prepare":
 		if job.Disk == nil {

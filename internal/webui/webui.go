@@ -162,6 +162,8 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/update", s.auth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/update", s.auth(s.handleUpdateApply))
 	mux.HandleFunc("POST /api/capture", s.auth(s.handleCapture))
+	mux.HandleFunc("GET /api/identify", s.auth(s.handleIdentify))
+	mux.HandleFunc("POST /api/duplicate", s.auth(s.handleDuplicate))
 	mux.HandleFunc("POST /api/quit", s.auth(s.handleQuit))
 	mux.HandleFunc("GET /api/events", s.auth(s.handleEvents))
 	return s.hostGuard(mux)
