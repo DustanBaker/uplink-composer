@@ -9,6 +9,9 @@
     --bg: #101418; --panel: #171d24; --panel2: #1d242d; --line: #2a333e;
     --text: #d7dee7; --dim: #8a97a5; --accent: #5aa9e6; --ok: #6fd08c;
     --warn: #e6c05a; --err: #e66a5a; --danger: #b8434a;
+    /* A <select>'s popup list is drawn by the browser, not by this stylesheet.
+       Without this it comes up white against a dark page. */
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
@@ -46,6 +49,17 @@
   .row .sub { color: var(--dim); font-size: 12px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
   .empty { color: var(--dim); padding: 12px 14px; font-style: italic; }
+  /* The OS picker. One dropdown rather than a wall of rows: the list is thirty
+     entries and growing, and scrolling past twenty-nine things you are not
+     installing is not browsing. */
+  .pick { display: flex; align-items: center; gap: 10px; padding: 12px 14px 8px; }
+  .pick select { flex: 1; min-width: 0; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+    font: inherit; font-size: 13px; }
+  .pick select:hover { border-color: var(--accent); }
+  .picknote { display: flex; align-items: baseline; gap: 8px;
+    padding: 0 14px 13px; color: var(--dim); font-size: 12px; line-height: 1.45; }
+  .picknote .grow { flex: 1; min-width: 0; }
   .badge { font-size: 11px; padding: 1px 7px; border-radius: 9px;
     border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
   .badge.ok { color: var(--ok); border-color: var(--ok); }
@@ -89,9 +103,6 @@
   .wsexplain { color: var(--dim); font-size: 12px; padding: 4px 14px 8px; line-height: 1.5; }
   .wswhere { color: var(--dim); font-size: 12px; padding: 0 14px 2px; }
   .linkish { color: var(--accent); cursor: pointer; text-decoration: underline; }
-  .catgroup { color: var(--dim); font-size: 11px; text-transform: uppercase;
-    letter-spacing: .04em; margin: 10px 0 2px; }
-  .catgroup:first-child { margin-top: 0; }
   details.apps { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
   details.apps summary { cursor: pointer; color: var(--text); font-size: 13px; }
   details.apps[open] summary { margin-bottom: 6px; }
@@ -123,7 +134,11 @@
 <main>
   <div style="display:flex;flex-direction:column;gap:16px">
     <section id="catalogSec"><h2>Install an OS <span class="spacer"></span><button onclick="writeOwnImage()" title="Write an ISO or disk image from your own disk">Use your own ISO…</button></h2>
-      <div class="rows" id="catalog"></div>
+      <div class="pick">
+        <select id="catalogPick" aria-label="Operating system"></select>
+        <button class="primary" id="catalogGo">Install…</button>
+      </div>
+      <div class="picknote" id="catalogNote"></div>
     </section>
     <section><h2>Workspace <span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
       <div class="rows" id="wsPanel"></div>
@@ -506,34 +521,73 @@ function el(tag, cls, text) {
   return e;
 }
 
+// catalogPick is the chosen entry's id, held outside the DOM because render()
+// runs on every job event — several times a second during a build — and
+// rebuilding the dropdown would otherwise discard a choice made a moment ago.
+let catalogPick = "";
+
+// Still grouped: "I want a server" is a different errand from "I want to try a
+// desktop", and optgroup keeps that distinction inside a single control.
+const catalogGroups = [["desktop", "Desktop"], ["server", "Server"],
+                       ["appliance", "Single-board and appliance"]];
+
+function renderCatalog() {
+  const sel = $("catalogPick"), go = $("catalogGo");
+  const list = state.catalog || [];
+
+  sel.replaceChildren();
+  if (!list.length) {
+    sel.append(new Option("No OSes in the catalog", ""));
+    sel.disabled = go.disabled = true;
+    $("catalogNote").replaceChildren();
+    return;
+  }
+  sel.disabled = false;
+  sel.append(new Option("Choose an OS…", ""));
+  for (const [key, heading] of catalogGroups) {
+    const inGroup = list.filter(o => (o.category || "desktop") === key);
+    if (!inGroup.length) continue;
+    const g = el("optgroup");
+    g.label = heading;
+    for (const os of inGroup) {
+      g.append(new Option(os.name + (os.version ? " — " + os.version : ""), os.id));
+    }
+    sel.append(g);
+  }
+  // A catalog update can retire the entry someone had selected.
+  if (catalogPick && list.some(o => o.id === catalogPick)) sel.value = catalogPick;
+  else catalogPick = "";
+
+  sel.onchange = () => { catalogPick = sel.value; renderCatalogNote(); };
+  go.onclick = () => {
+    const os = list.find(o => o.id === catalogPick);
+    if (os) openInstall(os);
+  };
+  renderCatalogNote();
+}
+
+// renderCatalogNote describes the selected entry — the line that used to sit
+// under every row, now shown only for the one being considered.
+function renderCatalogNote() {
+  const note = $("catalogNote"), go = $("catalogGo");
+  const os = (state.catalog || []).find(o => o.id === catalogPick);
+  note.replaceChildren();
+  go.disabled = !os;
+  if (!os) {
+    note.append(el("span", "grow", "Pick one to see what it installs."));
+    return;
+  }
+  const tag = os.arch && os.arch !== "amd64" ? os.family + "/" + os.arch : os.family;
+  note.append(el("span", "badge" + (os.family === "windows" ? "" : " ok"), tag),
+              el("span", "grow", os.notes || ""));
+}
+
 function render() {
   $("org").textContent = state.org || "";
   $("ws").textContent = state.workspace || "";
 
   // ── OS catalog (Quick Install) ──────────────────────────────────────────
-  const cat = $("catalog"); cat.replaceChildren();
-  if (!(state.catalog || []).length) cat.append(el("div", "empty", "No OSes in the catalog."));
-  // Grouped, because a flat list stops being browsable around a dozen and
-  // "I want a server" is a different errand from "I want to try a desktop".
-  const groups = [["desktop", "Desktop"], ["server", "Server"],
-                  ["appliance", "Single-board and appliance"]];
-  for (const [key, heading] of groups) {
-    const inGroup = (state.catalog || []).filter(o => (o.category || "desktop") === key);
-    if (!inGroup.length) continue;
-    cat.append(el("div", "catgroup", heading));
-    for (const os of inGroup) {
-      const row = el("div", "row");
-      const grow = el("div", "grow");
-      grow.append(el("div", "title", os.name),
-        el("div", "sub", (os.version ? os.version + " · " : "") + os.notes));
-      const tag = os.arch && os.arch !== "amd64" ? os.family + "/" + os.arch : os.family;
-      row.append(grow, el("span", "badge" + (os.family === "windows" ? "" : " ok"), tag));
-      const go = el("button", "primary", "Install…");
-      go.onclick = () => openInstall(os);
-      row.append(go);
-      cat.append(row);
-    }
-  }
+  renderCatalog();
 
   // ── Workspace panel ─────────────────────────────────────────────────────
   const wp = $("wsPanel"); wp.replaceChildren();

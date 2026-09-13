@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows/registry"
 )
 
 // The portal in its own window.
@@ -38,6 +41,14 @@ func showWindow(url, title string) bool {
 		return false
 	}
 	defer w.Destroy()
+
+	// The frame is Windows' to draw, not ours, and left alone it draws a light
+	// title bar above a dark page. Tell it which way we are going, and keep
+	// telling it, so flipping the system theme is reflected while the window
+	// is open rather than at the next launch.
+	stopTheme := followSystemTitleBar(uintptr(w.Window()))
+	defer stopTheme()
+
 	w.Navigate(url)
 	// Blocks until the window is closed, which is the whole lifecycle: the
 	// close button means quit, with nothing to remember and nothing left
@@ -57,6 +68,89 @@ var (
 	getDpiForSystem               = user32.NewProc("GetDpiForSystem")
 	systemParametersInfoW         = user32.NewProc("SystemParametersInfoW")
 )
+
+var dwmSetWindowAttribute = syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
+
+// followSystemTitleBar paints the title bar to match the system theme and
+// keeps it matching, returning a function that stops watching.
+//
+// There is no way to be told about this through the window, because the
+// message loop belongs to the webview, so the setting is read instead. It is
+// one small registry value, read every couple of seconds and only acted on
+// when it actually changes — cheap enough to be the boring answer, and it
+// means someone flipping Windows into light mode sees the window follow rather
+// than sitting there conspicuously wrong until they restart it.
+func followSystemTitleBar(hwnd uintptr) func() {
+	return watchTheme(systemPrefersDark,
+		func(dark bool) { setTitleBarDark(hwnd, dark) }, 2*time.Second)
+}
+
+// watchTheme applies what read reports now, then re-applies whenever it
+// changes, until the returned function is called.
+//
+// The first apply is synchronous, before the window is navigated: doing it in
+// the goroutine races the window becoming visible, and losing that race shows
+// a light title bar that turns dark a moment later.
+func watchTheme(read func() bool, apply func(bool), every time.Duration) func() {
+	cur := read()
+	apply(cur)
+
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if now := read(); now != cur {
+					cur = now
+					apply(now)
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
+}
+
+// systemPrefersDark reads Windows' own app-theme setting. Absent or
+// unreadable means light, which is the Windows default.
+func systemPrefersDark() bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER,
+		`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`,
+		registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	light, _, err := k.GetIntegerValue("AppsUseLightTheme")
+	if err != nil {
+		return false
+	}
+	return light == 0
+}
+
+// setTitleBarDark asks DWM for a dark or light frame.
+func setTitleBarDark(hwnd uintptr, dark bool) {
+	if hwnd == 0 || dwmSetWindowAttribute.Find() != nil {
+		return
+	}
+	var on int32
+	if dark {
+		on = 1
+	}
+	// 20 is DWMWA_USE_IMMERSIVE_DARK_MODE. It was 19 before Windows 10 20H1,
+	// when the attribute was undocumented, and the older builds that still use
+	// 19 reject 20 — so try the current one and fall back.
+	for _, attr := range []uintptr{20, 19} {
+		if r, _, _ := dwmSetWindowAttribute.Call(hwnd, attr,
+			uintptr(unsafe.Pointer(&on)), unsafe.Sizeof(on)); r == 0 {
+			return
+		}
+	}
+}
 
 const (
 	swRestore = 9
