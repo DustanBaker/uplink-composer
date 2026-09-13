@@ -35,6 +35,13 @@ func cmdServe(ctx context.Context, env *Env, args []string) error {
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
+	// Installs up to v0.7.0 wrote a launcher that runs `serve --open`, from
+	// before macOS and Linux had a window. Updating replaces the binary, not
+	// the launcher, so without this every existing install would keep opening
+	// a browser tab. Rewritten once, and this launch gets the window too.
+	if *open && len(args) == 1 && upgradeLauncher() {
+		return AppMain()
+	}
 	lib, err := env.library()
 	if err != nil {
 		return err
@@ -174,7 +181,9 @@ func restartAfterUpdate(stop func()) {
 	// Cancelling the context and the socket actually closing are not the same
 	// instant. waitForPredecessor on the far side covers the rest.
 	time.Sleep(600 * time.Millisecond)
-	_ = selfupdate.Relaunch()
+	// With the same arguments: `dsky app` restarted as a bare `dsky` would
+	// print the usage and exit, leaving no app at all. dsky-app has none.
+	_ = selfupdate.Relaunch(os.Args[1:]...)
 	// The window, not the server, is what holds this process open — stopping
 	// the server alone leaves an app on screen serving nothing. Closed even if
 	// the relaunch failed, because the alternative is a window whose portal is

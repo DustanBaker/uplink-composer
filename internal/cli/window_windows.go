@@ -54,6 +54,10 @@ func showWindow(url, title string) bool {
 	// is open rather than at the next launch.
 	stopTheme := followSystemTitleBar(uintptr(w.Window()))
 	defer stopTheme()
+	// On Windows 11 the frame can go further than dark: the page's own
+	// near-black, so the title bar and the header read as one surface.
+	// Windows 10 rejects the attribute and keeps the dark frame above.
+	setTitleBarColor(uintptr(w.Window()), 0x05, 0x05, 0x0f, 0xc8, 0xc8, 0xd4)
 
 	w.Navigate(url)
 	// Blocks until the window is closed, which is the whole lifecycle: the
@@ -158,6 +162,20 @@ func setTitleBarDark(hwnd uintptr, dark bool) {
 	}
 }
 
+// setTitleBarColor paints the caption background and text. The values are
+// COLORREFs, 0x00BBGGRR. 35 is DWMWA_CAPTION_COLOR and 36 DWMWA_TEXT_COLOR,
+// both Windows 11 only; an explicit caption colour outlasts the light/dark
+// switch above, which is why the text colour is set with it.
+func setTitleBarColor(hwnd uintptr, r, g, b, tr, tg, tb uint32) {
+	if hwnd == 0 || dwmSetWindowAttribute.Find() != nil {
+		return
+	}
+	caption := b<<16 | g<<8 | r
+	text := tb<<16 | tg<<8 | tr
+	dwmSetWindowAttribute.Call(hwnd, 35, uintptr(unsafe.Pointer(&caption)), unsafe.Sizeof(caption))
+	dwmSetWindowAttribute.Call(hwnd, 36, uintptr(unsafe.Pointer(&text)), unsafe.Sizeof(text))
+}
+
 const (
 	swRestore = 9
 	// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, which is the handle value -4.
@@ -256,3 +274,7 @@ func focusWindow(title string) bool {
 	setForegroundWindow.Call(h)
 	return true
 }
+
+// upgradeLauncher has nothing to do on Windows, where the shortcuts have
+// always started dsky-app.
+func upgradeLauncher() bool { return false }

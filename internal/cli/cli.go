@@ -81,6 +81,7 @@ Disk utilities (removable USB media only)
 
 Pick an interface
   tui                       full-screen terminal wizard (pick OS, options, stick)
+  app                       the web UI in its own window; closing the window quits
   serve [--port 8931]       local web UI (recipes, devices, build, flash, live progress)
 
 Other
@@ -242,6 +243,10 @@ func Main(args []string) int {
 		err = cmdGC(env)
 	case "serve":
 		err = cmdServe(ctx, env, cmdArgs)
+	case "app":
+		// What dsky-app is on Windows: the portal in its own window, quitting
+		// when the window closes. It is what the app-drawer launcher runs.
+		err = AppMain()
 	case "tui":
 		err = cmdTUI(ctx, env, cmdArgs)
 	default:

@@ -42,6 +42,13 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+// The wordmark in the header. Embedded like the page, because the page makes
+// no network requests, and served unauthenticated like the page, because it is
+// the same picture that is on the README.
+//
+//go:embed logo.webp
+var logoWebP []byte
+
 // Server holds the wiring for one serve session. The workspace is optional
 // and switchable at runtime, so the app can launch to a home screen and let
 // the operator open a workspace from the page.
@@ -146,6 +153,11 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)
+	})
+	mux.HandleFunc("GET /logo.webp", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/webp")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Write(logoWebP)
 	})
 	mux.HandleFunc("GET /api/state", s.auth(s.handleState))
 	mux.HandleFunc("POST /api/workspace", s.auth(s.handleSetWorkspace))
