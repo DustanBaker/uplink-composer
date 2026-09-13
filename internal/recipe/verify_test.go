@@ -212,10 +212,54 @@ func TestStatusScreenRunsAfterFirstBootCompletes(t *testing.T) {
 
 func TestStatusScreenCanBeCleared(t *testing.T) {
 	got := GenerateClearStatusScreen()
-	for _, want := range []string{"PersonalizationCSP", "LockScreenImagePath", "Wallpaper", "status.jpg"} {
+	for _, want := range []string{
+		"PersonalizationCSP", "LockScreenImagePath", "Wallpaper", "status.jpg",
+		// And it removes its own task, so a machine re-imaged later does not
+		// inherit a stale one.
+		"schtasks /Delete",
+		// The Windows default goes back, rather than an empty value: a blank
+		// wallpaper is a black desktop, which reads as a second fault to
+		// whoever opens the box.
+		`Web\Wallpaper\Windows\img0.jpg`,
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the clear script leaves %q behind", want)
 		}
+	}
+}
+
+// TestStatusScreenClearsItselfBeforeHandover is the property that makes this
+// safe to ship. The technician reads the bench, shuts the machine down and
+// sends it on; whoever opens the box must not find the imaging signal as their
+// wallpaper, least of all a red one.
+func TestStatusScreenClearsItselfBeforeHandover(t *testing.T) {
+	got := renderVerify(verifyRecipe(func(w *WindowsSpec) {
+		w.StatusScreen = &StatusScreen{}
+	}), ResolvedDrivers{})
+
+	// At startup, not at logon: a startup task runs before the logon screen
+	// is drawn, so the end user never sees the lock screen at all.
+	if !strings.Contains(got, "/SC ONSTART") {
+		t.Error("the cleanup is not registered for startup - the end user would see the lock screen once")
+	}
+	// And RunOnce for the desktop, which lives in the user's hive where a
+	// task running as SYSTEM cannot reach it.
+	if !strings.Contains(got, "RunOnce") {
+		t.Error("the desktop wallpaper is never cleared - SYSTEM cannot reach the user's hive")
+	}
+	if !strings.Contains(got, "clears itself on the next boot") {
+		t.Error("the operator is not told it cleans up after itself")
+	}
+
+	// keep: true is the deliberate opt-out, for a machine that stays put.
+	kept := renderVerify(verifyRecipe(func(w *WindowsSpec) {
+		w.StatusScreen = &StatusScreen{Keep: true}
+	}), ResolvedDrivers{})
+	if strings.Contains(kept, "/SC ONSTART") || strings.Contains(kept, "RunOnce") {
+		t.Error("status_screen.keep still registered a cleanup")
+	}
+	if !strings.Contains(kept, "status_screen.keep is set") {
+		t.Error("with keep set, nothing says the screen will persist")
 	}
 }
 

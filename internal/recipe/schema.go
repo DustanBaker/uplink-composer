@@ -99,10 +99,13 @@ type StatusScreen struct {
 	// artwork at all.
 	Success    string `yaml:"success,omitempty"`
 	SuccessRef string `yaml:"success_ref,omitempty"`
-	// Keep leaves the screens in place. By default they are the imaging
-	// bench's signal, not the customer's wallpaper, so the machine is put
-	// back to the Windows default once someone has read it — see
-	// Scripts\clear-status-screen.cmd on the installed machine.
+	// Keep leaves the screens up until somebody clears them by hand.
+	//
+	// By default they clear themselves at the next startup, because the
+	// screen answers one question for one person, once: the technician looks
+	// at the bench, shuts the machine down, and ships it. Whoever opens the
+	// box must not find the imaging signal as their wallpaper — least of all
+	// a red one. Set this only for a machine that stays on the bench.
 	Keep bool `yaml:"keep,omitempty"`
 }
 
