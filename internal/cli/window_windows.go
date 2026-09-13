@@ -42,6 +42,12 @@ func showWindow(url, title string) bool {
 	}
 	defer w.Destroy()
 
+	// Terminate is documented as safe from a background thread, which is the
+	// only reason the updater can close this window: it is asking from an HTTP
+	// handler's goroutine, not from the loop below.
+	setWindowCloser(w.Terminate)
+	defer setWindowCloser(nil)
+
 	// The frame is Windows' to draw, not ours, and left alone it draws a light
 	// title bar above a dark page. Tell it which way we are going, and keep
 	// telling it, so flipping the system theme is reflected while the window

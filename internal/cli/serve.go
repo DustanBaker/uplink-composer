@@ -16,6 +16,7 @@ import (
 	"github.com/uplinkresearch/bootwright/internal/appconfig"
 	"github.com/uplinkresearch/bootwright/internal/jobs"
 	"github.com/uplinkresearch/bootwright/internal/library"
+	"github.com/uplinkresearch/bootwright/internal/selfupdate"
 	"github.com/uplinkresearch/bootwright/internal/webui"
 )
 
@@ -52,7 +53,7 @@ func cmdServe(ctx context.Context, env *Env, args []string) error {
 	if *stay {
 		idle = 0
 	}
-	url, done, err := startServer(ctx, lib, env.Vars, *port, env.WorkspaceDir, *open, true, idle)
+	url, done, err := startServer(ctx, lib, env.Vars, *port, env.WorkspaceDir, *open, true, idle, nil)
 	if err != nil {
 		return err
 	}
@@ -81,6 +82,13 @@ func AppMain() error {
 	if err != nil {
 		return err
 	}
+	// A process started by the updater is racing the one it replaced. Give that
+	// one a moment to let go of its port, or the check below finds it still
+	// listening, decides a portal is already running, and hands the window
+	// straight back to the build we have just replaced.
+	if selfupdate.WasRestarted() {
+		waitForPredecessor(lib.Root)
+	}
 	// Launching the app when it is already running should bring back the
 	// portal you already have, not start a second one behind it.
 	if inst, ok := liveInstance(lib.Root); ok {
@@ -96,7 +104,8 @@ func AppMain() error {
 	}
 	// open=false: the window below is the way in. Only the browser fallback
 	// needs one opened for it.
-	url, done, err := startServer(ctx, lib, map[string]string{}, 8931, ".", false, false, idleGrace)
+	url, done, err := startServer(ctx, lib, map[string]string{}, 8931, ".", false, false, idleGrace,
+		func() { restartAfterUpdate(stop) })
 	if err != nil {
 		return err
 	}
@@ -130,11 +139,65 @@ func AppMain() error {
 // appTitle is what the window is called in the taskbar and the title bar.
 const appTitle = "Bootwright"
 
+// waitForPredecessor blocks until the portal this process is replacing has let
+// go, or until waiting stops being worth it.
+//
+// Bounded on purpose: if the old process is wedged rather than exiting, the
+// right outcome is a portal on the next free port, not an app that never opens
+// because its predecessor would not die.
+func waitForPredecessor(libRoot string) {
+	deadline := time.Now().Add(12 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := liveInstance(libRoot); !ok {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// restartAfterUpdate starts the freshly installed build and stops this one.
+//
+// The order matters. The server is stopped first so the port is free and the
+// instance record is gone before the replacement looks for them; the new
+// process also waits, because "stopped" and "the socket is released" are not
+// the same instant.
+func restartAfterUpdate(stop func()) {
+	// Stop before starting, not after. The replacement wants this port and
+	// this instance record, and a new process that finds the old one still
+	// listening concludes a portal is already running and hands the window
+	// straight back to the build it was meant to replace.
+	//
+	// Doing it in this order also means the new build needs no cooperation,
+	// which matters because the version doing the restarting is always older
+	// than the version being restarted into.
+	stop()
+	// Cancelling the context and the socket actually closing are not the same
+	// instant. waitForPredecessor on the far side covers the rest.
+	time.Sleep(600 * time.Millisecond)
+	_ = selfupdate.Relaunch()
+	// The window, not the server, is what holds this process open — stopping
+	// the server alone leaves an app on screen serving nothing. Closed even if
+	// the relaunch failed, because the alternative is a window whose portal is
+	// already dead; the binary on disk is the new one either way, so opening it
+	// again gets what was asked for.
+	closeWindow()
+	// And then leave, whether or not the window took the hint.
+	//
+	// Asking a webview to close is a request to a message loop this goroutine
+	// does not own, and observed behaviour is that it can be ignored: the
+	// replacement started and took the port while the old build sat there with
+	// its window open, serving nothing, looking like the update had produced a
+	// second copy of the app. There is nothing left to wind down by this point
+	// — the server is stopped and the successor is already running — so the
+	// only question is whether this process leaves promptly or not at all.
+	time.AfterFunc(2*time.Second, func() { os.Exit(0) })
+}
+
 // startServer binds a free port at or after base, wires the workspace
 // (explicit -w if present, else the last-opened one), optionally opens the
 // browser, and runs the server in the background. It returns the tokened URL
 // and a channel that closes when the server stops.
-func startServer(ctx context.Context, lib *library.Library, vars map[string]string, base int, wsDir string, open, announce bool, idle time.Duration) (string, <-chan struct{}, error) {
+func startServer(ctx context.Context, lib *library.Library, vars map[string]string, base int, wsDir string, open, announce bool, idle time.Duration, onUpdated func()) (string, <-chan struct{}, error) {
 	var tok [16]byte
 	if _, err := rand.Read(tok[:]); err != nil {
 		return "", nil, err
@@ -143,6 +206,7 @@ func startServer(ctx context.Context, lib *library.Library, vars map[string]stri
 	s := &webui.Server{
 		Lib: lib, CLIVars: vars, Token: hex.EncodeToString(tok[:]),
 		Reg: jobs.NewRegistry(), Cfg: cfg, IdleTimeout: idle,
+		OnUpdated: onUpdated,
 	}
 	if err := s.SetWorkspaceDir(wsDir); err != nil {
 		if last := cfg.Current(); last != "" {

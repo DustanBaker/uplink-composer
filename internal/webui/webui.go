@@ -64,8 +64,13 @@ type Server struct {
 	// different instance than the one you were looking at.
 	IdleTimeout time.Duration
 
-	quit     func()     // cancels Serve; set in Serve
-	deviceMu sync.Mutex // one raw-device operation at a time
+	quit func() // cancels Serve; set in Serve
+	// OnUpdated, when set, is how the host restarts itself after installing a
+	// new build. It is a hook rather than something this package does, because
+	// only the host knows whether it has a window to close, and whether being
+	// replaced mid-sentence is survivable for it.
+	OnUpdated func()
+	deviceMu  sync.Mutex // one raw-device operation at a time
 
 	idleMu    sync.Mutex
 	clients   int         // pages with the event stream open
@@ -715,7 +720,19 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 			job.Fail(err)
 			return
 		}
-		job.Finish("updated " + path + " to " + rel.Version + " — restart to run it")
+		// Nothing else may be running. A flash writes through a separate
+		// elevated worker and would survive this process going away, but a
+		// build would not — and restarting out from under somebody mid-job to
+		// save them a double-click is not a trade worth making.
+		if s.OnUpdated == nil || s.Reg.BusyExcept(job.ID) {
+			job.Finish("updated " + path + " to " + rel.Version + " — restart to run it")
+			return
+		}
+		job.Finish("updated to " + rel.Version + " — restarting")
+		// The page hears about this over the event stream, so the restart
+		// waits long enough for that to arrive. Otherwise the window vanishes
+		// with no explanation and comes back looking like nothing happened.
+		time.AfterFunc(1200*time.Millisecond, s.OnUpdated)
 	}()
 	writeJSON(w, 202, map[string]string{"job_id": job.ID})
 }

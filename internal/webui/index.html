@@ -578,14 +578,14 @@ async function checkUpdate(explicit) {
   const bar = el("div", "updbar"); bar.id = "updbar";
   bar.append(el("span", null, `${u.latest} is available — you are running ${u.current}.`));
   const go = el("button", "primary", "Update now");
-  const note = el("span", "sub", "Installs over this copy; restart to run it.");
+  const note = el("span", "sub", "Installs over this copy and reopens itself.");
   note.style.color = "var(--dim)";
 
   const reset = msg => {
     if (msg) showErr(msg);
     go.disabled = false;
     go.textContent = "Update now";
-    note.textContent = "Installs over this copy; restart to run it.";
+    note.textContent = "Installs over this copy and reopens itself.";
   };
   go.onclick = async () => {
     go.disabled = true;
@@ -615,7 +615,7 @@ async function checkUpdate(explicit) {
       // Succeeded: this page is still served by the old binary, so the only
       // thing left to say is that a restart is needed.
       go.remove();
-      bar.replaceChildren(el("span", null, `Updated to ${u.latest} — restart to run it.`));
+      bar.replaceChildren(el("span", null, `Updated to ${u.latest} — reopening…`));
       ver.textContent = `${u.current} → ${u.latest} (restart)`;
       showOk(`Updated to ${u.latest}. Restart the app to run the new version.`);
     });

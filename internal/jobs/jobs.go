@@ -81,6 +81,23 @@ func (r *Registry) Busy() bool {
 	return false
 }
 
+// BusyExcept reports whether any job other than id is still running.
+//
+// Busy cannot answer this, because a job is always unfinished from inside
+// itself: a job that guards on Busy is really guarding on its own existence
+// and so never proceeds. That is not a hypothetical — the self-update guarded
+// on Busy to avoid restarting mid-job, and silently never restarted.
+func (r *Registry) BusyExcept(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for jobID, ev := range r.latest {
+		if jobID != id && !ev.Final {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Registry) publish(ev Event) {
 	ev.At = time.Now().UnixMilli()
 	r.mu.Lock()
