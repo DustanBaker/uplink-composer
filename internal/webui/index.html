@@ -25,9 +25,13 @@
   .wsrow input { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--line);
     border-radius: 6px; padding: 6px 9px; font: inherit; font-size: 13px; min-width: 0; }
   .active { color: var(--ok); }
-  main { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px;
+  /* minmax(0,...) rather than a bare fr: an fr track will not shrink below its
+     content's min-content width, so one long device path or ISO name pushed the
+     whole grid wider than the window and the page scrolled sideways. Never seen
+     on a wide monitor, which is why it survived this long. */
+  main { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 16px;
     padding: 16px 22px; max-width: 1200px; margin: 0 auto; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
   section { background: var(--panel); border: 1px solid var(--line);
     border-radius: 8px; overflow: hidden; }
   section > h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px;

@@ -82,19 +82,53 @@ func AppMain() error {
 		return err
 	}
 	// Launching the app when it is already running should bring back the
-	// portal you already have, not start a second one behind it. There is no
-	// window to focus, so opening the page is the whole of it.
+	// portal you already have, not start a second one behind it.
 	if inst, ok := liveInstance(lib.Root); ok {
-		openBrowser(inst.url())
+		// Its own window, raised. Failing that the portal is running without
+		// one — a `serve` in a terminal — so give it one, or a browser.
+		if focusWindow(appTitle) {
+			return nil
+		}
+		if !showWindow(inst.url(), appTitle) {
+			openBrowser(inst.url())
+		}
 		return nil
 	}
-	_, done, err := startServer(ctx, lib, map[string]string{}, 8931, ".", true, false, idleGrace)
+	// open=false: the window below is the way in. Only the browser fallback
+	// needs one opened for it.
+	url, done, err := startServer(ctx, lib, map[string]string{}, 8931, ".", false, false, idleGrace)
 	if err != nil {
 		return err
 	}
+	if showWindow(url, appTitle) {
+		// The window is the app. Closing it quits, which is the gesture
+		// everybody already uses and previously did nothing.
+		//
+		// A flash in progress is not lost: writes run in a separate elevated
+		// worker, so the stick is finished and verified even though the
+		// portal that started it has gone.
+		stop()
+		// Give the server its moment to unwind and delete the record of itself.
+		// Returning straight after stop() races that, and losing the race
+		// strands a record pointing at a dead port — recoverable, since the
+		// next launch probes rather than trusts it, but it costs that launch a
+		// timeout for no reason. Bounded, so a wedged server cannot leave the
+		// process hanging around invisibly after its window has gone.
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+		return nil
+	}
+	// No window to be had — fall back to the browser, where the idle timeout
+	// is what eventually stops the server.
+	openBrowser(url)
 	<-done
 	return nil
 }
+
+// appTitle is what the window is called in the taskbar and the title bar.
+const appTitle = "The Uplink CompOSer"
 
 // startServer binds a free port at or after base, wires the workspace
 // (explicit -w if present, else the last-opened one), optionally opens the

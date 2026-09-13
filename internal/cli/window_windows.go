@@ -1,0 +1,158 @@
+package cli
+
+import (
+	"syscall"
+	"unsafe"
+
+	"github.com/jchv/go-webview2"
+)
+
+// The portal in its own window.
+//
+// Nothing about the portal changes: same page, same server, same API. The only
+// difference is where it is drawn. Opening it as a tab in somebody's browser
+// is what made it feel like a dev tool rather than an application — there is a
+// URL bar, a token in the address, other tabs beside it, and closing it is a
+// gesture that means "close a web page" rather than "quit this program".
+//
+// WebView2 renders it, which is the browser engine already on the machine, so
+// nothing is bundled and the binary stays a few megabytes rather than the
+// hundred-odd that shipping a browser costs. The bindings are pure Go, so the
+// CGO-free single-binary build is untouched.
+func showWindow(url, title string) bool {
+	dpiAware()
+	width, height := windowSize()
+	w := webview2.NewWithOptions(webview2.WebViewOptions{
+		AutoFocus: true,
+		WindowOptions: webview2.WindowOptions{
+			Title:  title,
+			Width:  width,
+			Height: height,
+			Center: true,
+		},
+	})
+	// nil means no WebView2 runtime on this machine. It ships with Windows 11
+	// and reaches almost every Windows 10, but "almost" is not "always", so
+	// this reports rather than crashes and the caller opens a browser instead.
+	if w == nil {
+		return false
+	}
+	defer w.Destroy()
+	w.Navigate(url)
+	// Blocks until the window is closed, which is the whole lifecycle: the
+	// close button means quit, with nothing to remember and nothing left
+	// running behind it.
+	w.Run()
+	return true
+}
+
+var (
+	user32                        = syscall.NewLazyDLL("user32.dll")
+	findWindowW                   = user32.NewProc("FindWindowW")
+	setForegroundWindow           = user32.NewProc("SetForegroundWindow")
+	showWindowAsync               = user32.NewProc("ShowWindowAsync")
+	isIconic                      = user32.NewProc("IsIconic")
+	setProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
+	setProcessDPIAware            = user32.NewProc("SetProcessDPIAware")
+	getDpiForSystem               = user32.NewProc("GetDpiForSystem")
+	systemParametersInfoW         = user32.NewProc("SystemParametersInfoW")
+)
+
+const (
+	swRestore = 9
+	// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, which is the handle value -4.
+	perMonitorAwareV2 = ^uintptr(3)
+	spiGetWorkArea    = 0x0030
+)
+
+// dpiAware asks Windows for real pixels.
+//
+// Without this the process is DPI-unaware, so Windows quietly renders the whole
+// window at 96 DPI and scales the result up like a bitmap — on a display at
+// 150% that is every glyph blown up 1.5x and blurred. It is the single most
+// visible difference between something that looks like an application and
+// something that looks like a wrapper around a web page, and it costs one call.
+//
+// Must run before the window exists, which is why showWindow calls it first.
+func dpiAware() {
+	// Per-monitor v2 where it exists (Windows 10 1703+); it also keeps the
+	// window sharp when dragged to a monitor with a different scale factor.
+	if setProcessDpiAwarenessContext.Find() == nil {
+		if ok, _, _ := setProcessDpiAwarenessContext.Call(perMonitorAwareV2); ok != 0 {
+			return
+		}
+	}
+	// Older Windows: one system-wide scale factor, still sharp at that factor.
+	if setProcessDPIAware.Find() == nil {
+		setProcessDPIAware.Call()
+	}
+}
+
+// windowSize is the default window in physical pixels: the size we actually
+// want, scaled for the display, and never bigger than the screen it opens on.
+//
+// The clamp is not hypothetical. 860 points at 150% is 1290 pixels tall, and a
+// 1080p laptop — the machine a technician is most likely to be holding — has
+// about 1040 pixels of usable height. Unclamped, the window would open with its
+// bottom edge off the screen.
+func windowSize() (uint, uint) {
+	const wantW, wantH = 1280, 860
+
+	scale := 1.0
+	if getDpiForSystem.Find() == nil {
+		if dpi, _, _ := getDpiForSystem.Call(); dpi > 0 {
+			scale = float64(dpi) / 96
+		}
+	}
+	w, h := float64(wantW)*scale, float64(wantH)*scale
+
+	// The work area excludes the taskbar, so "fits the screen" means fits the
+	// part of it a window may actually occupy.
+	var wa struct{ left, top, right, bottom int32 }
+	if systemParametersInfoW.Find() == nil {
+		ok, _, _ := systemParametersInfoW.Call(spiGetWorkArea, 0,
+			uintptr(unsafe.Pointer(&wa)), 0)
+		if ok != 0 {
+			if aw := float64(wa.right - wa.left); aw > 0 && w > aw*0.95 {
+				w = aw * 0.95
+			}
+			if ah := float64(wa.bottom - wa.top); ah > 0 && h > ah*0.95 {
+				h = ah * 0.95
+			}
+		}
+	}
+	return uint(w), uint(h)
+}
+
+// focusWindow brings an already-open portal window to the front, reporting
+// whether it found one.
+//
+// Launching the app a second time should give you back the window you already
+// have — that is what double-clicking the icon of a running application does
+// everywhere else. The alternative we had was a second window onto the first
+// process's server, which looks the same until the first window closes and
+// takes the server with it, leaving the second showing a dead page.
+//
+// Matched on the title, with a nil class, so it finds our window and not a
+// browser showing the same page (a browser appends its own name to the title).
+func focusWindow(title string) bool {
+	name, err := syscall.UTF16PtrFromString(title)
+	if err != nil {
+		return false
+	}
+	h, _, _ := findWindowW.Call(0, uintptr(unsafe.Pointer(name)))
+	if h == 0 {
+		return false
+	}
+	// Minimized windows need un-minimizing before raising; the async form
+	// cannot be blocked by the other process being busy.
+	if min, _, _ := isIconic.Call(h); min != 0 {
+		showWindowAsync.Call(h, swRestore)
+	}
+	// Windows may refuse to hand focus to a process that is not already in the
+	// foreground, and flashes the taskbar button instead. Either way the window
+	// is there and visible, which is what the caller needs to know — so the
+	// result of this call is deliberately not the answer we return.
+	setForegroundWindow.Call(h)
+	return true
+}
