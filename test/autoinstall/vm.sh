@@ -32,21 +32,26 @@ RESULT="$W/result.md"
 : >"$RESULT"
 say() { echo "$*" | tee -a "$RESULT"; }
 
+# releases.ubuntu.com sent GitHub's runners 0.2-1.4 MiB/s, and every case
+# but one ran out of time still downloading. The kernel.org mirror carries the
+# same files; the pinned sha256 below is what makes any mirror safe to use.
+MIRROR=${UBUNTU_MIRROR:-https://mirrors.edge.kernel.org/ubuntu-releases}
+
 case "$CASE" in
 server-24.04)
-  URL=https://releases.ubuntu.com/24.04/ubuntu-24.04.5-live-server-amd64.iso
+  URL=$MIRROR/24.04/ubuntu-24.04.5-live-server-amd64.iso
   SHA=97f3d7ffb032c3eb3b23d2c8be9cc76e60c2c1f2c0146ba5ba9fe01cafae0fd8
   KIND=server PATCH=true IDENTITY=true OBSERVE=false ;;
 server-26.04)
-  URL=https://releases.ubuntu.com/26.04/ubuntu-26.04.1-live-server-amd64.iso
+  URL=$MIRROR/26.04/ubuntu-26.04.1-live-server-amd64.iso
   SHA=cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927
   KIND=server PATCH=true IDENTITY=true OBSERVE=false ;;
 desktop-26.04)
-  URL=https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso
+  URL=$MIRROR/26.04/ubuntu-26.04.1-desktop-amd64.iso
   SHA=601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f
   KIND=desktop PATCH=true IDENTITY=true OBSERVE=false ;;
 desktop-26.04-prompt)
-  URL=https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso
+  URL=$MIRROR/26.04/ubuntu-26.04.1-desktop-amd64.iso
   SHA=601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f
   KIND=desktop PATCH=false IDENTITY=false OBSERVE=true ;;
 *) echo "unknown case $CASE" >&2; exit 2 ;;
@@ -231,8 +236,8 @@ check "answers were the ones DSKY wrote (autoinstall-user-data mentions hello-wo
   sudo grep -rq hello-world "$W/mnt/var/log/installer/"
 check "apt package from packages: installed (hello)" \
   sudo grep -Pzq 'Package: hello\nStatus: install ok installed' "$W/mnt/var/lib/dpkg/status"
-check "snap from snaps: installed (hello-world)" \
-  sudo sh -c "ls $W/mnt/var/lib/snapd/snaps/hello-world_*.snap"
+# Snaps listed in the answers are seeded during install and installed by
+# snapd on first boot, so they are checked after it (below).
 if [ "$IDENTITY" = true ]; then
   check "account from identity: exists (dsky)" sudo grep -q '^dsky:' "$W/mnt/etc/passwd"
 fi
@@ -245,6 +250,8 @@ set -e
 if mount_target; then
   target=multi-user
   [ "$KIND" = desktop ] && target=graphical
+  check "snap from snaps: installed on first boot (hello-world)" \
+    sudo sh -c "ls $W/mnt/var/lib/snapd/snaps/hello-world_*.snap"
   check "installed system booted to $target.target" \
     sudo sh -c "journalctl -D '$W/mnt/var/log/journal' --no-pager 2>/dev/null | grep -qi 'Reached target.*$(echo ${target:0:1} | tr a-z A-Z)${target:1}'"
   umount_target

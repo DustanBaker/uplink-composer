@@ -1,6 +1,19 @@
 # Plan: installing programs with Linux
 
-Nothing here is built yet. Decisions marked **Decide** are Dusty's.
+Decisions marked **Decide** are Dusty's.
+
+**Step 1, first results (2026-09-14):** DSKY's autoinstall media built from the
+real Ubuntu Server 26.04 ISO installed in a VM with no input in 5 minutes: its
+answers, an apt package, the account and a late-command all landed, and the
+system booted. The other three cases (Server 24.04, both Desktop 26.04 runs)
+never reached the VM; releases.ubuntu.com served GitHub's runners too slowly,
+so the test now downloads from the kernel.org mirror, still hash-pinned.
+
+**Decided (2026-09-14):** keep Ubuntu's "Continue with autoinstall?" prompt on
+Desktop (skip it on Server); leave unofficial clients out; keep passwords out
+of DSKY for now, so the account is not in DSKY's answers. **Step 1** (booting
+real Ubuntu ISOs in a VM) is built as `test/autoinstall/vm.sh` and the
+`ubuntu-autoinstall` workflow; nothing after it is.
 
 ## Where it is today
 
