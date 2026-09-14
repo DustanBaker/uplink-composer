@@ -153,6 +153,12 @@ type DomainSpec struct {
 	// Either selects the offline path.
 	Blob    string `yaml:"blob,omitempty"`
 	BlobRef string `yaml:"blob_ref,omitempty"`
+
+	// BlobsBySerial is a folder of offline-join files, one per computer, each
+	// named after that computer's serial number (5CG1234ABC.txt). One stick
+	// then joins a whole batch: each PC applies its own file during Setup.
+	// Workspace-relative or absolute.
+	BlobsBySerial string `yaml:"blobs_by_serial,omitempty"`
 }
 
 // validate checks the two paths are not mixed and that each has what it needs.
@@ -161,6 +167,17 @@ type DomainSpec struct {
 // account.
 func (d *DomainSpec) validate(fail func(string, ...any) error) error {
 	credentialed := d.Join != "" || d.Username != "" || d.Password != ""
+	if d.BlobsBySerial != "" {
+		switch {
+		case credentialed || d.Blob != "" || d.BlobRef != "":
+			return fail("windows.domain.blobs_by_serial joins each computer from its own file — " +
+				"it cannot be combined with blob, blob_ref or join credentials")
+		case d.OU != "":
+			return fail("windows.domain.ou has no effect with blobs_by_serial — each file's OU is fixed " +
+				"when `djoin /provision /machineou` creates it")
+		}
+		return nil
+	}
 	switch {
 	case d.Offline() && credentialed:
 		return fail("windows.domain sets both an offline blob and join credentials — pick one; " +
@@ -191,9 +208,13 @@ func (d *DomainSpec) Offline() bool {
 	return d != nil && (d.Blob != "" || d.BlobRef != "")
 }
 
+// BySerial reports whether each computer joins from its own file, matched by
+// serial number.
+func (d *DomainSpec) BySerial() bool { return d != nil && d.BlobsBySerial != "" }
+
 // Enabled reports whether any domain join is configured.
 func (d *DomainSpec) Enabled() bool {
-	return d != nil && (d.Join != "" || d.Offline())
+	return d != nil && (d.Join != "" || d.Offline() || d.BySerial())
 }
 
 // AppsSpec installs programs at first boot with winget, Windows' own package

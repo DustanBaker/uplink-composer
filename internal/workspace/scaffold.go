@@ -117,7 +117,7 @@ so any machine can re-fetch them.
 // once, and runs the generated first-boot script via FirstLogonCommands
 // (SetupComplete.cmd is skipped under firmware OEM keys — do not use it).
 const scaffoldUnattend = `<?xml version="1.0" encoding="utf-8"?>
-<unattend xmlns="urn:schemas-microsoft-com:unattend">
+<unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
 
   <settings pass="windowsPE">
     <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64"
@@ -179,7 +179,7 @@ const scaffoldUnattend = `<?xml version="1.0" encoding="utf-8"?>
   <settings pass="specialize">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
                publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      {{if eq .Vars.domain_mode "offline"}}
+      {{if or (eq .Vars.domain_mode "offline") (eq .Vars.domain_mode "by_serial")}}
       <!-- No ComputerName on an offline join, deliberately.
            djoin /provision creates the computer account for ONE named machine
            and the blob carries that name. Setting a name here too - and the
@@ -239,6 +239,25 @@ const scaffoldUnattend = `<?xml version="1.0" encoding="utf-8"?>
              unmodified. The first-boot check already captures netsetup.log and
              both UnattendGC logs, which is the diagnostic that matters. -->
       </Identification>
+    </component>
+    {{else if eq .Vars.domain_mode "by_serial"}}
+    <!-- Domain join by serial number: one stick for a batch of computers.
+         The stick carries a djoin /provision file per computer, named after
+         that computer's serial number. This script reads this PC's serial
+         number, applies its file with djoin /requestodj, and deletes every
+         join file from the PC, since each one is another computer's domain
+         password. The join completes at the restart after this pass, and the
+         script logs to C:\Windows\Setup\Scripts\domain-join.log. No
+         ComputerName is set above: the file names the computer. -->
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>DSKY domain join by serial number</Description>
+          <Path>powershell -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\dsky-domain-join.ps1</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
     </component>
     {{end}}
   </settings>

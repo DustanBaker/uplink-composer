@@ -146,6 +146,32 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		stage.AddFile(p, "/autounattend.xml")
 	}
 
+	// Domain join by serial number: every computer's file, and the script
+	// that picks this computer's during Setup.
+	if w.Domain.BySerial() {
+		blobs, err := SerialBlobs(serialBlobDir(ws.Dir, w.Domain))
+		if err != nil {
+			return nil, fmt.Errorf("compose: windows.domain.blobs_by_serial: %w", err)
+		}
+		dir := filepath.Join(buildTmp, recipe.DomainSerialDir)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+		for _, b := range blobs {
+			p := filepath.Join(dir, b.Serial+".txt")
+			if err := os.WriteFile(p, odjFileBytes(b.Base64), 0o600); err != nil {
+				return nil, err
+			}
+			stage.AddFile(p, path.Join(scriptsImg, recipe.DomainSerialDir, b.Serial+".txt"))
+		}
+		sp := filepath.Join(buildTmp, recipe.DomainSerialScriptName)
+		if err := os.WriteFile(sp, []byte(recipe.DomainSerialScriptFile()), 0o644); err != nil {
+			return nil, err
+		}
+		stage.AddFile(sp, path.Join(scriptsImg, recipe.DomainSerialScriptName))
+		req.progress(fmt.Sprintf("domain join files for %d computers", len(blobs)), 0, -1)
+	}
+
 	// ei.cfg.
 	if w.EICfg != nil {
 		p := filepath.Join(buildTmp, "ei.cfg")

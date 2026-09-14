@@ -120,6 +120,9 @@ type Options struct {
 	// A workspace recipe keeps it in vars.local.yaml, which is gitignored, so
 	// that is where credentialed joins belong.
 	DomainBlob string
+	// DomainBlobsDir is a folder of join files named by serial number, so one
+	// stick joins a batch of computers (windows.domain.blobs_by_serial).
+	DomainBlobsDir string
 }
 
 // sourceFormat is the manifest format for this entry's download. Raw images
@@ -758,8 +761,11 @@ flash:
 	// rather than being copied into the ephemeral workspace: compose reads it
 	// at build time and inlines the base64 into the answer file.
 	domainBlock := ""
-	if opts.DomainBlob != "" {
+	switch {
+	case opts.DomainBlob != "":
 		domainBlock = fmt.Sprintf("  domain:\n    blob: %q\n", filepath.ToSlash(opts.DomainBlob))
+	case opts.DomainBlobsDir != "":
+		domainBlock = fmt.Sprintf("  domain:\n    blobs_by_serial: %q\n", filepath.ToSlash(opts.DomainBlobsDir))
 	}
 	// Staged GPU driver packages run past a gigabyte each, so driver media
 	// outgrows the 8 GiB stick a bare Windows ISO fits on.

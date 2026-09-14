@@ -214,6 +214,20 @@ staged network drivers are for. Some packages only install for the first
 account that signs in; the list says which. Programs winget doesn't have, such
 as RustDesk, go in with `dsky apps add` and ride on the stick.
 
+### Joining a domain
+
+Windows sticks can join a domain during Setup without a network, from files
+made with `djoin /provision` on a computer already in the domain, so no domain
+password goes on the stick. A join file is one computer's account:
+
+- **One computer:** `--domain-blob PC-042.txt`, or "Join a domain" in the
+  Install dialog. The PC gets the name in the file.
+- **A batch from one stick:** `--domain-blobs <folder>`, a folder of join files
+  each named after its computer's serial number (`5CG1234ABC.txt`). During
+  Setup each PC joins with its own file and deletes all of them from its disk;
+  a PC with no file stays out of the domain and logs why. The stick keeps every
+  file, so wipe it when the batch is done.
+
 ### Three ways in, one pipeline
 
 The same Quick Install path is driven by the CLI above, by `dsky tui`

@@ -194,6 +194,8 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/browse/image", s.auth(s.handleBrowseImage))
 	mux.HandleFunc("POST /api/browse/installer", s.auth(s.handleBrowseInstaller))
 	mux.HandleFunc("POST /api/browse/djoin", s.auth(s.handleBrowseDjoin))
+	mux.HandleFunc("POST /api/browse/djoin-folder", s.auth(s.handleBrowseDjoinFolder))
+	mux.HandleFunc("GET /api/domain/serials", s.auth(s.handleDomainSerials))
 	mux.HandleFunc("GET /api/apps", s.auth(s.handleApps))
 	mux.HandleFunc("GET /api/apps/winget", s.auth(s.handleWingetLookup))
 	mux.HandleFunc("POST /api/apps/add", s.auth(s.handleAppAdd))
@@ -808,6 +810,9 @@ type installRequest struct {
 	// DomainBlob is a file from `djoin /provision`: an offline domain join
 	// for one computer.
 	DomainBlob string `json:"domain_blob"`
+	// DomainBlobsDir is a folder of join files named by serial number: one
+	// stick for a batch of computers.
+	DomainBlobsDir string `json:"domain_blobs_dir"`
 	// Mode is "install" (build and write to device_id, the default), "setup"
 	// (build the image and keep it, no stick), or "download" (fetch the OS
 	// image only).
@@ -856,6 +861,18 @@ func (s *Server) installOptions(ctx context.Context, req installRequest) (oscata
 			return e, oscatalog.Options{}, err
 		}
 	}
+	blobsDir := strings.TrimSpace(req.DomainBlobsDir)
+	if blobsDir != "" {
+		if e.Family != oscatalog.Windows {
+			return e, oscatalog.Options{}, fmt.Errorf("joining a domain is a Windows option")
+		}
+		if strings.TrimSpace(req.DomainBlob) != "" {
+			return e, oscatalog.Options{}, fmt.Errorf("choose one join file or a folder of them, not both")
+		}
+		if _, err := compose.SerialBlobs(blobsDir); err != nil {
+			return e, oscatalog.Options{}, err
+		}
+	}
 	blob := strings.TrimSpace(req.DomainBlob)
 	if blob != "" {
 		if e.Family != oscatalog.Windows {
@@ -868,7 +885,7 @@ func (s *Server) installOptions(ctx context.Context, req installRequest) (oscata
 	return e, oscatalog.Options{
 		Edition: req.Edition, AccountMode: req.AccountMode,
 		Debloat: req.Debloat, BypassRequirement: req.BypassRequirement,
-		Hardware: hw, Apps: req.Apps, DomainBlob: blob,
+		Hardware: hw, Apps: req.Apps, DomainBlob: blob, DomainBlobsDir: blobsDir,
 	}, nil
 }
 
@@ -1016,7 +1033,7 @@ func (s *Server) handleSaveRecipe(w http.ResponseWriter, r *http.Request) {
 	}
 	// A join file is one computer's account, usable once, so a recipe that
 	// carried it would join every later machine as that one computer.
-	if strings.TrimSpace(req.DomainBlob) != "" {
+	if strings.TrimSpace(req.DomainBlob) != "" || strings.TrimSpace(req.DomainBlobsDir) != "" {
 		httpErr(w, 400, "a domain join file is for one computer, so it is not saved into a recipe — set up or install that computer's stick directly, or leave the domain join off to save the recipe")
 		return
 	}
@@ -1388,6 +1405,44 @@ func (s *Server) handleBrowseDjoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"path": path})
+}
+
+// handleBrowseDjoinFolder asks for a folder of join files named by serial
+// number and reports what is in it.
+func (s *Server) handleBrowseDjoinFolder(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	path, err := filepicker.PickFolder(ctx, "Select the folder of join files, one per serial number")
+	switch {
+	case errors.Is(err, filepicker.ErrCancelled):
+		writeJSON(w, 200, map[string]any{"path": ""})
+		return
+	case errors.Is(err, filepicker.ErrUnavailable):
+		httpErr(w, 501, "no folder chooser on this host — type the path instead")
+		return
+	case err != nil:
+		httpErr(w, 500, "%v", err)
+		return
+	}
+	s.writeSerials(w, path)
+}
+
+// handleDomainSerials checks a typed folder path the same way.
+func (s *Server) handleDomainSerials(w http.ResponseWriter, r *http.Request) {
+	s.writeSerials(w, strings.TrimSpace(r.URL.Query().Get("dir")))
+}
+
+func (s *Server) writeSerials(w http.ResponseWriter, dir string) {
+	blobs, err := compose.SerialBlobs(dir)
+	if err != nil {
+		httpErr(w, 400, "%v", err)
+		return
+	}
+	serials := make([]string, 0, len(blobs))
+	for _, b := range blobs {
+		serials = append(serials, b.Serial)
+	}
+	writeJSON(w, 200, map[string]any{"path": dir, "serials": serials})
 }
 
 // handleBrowseInstaller asks the desktop for a .msi or .exe and offers back
