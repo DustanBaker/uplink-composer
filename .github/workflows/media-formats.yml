@@ -1,0 +1,124 @@
+name: media-formats
+# DSKY reads Windows ISOs (UDF) and splits install.wim for FAT32 with its own
+# code instead of 7-Zip and wimlib. These jobs check that code against the
+# tools that define correct: Linux's UDF driver writes the images our reader
+# extracts, wimlib verifies and applies our split parts, and on Windows
+# Microsoft's DISM — the imaging engine Windows Setup uses — applies from them.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - internal/udf/**
+      - internal/wim/**
+      - test/mediaformats/**
+      - .github/workflows/media-formats.yml
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends udftools wimtools
+          go build -o mf ./test/mediaformats
+
+      - name: A tree of files to put in images
+        run: |
+          set -eu
+          mk() { mkdir -p "$(dirname "$1")"; head -c "$2" /dev/urandom > "$1"; }
+          mk tree/small.bin 100
+          : > tree/empty.txt
+          mk tree/sources/boot.bin $((3 * 1024 * 1024))
+          mk "tree/deep/a/b/c/d/naïve café – ünïcødé.txt" 4096
+          mk "tree/a very long file name that goes on and on and on and on and on and on and on.dat" 8192
+          seq 1 200000 > tree/text/compressible.txt
+          for i in $(seq 1 300); do echo "file $i" > tree/many/f$i.txt; done
+          # Over UDF's largest single extent (just under 1 GiB), so the file
+          # is stored in several.
+          head -c $((1300 * 1024 * 1024)) /dev/urandom > tree/sources/install.big
+          cp -r tree tree2 && echo changed > tree2/text/compressible.txt && rm -r tree2/sources
+
+      - name: UDF — Linux writes it, DSKY reads it
+        run: |
+          set -eu
+          for rev in 0x0102 0x0201; do
+            rm -rf out img && truncate -s 2G img
+            mkudffs --media-type=hd --blocksize=2048 --udfrev=$rev --label=DSKYTEST img >/dev/null
+            sudo mkdir -p /mnt/u && sudo mount -t udf -o loop,rw img /mnt/u
+            sudo cp -r tree/. /mnt/u/
+            sudo umount /mnt/u
+            ./mf udf-extract img out
+            diff -r tree out
+            echo "UDF $rev: every file identical"
+          done
+
+      - name: WIM — wimlib captures, DSKY splits, wimlib verifies and applies
+        run: |
+          set -eu
+          rm tree/sources/install.big tree/sources/boot.bin
+          wimlib-imagex capture tree src.wim one --compress=LZX
+          wimlib-imagex append tree2 src.wim two
+          mkdir parts
+          ./mf wim-split src.wim parts/install.swm 1
+          ls -l parts
+          [ "$(ls parts | wc -l)" -gt 1 ] || { echo "expected several parts"; exit 1; }
+          wimlib-imagex info parts/install.swm --ref="parts/install*.swm"
+          wimlib-imagex verify parts/install.swm --ref="parts/install*.swm"
+          wimlib-imagex apply parts/install.swm 1 a1 --ref="parts/install*.swm"
+          wimlib-imagex apply parts/install.swm 2 a2 --ref="parts/install*.swm"
+          diff -r tree a1 && diff -r tree2 a2
+          echo "WIM: verified, and both images applied identical"
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: DISM captures, DSKY splits, DISM applies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go build -o mf.exe ./test/mediaformats
+          $t = "C:\wimtest"
+          New-Item -ItemType Directory -Force "$t\tree\sub\deeper", "$t\parts" | Out-Null
+          $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+          foreach ($n in 1..60) {
+            $b = New-Object byte[] (Get-Random -Minimum 1000 -Maximum 400000); $rng.GetBytes($b)
+            [IO.File]::WriteAllBytes("$t\tree\sub\r$n.bin", $b)
+          }
+          1..20000 | Set-Content "$t\tree\deeper.txt"
+          "hello" | Set-Content "$t\tree\sub\deeper\hello.txt"
+          dism /Capture-Image /ImageFile:$t\src.wim /CaptureDir:$t\tree /Name:one /Compress:max
+          if ($LASTEXITCODE) { throw "capture failed" }
+          Set-Content "$t\tree\sub\deeper\hello.txt" "changed for image two"
+          dism /Append-Image /ImageFile:$t\src.wim /CaptureDir:$t\tree /Name:two
+          if ($LASTEXITCODE) { throw "append failed" }
+
+          .\mf.exe wim-split "$t\src.wim" "$t\parts\install.swm" 4
+          if ($LASTEXITCODE) { throw "split failed" }
+          Get-ChildItem "$t\parts" | Format-Table Name, Length
+          if ((Get-ChildItem "$t\parts").Count -lt 2) { throw "expected several parts" }
+
+          dism /Get-WimInfo /WimFile:$t\parts\install.swm
+          if ($LASTEXITCODE) { throw "DISM could not read the split set" }
+          dism /Apply-Image /ImageFile:$t\parts\install.swm /SWMFile:$t\parts\install*.swm /Index:2 /ApplyDir:$t\applied
+          if ($LASTEXITCODE) { throw "DISM could not apply from the split set" }
+
+          $want = Get-ChildItem -Recurse -File "$t\tree" | ForEach-Object { "{0} {1}" -f $_.FullName.Substring("$t\tree".Length), (Get-FileHash $_.FullName).Hash }
+          $got = Get-ChildItem -Recurse -File "$t\applied" | ForEach-Object { "{0} {1}" -f $_.FullName.Substring("$t\applied".Length), (Get-FileHash $_.FullName).Hash }
+          $diff = Compare-Object ($want | Sort-Object) ($got | Sort-Object)
+          if ($diff) { $diff | Format-Table; throw "applied files differ from what was captured" }
+          "DISM applied image 2 from DSKY's split parts, every file identical ($($want.Count) files)"
