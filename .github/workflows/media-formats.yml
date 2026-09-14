@@ -11,6 +11,7 @@ on:
     paths:
       - internal/udf/**
       - internal/wim/**
+      - internal/fsimg/**
       - test/mediaformats/**
       - .github/workflows/media-formats.yml
 
@@ -29,7 +30,7 @@ jobs:
       - name: Tools
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq --no-install-recommends udftools wimtools
+          sudo apt-get install -yq --no-install-recommends udftools wimtools dosfstools
           go build -o mf ./test/mediaformats
 
       - name: A tree of files to put in images
@@ -82,6 +83,22 @@ jobs:
           diff -r tree a1 && diff -r tree2 a2
           echo "WIM: verified, and both images applied identical"
 
+      - name: FAT32 — DSKY writes the image, dosfstools checks it, Linux mounts it
+        run: |
+          set -eu
+          # Composed media refuses non-ASCII names on purpose, so leave that file out.
+          cp -r tree fattree && rm -r fattree/deep
+          for scheme in mbr gpt; do
+            rm -f fat.img part.img
+            ./mf fat32-image fattree fat.img $scheme
+            dd if=fat.img of=part.img bs=1M skip=1 status=none
+            fsck.fat -n -V part.img
+            sudo mkdir -p /mnt/f && sudo mount -t vfat -o loop,ro,offset=1048576,iocharset=utf8 fat.img /mnt/f
+            sudo diff -r fattree /mnt/f
+            sudo umount /mnt/f
+            echo "FAT32 $scheme: fsck clean, every file identical"
+          done
+
   windows:
     runs-on: windows-latest
     timeout-minutes: 30
@@ -126,3 +143,39 @@ jobs:
           $diff = Compare-Object ($want | Sort-Object) ($got | Sort-Object)
           if ($diff) { $diff | Format-Table; throw "applied files differ from what was captured" }
           "DISM applied image 2 from DSKY's split parts, every file identical ($($want.Count) files)"
+
+      - name: FAT32 — DSKY writes the image, Windows mounts it and chkdsk checks it
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $t = "C:\fattest"
+          New-Item -ItemType Directory -Force "$t\tree\sources\`$OEM`$\`$`$\Setup\Scripts", "$t\tree\efi\boot", "$t\tree\many" | Out-Null
+          $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+          foreach ($n in 1..40) {
+            $b = New-Object byte[] (Get-Random -Minimum 1 -Maximum 3000000); $rng.GetBytes($b)
+            [IO.File]::WriteAllBytes("$t\tree\many\File Number $n With A Long Name.bin", $b)
+          }
+          "echo hi" | Set-Content "$t\tree\sources\`$OEM`$\`$`$\Setup\Scripts\firstboot.cmd"
+          "x" | Set-Content "$t\tree\setup.exe"
+          "y" | Set-Content "$t\tree\efi\boot\bootx64.efi"
+          New-Item -ItemType File "$t\tree\empty.txt" | Out-Null
+          foreach ($scheme in "mbr", "gpt") {
+            $vhd = "$t\fat-$scheme.vhd"
+            .\mf.exe fat32-image "$t\tree" $vhd $scheme vhd
+            if ($LASTEXITCODE) { throw "image build failed" }
+            $img = Mount-DiskImage -ImagePath $vhd -Access ReadOnly -PassThru
+            try {
+              Start-Sleep -Seconds 3
+              $letter = ($img | Get-Disk | Get-Partition | Get-Volume | Where-Object DriveLetter).DriveLetter
+              if (-not $letter) { throw "Windows mounted the $scheme image but gave its volume no drive letter" }
+              chkdsk "${letter}:" | Out-String | Write-Output
+              if ($LASTEXITCODE -ne 0) { throw "chkdsk reported problems on the $scheme image (exit $LASTEXITCODE)" }
+              $want = Get-ChildItem -Recurse -File "$t\tree" | ForEach-Object { "{0} {1}" -f $_.FullName.Substring("$t\tree".Length), (Get-FileHash $_.FullName).Hash }
+              $got = Get-ChildItem -Recurse -File "${letter}:\" | ForEach-Object { "{0} {1}" -f $_.FullName.Substring(2), (Get-FileHash $_.FullName).Hash }
+              $diff = Compare-Object ($want | Sort-Object) ($got | Sort-Object)
+              if ($diff) { $diff | Format-Table; throw "files on the $scheme image differ" }
+              "FAT32 $scheme: Windows mounted it, chkdsk clean, every file identical ($($want.Count) files)"
+            } finally {
+              Dismount-DiskImage -ImagePath $vhd | Out-Null
+            }
+          }

@@ -4,6 +4,7 @@
 //
 //	mediaformats udf-extract <image> <dir>
 //	mediaformats wim-split <src.wim> <first.swm> <max MiB>
+//	mediaformats fat32-image <dir> <image> <mbr|gpt> [vhd]
 package main
 
 import (
@@ -11,7 +12,9 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/uplinkresearch/dsky/internal/fsimg"
 	"github.com/uplinkresearch/dsky/internal/udf"
+	"github.com/uplinkresearch/dsky/internal/vhd"
 	"github.com/uplinkresearch/dsky/internal/wim"
 )
 
@@ -24,7 +27,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: udf-extract <image> <dir> | wim-split <src.wim> <first.swm> <max MiB>")
+		return fmt.Errorf("usage: udf-extract <image> <dir> | wim-split <src.wim> <first.swm> <max MiB> | fat32-image <dir> <image> <mbr|gpt> [vhd]")
 	}
 	switch args[0] {
 	case "udf-extract":
@@ -46,6 +49,28 @@ func run(args []string) error {
 		}
 		for _, p := range parts {
 			fmt.Println(p)
+		}
+		return nil
+	case "fat32-image":
+		// The image writer Windows builds use: a FAT32 image of dir, and with
+		// "vhd" a fixed VHD footer so Windows can mount it.
+		if len(args) < 4 {
+			return fmt.Errorf("fat32-image <dir> <image> <mbr|gpt> [vhd]")
+		}
+		stage := fsimg.StageMap{}
+		if err := stage.AddTree(args[1], "/"); err != nil {
+			return err
+		}
+		content, entries, err := stage.Stats()
+		if err != nil {
+			return err
+		}
+		opts := fsimg.Options{Scheme: fsimg.Scheme(args[3]), Label: "DSKYTEST", SizeBytes: fsimg.SizeForContent(content, entries), Reproducible: true}
+		if err := fsimg.BuildStaged(args[2], opts, stage, nil); err != nil {
+			return err
+		}
+		if len(args) > 4 && args[4] == "vhd" {
+			return vhd.AppendFooter(args[2])
 		}
 		return nil
 	}

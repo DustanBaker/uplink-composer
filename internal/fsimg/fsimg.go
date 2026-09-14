@@ -110,31 +110,7 @@ func BuildImage(imgPath string, opts Options, populate func(fsys FS) error) (err
 		}
 	}()
 
-	totalSectors := uint64(opts.SizeBytes / SectorSize)
-	var table partition.Table
-	switch opts.Scheme {
-	case SchemeMBR:
-		table = &mbr.Table{Partitions: []*mbr.Partition{{
-			Index:    1,
-			Bootable: true,
-			Type:     mbr.Fat32LBA,
-			Start:    partStartSector,
-			Size:     uint32(totalSectors - partStartSector),
-		}}}
-	case SchemeGPT:
-		end := totalSectors - gptReserveSectors
-		table = &gpt.Table{
-			ProtectiveMBR: true,
-			Partitions: []*gpt.Partition{{
-				Index: 1,
-				Start: partStartSector,
-				End:   end,
-				Size:  (end - partStartSector + 1) * SectorSize,
-				Type:  gpt.EFISystemPartition,
-				Name:  "EFI system partition",
-			}},
-		}
-	}
+	table, _ := partitionTable(opts)
 	if err = d.Partition(table); err != nil {
 		return fmt.Errorf("fsimg: writing partition table: %w", err)
 	}
@@ -158,6 +134,35 @@ func BuildImage(imgPath string, opts Options, populate func(fsys FS) error) (err
 	}
 	err = fixRootDotDot(imgPath, partStartSector*SectorSize)
 	return err
+}
+
+// partitionTable is the one partition every image has, and its size in
+// sectors.
+func partitionTable(opts Options) (partition.Table, int64) {
+	totalSectors := uint64(opts.SizeBytes / SectorSize)
+	switch opts.Scheme {
+	case SchemeGPT:
+		end := totalSectors - gptReserveSectors
+		return &gpt.Table{
+			ProtectiveMBR: true,
+			Partitions: []*gpt.Partition{{
+				Index: 1,
+				Start: partStartSector,
+				End:   end,
+				Size:  (end - partStartSector + 1) * SectorSize,
+				Type:  gpt.EFISystemPartition,
+				Name:  "EFI system partition",
+			}},
+		}, int64(end - partStartSector + 1)
+	default:
+		return &mbr.Table{Partitions: []*mbr.Partition{{
+			Index:    1,
+			Bootable: true,
+			Type:     mbr.Fat32LBA,
+			Start:    partStartSector,
+			Size:     uint32(totalSectors - partStartSector),
+		}}}, int64(totalSectors - partStartSector)
+	}
 }
 
 // StageMap maps image paths (forward-slash, leading "/") to host source file

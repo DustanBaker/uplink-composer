@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -73,10 +74,15 @@ func hashFile(t *testing.T, r io.Reader) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func TestAcidMBR(t *testing.T) { testAcid(t, SchemeMBR) }
-func TestAcidGPT(t *testing.T) { testAcid(t, SchemeGPT) }
+func TestAcidMBR(t *testing.T) { testAcid(t, SchemeMBR, false) }
+func TestAcidGPT(t *testing.T) { testAcid(t, SchemeGPT, false) }
 
-func testAcid(t *testing.T, scheme Scheme) {
+// The one-pass writer (BuildStaged) must pass the same test, read back through
+// go-diskfs, and pass fsck.fat where it is installed.
+func TestAcidStagedMBR(t *testing.T) { testAcid(t, SchemeMBR, true) }
+func TestAcidStagedGPT(t *testing.T) { testAcid(t, SchemeGPT, true) }
+
+func testAcid(t *testing.T, scheme Scheme, staged bool) {
 	t.Setenv("SOURCE_DATE_EPOCH", "1756800000") // 2025-09-02, the stick's birthday
 
 	dir := t.TempDir()
@@ -88,16 +94,22 @@ func testAcid(t *testing.T, scheme Scheme) {
 	}
 	img := filepath.Join(dir, "acid.img")
 	start := time.Now()
-	err = BuildImage(img, Options{
+	opts := Options{
 		Scheme:       scheme,
 		Label:        "ESD-USB",
 		SizeBytes:    SizeForContent(contentBytes, entries),
 		Reproducible: true,
-	}, func(fsys FS) error {
-		return Populate(fsys, m, nil)
-	})
+	}
+	if staged {
+		err = BuildStaged(img, opts, m, nil)
+	} else {
+		err = BuildImage(img, opts, func(fsys FS) error { return Populate(fsys, m, nil) })
+	}
 	if err != nil {
 		t.Fatal(err)
+	}
+	if staged {
+		fsckImage(t, img)
 	}
 	t.Logf("built %d files / %d MiB in %s", len(m), contentBytes>>20, time.Since(start).Round(time.Millisecond))
 
@@ -230,4 +242,84 @@ func TestRejectsOversizeFile(t *testing.T) {
 	if err == nil || !bytes.Contains([]byte(err.Error()), []byte("4 GiB")) {
 		t.Errorf("want 4 GiB limit error, got %v", err)
 	}
+}
+
+// fsckImage runs dosfstools' checker, read-only and with a verification pass,
+// on partition 1 of an image.
+func fsckImage(t *testing.T, img string) {
+	t.Helper()
+	fsck, err := exec.LookPath("fsck.fat")
+	if err != nil {
+		t.Log("fsck.fat not installed; skipping the dosfstools check")
+		return
+	}
+	src, err := os.Open(img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	part := filepath.Join(t.TempDir(), "part.img")
+	dst, err := os.Create(part)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(dst, io.NewSectionReader(src, partStartSector*SectorSize, 1<<62)); err != nil {
+		t.Fatal(err)
+	}
+	dst.Close()
+	out, err := exec.Command(fsck, "-n", "-V", part).CombinedOutput()
+	if err != nil {
+		t.Fatalf("fsck.fat found problems: %v\n%s", err, out)
+	}
+}
+
+func TestStagedReproducibleAndDotDot(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "1756800000")
+	dir := t.TempDir()
+	src := filepath.Join(dir, "tree")
+	for _, rel := range []string{"alpha/a.txt", "beta/b.txt", "beta/nested/c.txt", "gamma/d.txt", "setup.exe", "Mixed Case Name.TXT", "empty.txt"} {
+		p := filepath.Join(src, filepath.FromSlash(rel))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		data := []byte(rel)
+		if rel == "empty.txt" {
+			data = nil
+		}
+		os.WriteFile(p, data, 0o644)
+	}
+	m := StageMap{}
+	if err := m.AddTree(src, "/"); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Scheme: SchemeMBR, Label: "ESD-USB", SizeBytes: 256 << 20, Reproducible: true}
+	var hashes [2]string
+	for i := range hashes {
+		img := filepath.Join(dir, fmt.Sprintf("r%d.img", i))
+		if err := BuildStaged(img, opts, m, nil); err != nil {
+			t.Fatal(err)
+		}
+		f, _ := os.Open(img)
+		hashes[i] = hashFile(t, f)
+		f.Close()
+	}
+	if hashes[0] != hashes[1] {
+		t.Error("identical builds differ")
+	}
+	img := filepath.Join(dir, "r0.img")
+	got, err := rootDotDotClusters(img, partStartSector*SectorSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("found %d top-level directories, want 3", len(got))
+	}
+	for c, dotdot := range got {
+		if dotdot != 0 {
+			t.Errorf("directory at cluster %d has .. cluster %d, want 0", c, dotdot)
+		}
+	}
+	sizes, err := ReadTreeSizes(img)
+	if err != nil || len(sizes) != len(m) || sizes["/empty.txt"] != 0 || sizes["/Mixed Case Name.TXT"] != int64(len("Mixed Case Name.TXT")) {
+		t.Fatalf("read back %v, %v", sizes, err)
+	}
+	fsckImage(t, img)
 }

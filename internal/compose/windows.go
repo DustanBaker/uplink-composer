@@ -391,15 +391,13 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		os.Setenv("SOURCE_DATE_EPOCH", defaultSourceDateEpoch)
 	}
 	req.progress("image", 0, contentBytes)
-	err = fsimg.BuildImage(imgPath, fsimg.Options{
+	err = fsimg.BuildStaged(imgPath, fsimg.Options{
 		Scheme:       fsimg.Scheme(r.Target.Scheme),
 		Label:        r.Target.VolumeLabel,
 		SizeBytes:    sizeBytes,
 		Reproducible: true,
-	}, func(fsys fsimg.FS) error {
-		return fsimg.Populate(fsys, stage, func(done, total int64) {
-			req.progress("image", done, total)
-		})
+	}, stage, func(done, total int64) {
+		req.progress("image", done, total)
 	})
 	if err != nil {
 		return nil, err
