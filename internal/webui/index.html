@@ -217,6 +217,8 @@
   #jobsSec > h2 .count { color: var(--accent); margin-left: 8px; }
   #jobs { max-height: 38vh; overflow-y: auto; }
   #jobs .row { position: relative; }
+  /* Room for the dismiss button, which otherwise sits on top of "done". */
+  #jobs .row.final .jobline { padding-right: 26px; }
   #jobs .dismiss { position: absolute; top: 5px; right: 8px; padding: 0 7px; font-size: 13px;
     line-height: 20px; background: none; border: none; color: var(--dim); }
   #jobs .dismiss:hover { color: var(--text); }
@@ -241,6 +243,10 @@
   .jobdone { display: flex; align-items: flex-start; gap: 7px; color: var(--ok);
     font-size: 12.5px; line-height: 1.5; }
   .hashline { font-size: 10.5px; color: var(--dim); word-break: break-all; }
+  /* Mission-control patter under a running job. Dim and small: the stage,
+     percentage and speed above it are the information; this is company. */
+  .jobflair { font-size: 11.5px; color: var(--dim); font-style: italic; letter-spacing: .2px; }
+  .jobflair::before { content: "› "; color: var(--accent); font-style: normal; }
 
   /* The Install dialog's stick-free actions, above the destructive one and
      visibly separate from it. */
@@ -1471,6 +1477,79 @@ function secs(s) {
   return Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0") + "m";
 }
 
+// ── Mission patter ────────────────────────────────────────────────────────
+// A line of Apollo mission-control talk under each running job, changing every
+// few seconds and following what the job is actually doing: fuelling while it
+// downloads, stacking the stages while it builds, launch while it writes,
+// telemetry while it verifies, splashdown when it lands. It never replaces the
+// real stage, percentage or speed, and a job that fails gets none — an error
+// is read plainly.
+const PATTER = {
+  prelaunch: ["CapCom: go/no-go poll in progress", "Flight director polling the room",
+    "All stations, report status", "T-minus and counting", "Range is green"],
+  authority: ["Awaiting launch authority", "Flight director: hold for go"],
+  fuel: ["Propellant loading in progress", "LOX tanks topping off", "Fuel flow nominal",
+    "Ground support: tanks pressurizing", "Hydrogen vent is steady"],
+  assembly: ["Stacking the stages in the VAB", "Payload integration underway",
+    "Guidance platform aligning", "Crawler en route to Pad 39A", "Service structure retracting"],
+  launch: ["CapCom: you are go for launch", "Roll program initiated", "Tower cleared",
+    "Throttle up", "Max Q", "Staging… ignition", "Trajectory nominal"],
+  verify: ["Telemetry lock acquired", "Flight dynamics confirming trajectory",
+    "Guidance checks nominal", "Houston, reading you loud and clear"],
+  uplink: ["Uplink in progress", "Receiving new flight software", "Ground station has signal",
+    "Loading the new program into the guidance computer"],
+  flightplan: ["Filing the flight plan with Mission Control", "Flight dynamics reviewing the plan"],
+  standby: ["Standing by", "All systems nominal"],
+};
+const LANDED = {
+  install: "Splashdown. Recovery team on station.",
+  flash: "Splashdown. Recovery team on station.",
+  duplicate: "Splashdown. All vehicles recovered.",
+  clone: "Splashdown. All vehicles recovered.",
+  setup: "Stack is on the pad and ready",
+  build: "Stack is on the pad and ready",
+  download: "Tanks full",
+  update: "New flight software loaded",
+  recipe: "Flight plan filed",
+  prepare: "Pad is clear",
+};
+
+function patterPhase(ev) {
+  const st = (ev.stage || "").toLowerCase();
+  if (/verif/.test(st)) return "verify";
+  if (/elevation/.test(st)) return "authority";
+  if (ev.kind === "update") return "uplink";
+  if (ev.kind === "recipe") return "flightplan";
+  // Before downloads: "resolving Microsoft download URL" is the go/no-go poll,
+  // not the fuelling, whatever word it contains.
+  if (/resolv/.test(st)) return "prelaunch";
+  if (/download|fetch|import|filing|hash|cached/.test(st)) return "fuel";
+  if (/writ|flash|capture|format|prepar|copying|duplicat/.test(st)) return "launch";
+  if (/extract|copy|split|stage|image|patch|cidata|build|driver|payload|compos/.test(st)) return "assembly";
+  if (/resolv|queued|start|open|check|detect/.test(st)) return "prelaunch";
+  return "standby";
+}
+
+function setPatter(j, ev) {
+  if (ev.final) {
+    clearInterval(j.patterTimer);
+    j.flair.hidden = !!ev.error;
+    if (!ev.error) j.flair.textContent = LANDED[ev.kind] || "All systems nominal";
+    return;
+  }
+  const phase = patterPhase(ev);
+  if (phase === j.phase) return;
+  j.phase = phase;
+  const lines = PATTER[phase];
+  let n = Math.floor(Math.random() * lines.length);
+  j.flair.textContent = lines[n];
+  clearInterval(j.patterTimer);
+  j.patterTimer = setInterval(() => {
+    n = (n + 1) % lines.length;
+    j.flair.textContent = lines[n];
+  }, 4000);
+}
+
 // renderActivity shows the strip only while it has something in it, and says
 // how many things are still running.
 function renderActivity() {
@@ -1483,10 +1562,11 @@ function renderActivity() {
 function dismissJob(id) {
   const j = jobEls.get(id);
   if (!j || !j.final) return;
+  clearInterval(j.patterTimer);
   j.row.remove(); jobEls.delete(id); renderActivity();
 }
 function clearFinishedJobs() {
-  for (const [id, j] of [...jobEls]) if (j.final) { j.row.remove(); jobEls.delete(id); }
+  for (const [id, j] of [...jobEls]) if (j.final) { clearInterval(j.patterTimer); j.row.remove(); jobEls.delete(id); }
   renderActivity();
 }
 
@@ -1502,15 +1582,17 @@ function upsertJob(ev) {
     line.append(title, stage, pct);
     const bar = el("div", "bar"); bar.append(el("i"));
     const stats = el("div", "jobstats");
-    row.append(line, bar, stats);
+    const flair = el("div", "jobflair");
+    row.append(line, bar, stats, flair);
     jobs.prepend(row);
     // rate is sampled over a short window rather than averaged from the start:
     // a flash that stalls on a bad sector should say so while it is stalled,
     // not report the healthy average it had ten seconds ago.
-    j = { row, stage, pct, bar, stats, t0: Date.now(), mark: null };
+    j = { row, stage, pct, bar, stats, flair, t0: Date.now(), mark: null };
     jobEls.set(ev.job_id, j);
   }
   j.stage.textContent = ev.error ? ev.error : ev.stage;
+  setPatter(j, ev);
   j.stage.classList.toggle("error", !!ev.error);
   if (ev.error) { j.stage.style.color = "var(--err)"; j.bar.querySelector("i").style.background = "var(--err)"; }
   // Reading a disk back and hashing it is a different act from writing it, and
@@ -1540,6 +1622,7 @@ function upsertJob(ev) {
   if (ev.final && ev.error) { j.bar.classList.remove("indet"); loadState(); }
   if (ev.final && !j.final) {
     j.final = true;
+    j.row.classList.add("final");
     const x = el("button", "dismiss", "✕");
     x.title = "Dismiss";
     x.onclick = () => dismissJob(ev.job_id);
@@ -1909,7 +1992,7 @@ function showActivityExample() {
 }
 function clearGuideExample() {
   const j = jobEls.get("guide-example");
-  if (j) { j.row.remove(); jobEls.delete("guide-example"); renderActivity(); }
+  if (j) { clearInterval(j.patterTimer); j.row.remove(); jobEls.delete("guide-example"); renderActivity(); }
 }
 
 function exampleDiskCard() {
