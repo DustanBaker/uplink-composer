@@ -36,7 +36,7 @@ func TestFindDownloadedISO(t *testing.T) {
 	}
 	mk("Win11_24H2_English_x64.iso", 2<<30, 48*time.Hour)
 	newer := mk("Win11_25H2_English_x64.iso", 2<<30, time.Hour)
-	mk("Win11_small.iso", 1<<20, 0)                        // too small to be real
+	mk("Win11_small.iso", 1<<20, 0)                       // too small to be real
 	partial := mk("Win11_26H1_English_x64.iso", 2<<30, 0) // still downloading
 	os.WriteFile(partial+".part", nil, 0o644)
 	mk("ubuntu-26.04.1-desktop-amd64.iso", 2<<30, 0)

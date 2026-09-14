@@ -23,6 +23,13 @@ import (
 )
 
 func main() {
+	// Writing and erasing sticks on Windows relaunches this program as
+	// administrator with "flash-worker". It used to ignore that, find the app
+	// already running, raise its window and exit 0, so every erase or write
+	// started from the app reported success having done nothing.
+	if len(os.Args) > 1 && os.Args[1] == "flash-worker" {
+		os.Exit(cli.Main(os.Args[1:]))
+	}
 	dir := appconfig.Dir()
 	_ = os.MkdirAll(dir, 0o755)
 	if f, err := os.OpenFile(filepath.Join(dir, "app.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {

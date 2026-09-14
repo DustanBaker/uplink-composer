@@ -439,7 +439,7 @@
 
 <dialog id="prepDialog">
   <div class="body">
-    <h3>Prepare disk</h3>
+    <h3>Erase and prepare</h3>
     <div id="prepOpts"></div>
     <div class="target" id="prepTarget"></div>
     <p>This <b>permanently erases</b> the disk and replaces everything on it with one
@@ -448,7 +448,7 @@
     <input id="prepInput" autocomplete="off">
     <div class="actions">
       <button onclick="prepDialog.close()">Cancel</button>
-      <button class="danger" id="prepGo">Erase &amp; prepare</button>
+      <button class="danger" id="prepGo">Erase</button>
     </div>
   </div>
 </dialog>
@@ -634,11 +634,8 @@ async function loadDisks() {
     row.append(grow);
     if (d.system) row.append(el("span", "badge err", "system"));
     else if (!d.flashable) row.append(el("span", "badge", "internal"));
-    else {
-      const b = el("button", d.notes && d.notes.length ? "primary" : "", "Prepare…");
-      b.onclick = () => openPrepare(d);
-      row.append(b);
-    }
+    // Erasing lives in Disk utility, one button for one action; this list
+    // only says what is on each disk.
     box.append(row);
   }
   if (!box.children.length) box.append(el("div", "empty", "No disks found."));

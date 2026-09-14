@@ -219,11 +219,26 @@ func runElevated(ctx context.Context, job Job, progress DeviceProgress) (string,
 	if err != nil {
 		return "", err
 	}
+	return workerOutcome(code, result, workerErr)
+}
+
+// workerOutcome decides what an elevated worker's exit means. Every job the
+// worker finishes ends with a result line, so a clean exit without one means
+// something other than the worker ran — as when the Windows app, relaunched
+// as administrator, raised its window and quit instead — and must not be
+// reported as done.
+func workerOutcome(code int, result, workerErr string) (string, error) {
 	if code != 0 {
 		if workerErr != "" {
 			return "", fmt.Errorf("%s", workerErr)
 		}
 		return "", fmt.Errorf("elevated worker exited with code %d (%s)", code, elevate.Hint())
+	}
+	if result == "" {
+		if workerErr != "" {
+			return "", fmt.Errorf("%s", workerErr)
+		}
+		return "", fmt.Errorf("the administrator step finished without doing the work, so nothing was changed on the disk")
 	}
 	return result, nil
 }
