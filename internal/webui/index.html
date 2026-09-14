@@ -206,10 +206,20 @@
     grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); }
   body[data-door="home"] main, body[data-door="clone"] main {
     grid-template-columns: minmax(0, 1fr); max-width: 900px; }
-  /* Activity sits under the work it reports on, never above it. It is empty
-     most of the time, and an empty panel pushing the actual task down the page
-     is the layout equivalent of clearing your throat. */
-  #jobsSec { order: 99; }
+  /* Activity is pinned under the header on every screen, the start screen
+     included. It used to sit under the work on the screens that had it, and on
+     none at all on the start screen — so an update started from there showed no
+     progress anywhere. Whatever is running is the one thing that should never
+     be out of sight. It takes no space while there is nothing in it. */
+  .activity-wrap { position: sticky; top: 0; z-index: 30; padding: 10px 22px 0;
+    background: var(--bg); }
+  #jobsSec { max-width: 1200px; margin: 0 auto; }
+  #jobsSec > h2 .count { color: var(--accent); margin-left: 8px; }
+  #jobs { max-height: 38vh; overflow-y: auto; }
+  #jobs .row { position: relative; }
+  #jobs .dismiss { position: absolute; top: 5px; right: 8px; padding: 0 7px; font-size: 13px;
+    line-height: 20px; background: none; border: none; color: var(--dim); }
+  #jobs .dismiss:hover { color: var(--text); }
 
   /* ── Where the mono earns its place ──────────────────────────────────────
      Everything a person compares, copies or checks: device paths, sizes,
@@ -254,6 +264,9 @@
   <button id="updBtn" onclick="checkUpdate(true)" title="Ask GitHub for the newest release now">Check for updates</button>
   <button id="quitBtn" title="Stop the app" onclick="quitApp()">Quit</button>
 </header>
+<div class="activity-wrap">
+  <section id="jobsSec" hidden><h2>Activity<span class="count" id="jobsCount"></span><span class="spacer"></span><button id="jobsClear" onclick="clearFinishedJobs()" hidden>Clear finished</button></h2><div class="rows" id="jobs"></div></section>
+</div>
 <main>
   <!-- The start screen. Three things this tool does, in the words someone
        would use for the job they turned up with. -->
@@ -317,7 +330,6 @@
     <section data-door="advanced"><h2>Workspace<span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
       <div class="rows" id="wsPanel"></div>
     </section>
-    <section data-door="install clone disks advanced" id="jobsSec"><h2>Activity</h2><div class="rows" id="jobs"><div class="empty">Nothing running. Downloads, image set-ups and writes show their progress here.</div></div></section>
     <section data-door="install advanced"><h2>Recipes <span class="spacer"></span><span class="sub" id="recipesWhere"></span></h2><div class="rows" id="recipes"></div></section>
     <section data-door="install advanced"><h2>Built images <span class="spacer"></span><span class="sub">ready to write, no rebuilding</span></h2><div class="rows" id="artifacts"></div></section>
   </div>
@@ -1423,9 +1435,27 @@ function secs(s) {
   return Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0") + "m";
 }
 
+// renderActivity shows the strip only while it has something in it, and says
+// how many things are still running.
+function renderActivity() {
+  const running = [...jobEls.values()].filter(j => !j.final).length;
+  const finished = jobEls.size - running;
+  $("jobsSec").hidden = jobEls.size === 0;
+  $("jobsCount").textContent = running ? `${running} running` : "";
+  $("jobsClear").hidden = finished === 0;
+}
+function dismissJob(id) {
+  const j = jobEls.get(id);
+  if (!j || !j.final) return;
+  j.row.remove(); jobEls.delete(id); renderActivity();
+}
+function clearFinishedJobs() {
+  for (const [id, j] of [...jobEls]) if (j.final) { j.row.remove(); jobEls.delete(id); }
+  renderActivity();
+}
+
 function upsertJob(ev) {
   const jobs = $("jobs");
-  const emptyEl = jobs.querySelector(".empty"); if (emptyEl) emptyEl.remove();
   let j = jobEls.get(ev.job_id);
   if (!j) {
     const row = el("div", "row");
@@ -1472,6 +1502,14 @@ function upsertJob(ev) {
     j.stats.replaceChildren();
   }
   if (ev.final && ev.error) { j.bar.classList.remove("indet"); loadState(); }
+  if (ev.final && !j.final) {
+    j.final = true;
+    const x = el("button", "dismiss", "✕");
+    x.title = "Dismiss";
+    x.onclick = () => dismissJob(ev.job_id);
+    j.row.append(x);
+  }
+  renderActivity();
   if (ev.final) {
     const waiter = jobWaiters.get(ev.job_id);
     if (waiter) { jobWaiters.delete(ev.job_id); waiter(ev); }
