@@ -1,12 +1,15 @@
 package webui
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -176,5 +179,52 @@ func TestDeleteArtifactStaysInTheLibrary(t *testing.T) {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("%s still there", p)
 		}
+	}
+}
+
+// The model picker's list: every vendor asked, for the OS being installed, and
+// one vendor failing does not take the others down with it.
+func TestDriverModelsPerVendor(t *testing.T) {
+	s := testServer(t)
+	asked := map[string]string{}
+	var mu sync.Mutex
+	s.ModelLister = func(ctx context.Context, vendor, osName string) ([]string, error) {
+		mu.Lock()
+		asked[vendor] = osName
+		mu.Unlock()
+		if vendor == "hp" {
+			return nil, errors.New("catalog unreachable")
+		}
+		return []string{vendor + " Model A", vendor + " Model B"}, nil
+	}
+	req := httptest.NewRequest("GET", "/api/drivers/models?os_id=windows-10", nil)
+	req.Host = "127.0.0.1:8931"
+	req.Header.Set("X-DSKY-Token", "sekrit")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	var resp struct {
+		OS      string `json:"os"`
+		Vendors []struct {
+			Vendor string   `json:"vendor"`
+			Name   string   `json:"name"`
+			Models []string `json:"models"`
+			Error  string   `json:"error"`
+		} `json:"vendors"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil || w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if resp.OS != "win10" || len(asked) != 3 || asked["dell"] != "win10" {
+		t.Errorf("os %q, asked %v", resp.OS, asked)
+	}
+	byVendor := map[string]int{}
+	for i, v := range resp.Vendors {
+		byVendor[v.Vendor] = i
+	}
+	if d := resp.Vendors[byVendor["dell"]]; d.Name != "Dell" || len(d.Models) != 2 || d.Error != "" {
+		t.Errorf("dell: %+v", d)
+	}
+	if h := resp.Vendors[byVendor["hp"]]; h.Error == "" || h.Models == nil || len(h.Models) != 0 {
+		t.Errorf("hp failure not reported alongside the others: %+v", h)
 	}
 }

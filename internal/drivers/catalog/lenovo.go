@@ -48,6 +48,38 @@ func (f *lenovoFeed) Search(ctx context.Context, q Query) ([]Pack, error) {
 	return parseLenovo(b, q)
 }
 
+// Models lists every Lenovo model with a pack for this OS.
+func (f *lenovoFeed) Models(ctx context.Context, osName, arch string) ([]string, error) {
+	path, err := f.cache.file(ctx, "lenovo-catalogv2.xml", lenovoCatalogURL)
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return listLenovo(b, osName)
+}
+
+func listLenovo(b []byte, osName string) ([]string, error) {
+	q := Query{OS: osName}
+	q.defaults()
+	var list lenovoModelList
+	if err := xml.Unmarshal(b, &list); err != nil {
+		return nil, fmt.Errorf("parsing Lenovo catalog: %w", err)
+	}
+	var names []string
+	for _, m := range list.Models {
+		for _, s := range m.SCCM {
+			if strings.EqualFold(s.OS, q.OS) {
+				names = append(names, m.Name)
+				break
+			}
+		}
+	}
+	return sortedUnique(names), nil
+}
+
 func parseLenovo(b []byte, q Query) ([]Pack, error) {
 	q.defaults()
 	var list lenovoModelList

@@ -286,6 +286,20 @@
     .guide-card { left: 16px !important; right: 16px; top: auto !important; bottom: 16px; width: auto; }
   }
   @media (prefers-reduced-motion: reduce) { .guide-spot { transition: none; } }
+  /* The model picker: chosen models as chips, then a search box with results. */
+  .modelpick .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .modelpick .chips:empty { display: none; }
+  .modelpick .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px;
+    padding: 3px 4px 3px 9px; border: 1px solid var(--accent); border-radius: 14px; }
+  .modelpick .chip button { padding: 0 6px; border: none; background: none; color: var(--dim); font-size: 12px; }
+  .modelpick .chip button:hover { color: var(--text); }
+  .modelresults { max-height: 220px; overflow-y: auto; border: 1px solid var(--line);
+    border-radius: 6px; margin-top: 4px; background: var(--bg); }
+  .modelresults .modelrow { display: flex; align-items: center; gap: 8px; padding: 6px 9px;
+    font-size: 13px; cursor: pointer; }
+  .modelresults .modelrow.on, .modelresults .modelrow:hover { background: var(--panel2); }
+  .modelresults .badge { min-width: 52px; text-align: center; }
+  .modelresults .empty { padding: 8px 10px; }
   #err { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
     background: var(--danger); color: #fff; padding: 9px 16px; border-radius: 8px;
     max-width: 80%; display: none; font-size: 13px; }
@@ -1241,6 +1255,133 @@ function textOpt(label, placeholder, hint) {
   }
   return { wrap, get: () => inp.value.trim() };
 }
+// modelPickerOpt is a searchable list of every computer model Dell, HP and
+// Lenovo publish driver packs for, for staging drivers for machines you are not
+// sitting at. Picking from the vendor's own list replaces typing "dell:" and a
+// guess at how Dell spells the model — which, matched loosely, could silently
+// stage the drivers for a different model with a similar name.
+//
+// The lists come from the vendors' catalogs, fetched once by the server and
+// cached. Several models can be picked; one stick carries packs for all of
+// them, and each machine installs only what matches it.
+const modelLists = {};
+function modelPickerOpt(os) {
+  const wrap = el("div", "opt modelpick");
+  wrap.append(el("label", null, "Also stage drivers for other computer models"));
+  const chips = el("div", "chips");
+  const box = el("input"); box.type = "search"; box.autocomplete = "off";
+  box.placeholder = "Search Dell, HP and Lenovo models, e.g. OptiPlex 3070";
+  box.setAttribute("role", "combobox"); box.setAttribute("aria-expanded", "false");
+  const results = el("div", "modelresults"); results.hidden = true;
+  results.setAttribute("role", "listbox");
+  const note = el("div", "sub"); note.style.color = "var(--dim)"; note.style.marginTop = "4px";
+  note.textContent = "For imaging machines you are not sitting at. One stick can carry packs for several models.";
+  wrap.append(chips, box, results, note);
+
+  const picked = new Map(); // spec -> label
+  let all = null, active = -1, shown = [];
+
+  const drawChips = () => {
+    chips.replaceChildren();
+    for (const [spec, label] of picked) {
+      const c = el("span", "chip", label);
+      const x = el("button", "", "✕"); x.type = "button"; x.title = "Remove " + label;
+      x.onclick = () => { picked.delete(spec); drawChips(); };
+      c.append(x); chips.append(c);
+    }
+  };
+  const add = (spec, label) => { picked.set(spec, label); drawChips(); box.value = ""; draw(); box.focus(); };
+
+  const draw = () => {
+    const q = box.value.trim().toLowerCase();
+    results.replaceChildren(); shown = []; active = -1;
+    if (!q || !all) { results.hidden = true; box.setAttribute("aria-expanded", "false"); return; }
+    // Each word typed must start a word of the name: "4" finds "Gen 4" but not
+    // the 4 inside "T14", which would put the wrong ThinkPad at the top of the
+    // list — where Enter picks it. Names containing the words in the order
+    // typed come first, then shorter names, which are the closer matches.
+    const tokens = q.split(/[^a-z0-9]+/).filter(Boolean);
+    const phrase = tokens.join(" ");
+    const hits = [];
+    for (const m of all) {
+      if (picked.has(m.spec)) continue;
+      if (tokens.every(t => m.words.some(w => w.startsWith(t)))) hits.push(m);
+    }
+    hits.sort((a, b) =>
+      (b.flat.includes(phrase) - a.flat.includes(phrase)) ||
+      (a.words.length - b.words.length) ||
+      a.hay.localeCompare(b.hay));
+    shown = hits.slice(0, 40);
+    if (!shown.length) {
+      const typed = /^(dell|hp|lenovo):.+/i.test(box.value.trim());
+      results.append(el("div", "empty", typed
+        ? "Not in the lists — press Enter to use it as typed."
+        : "No model matches. Try fewer words, such as the model number — vendors rename lines, so HP's EliteDesk 800 G9 is listed as Elite Mini 800 G9."));
+    }
+    shown.forEach((m, i) => {
+      const row = el("div", "modelrow");
+      row.setAttribute("role", "option");
+      row.append(el("span", "badge", m.vendorName), el("span", "", m.model));
+      row.onmousedown = e => { e.preventDefault(); add(m.spec, m.vendorName + " " + m.model); };
+      row.onmouseenter = () => { active = i; mark(); };
+      results.append(row);
+    });
+    results.hidden = false; box.setAttribute("aria-expanded", "true");
+  };
+  const mark = () => [...results.querySelectorAll(".modelrow")].forEach((r, i) => r.classList.toggle("on", i === active));
+
+  box.oninput = draw;
+  box.onblur = () => setTimeout(() => { results.hidden = true; }, 120);
+  box.onfocus = draw;
+  box.onkeydown = e => {
+    if (e.key === "ArrowDown" && shown.length) { e.preventDefault(); active = (active + 1) % shown.length; mark(); }
+    else if (e.key === "ArrowUp" && shown.length) { e.preventDefault(); active = (active - 1 + shown.length) % shown.length; mark(); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      const m = shown[active >= 0 ? active : 0];
+      const typed = box.value.trim();
+      if (m) add(m.spec, m.vendorName + " " + m.model);
+      else if (/^(dell|hp|lenovo):.+/i.test(typed)) add(typed, typed);
+    } else if (e.key === "Escape" && !results.hidden) { e.preventDefault(); e.stopPropagation(); results.hidden = true; }
+  };
+
+  async function load() {
+    if (all) return;
+    const key = os.id;
+    if (!modelLists[key]) {
+      note.textContent = "Loading the model lists from Dell, HP and Lenovo… the first time takes a moment.";
+      modelLists[key] = api("/api/drivers/models?os_id=" + encodeURIComponent(os.id));
+    }
+    try {
+      const r = await modelLists[key];
+      all = [];
+      const missing = [];
+      for (const v of r.vendors) {
+        if (v.error) missing.push(v.name);
+        for (const model of v.models)
+          {
+            // HP's names already start with "HP"; don't say it twice.
+            const shownName = model.toLowerCase().startsWith(v.name.toLowerCase() + " ") ? model.slice(v.name.length + 1) : model;
+            const hay = (v.name + " " + model).toLowerCase();
+            const words = hay.split(/[^a-z0-9]+/).filter(Boolean);
+            all.push({ spec: v.vendor + ":" + model, model: shownName, vendorName: v.name, hay, words, flat: words.join(" ") });
+          }
+      }
+      note.textContent = `${all.length} models with ${r.os === "win10" ? "Windows 10" : "Windows 11"} driver packs. One stick can carry packs for several.` +
+        (missing.length ? ` ${missing.join(" and ")} could not be reached; type vendor:model to add one anyway.` : "");
+      draw();
+    } catch (e) {
+      delete modelLists[key];
+      note.textContent = "The model lists could not be loaded (" + e.message + "). Type vendor:model, such as dell:OptiPlex 3070, and press Enter.";
+      all = [];
+    }
+  }
+  // Started as the dialog opens rather than on first focus, so the lists are
+  // ready by the time somebody types.
+  load();
+  return { wrap, get: () => [...picked.keys()].join(",") };
+}
+
 function checkOpt(label) {
   const wrap = el("div", "opt check"); const cb = el("input"); cb.type = "checkbox";
   const id = "c" + Math.random().toString(36).slice(2); cb.id = id;
@@ -1343,9 +1484,7 @@ function openInstall(os) {
     const am = selectOpt("Account setup", [["local", "Local account, no setup screens"], ["oobe", "Normal Windows setup (OOBE)"]]);
     const db = selectOpt("Remove bloatware", [["standard", "Standard"], ["aggressive", "Aggressive"], ["off", "Keep everything"]]);
     const dv = driverOpt();
-    const df = textOpt("Also stage drivers for another machine", "dell:OptiPlex 7010",
-      "For imaging a machine you are not sitting at. Comma-separate several; " +
-      "one stick can carry packs for many models.");
+    const df = modelPickerOpt(os);
     const ap = appsOpt();
     const bp = checkOpt("Skip TPM / Secure Boot / RAM checks (older or virtual hardware)");
     const iso = isoOpt(os);

@@ -63,6 +63,44 @@ func (f *dellFeed) Search(ctx context.Context, q Query) ([]Pack, error) {
 	return parseDell(b, q)
 }
 
+// Models lists every Dell model with a pack for this OS and architecture.
+func (f *dellFeed) Models(ctx context.Context, osName, arch string) ([]string, error) {
+	xmlPath, err := f.cache.xmlFromCab(ctx, "DriverPackCatalog.cab", dellCatalogURL, "DriverPackCatalog.xml")
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(xmlPath)
+	if err != nil {
+		return nil, err
+	}
+	return listDell(b, osName, arch)
+}
+
+func listDell(b []byte, osName, arch string) ([]string, error) {
+	q := Query{OS: osName, Arch: arch}
+	q.defaults()
+	var m dellManifest
+	if err := xml.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("parsing Dell catalog: %w", err)
+	}
+	wantOS := "windows" + strings.TrimPrefix(q.OS, "win")
+	var names []string
+	for _, p := range m.Packages {
+		if !strings.EqualFold(p.Type, "win") {
+			continue
+		}
+		for _, o := range p.OS {
+			if strings.EqualFold(o.Code, wantOS) && (o.Arch == "" || strings.EqualFold(o.Arch, q.Arch)) {
+				for _, md := range p.Models {
+					names = append(names, md.Name)
+				}
+				break
+			}
+		}
+	}
+	return sortedUnique(names), nil
+}
+
 func parseDell(b []byte, q Query) ([]Pack, error) {
 	q.defaults()
 	var m dellManifest
@@ -93,7 +131,11 @@ func parseDell(b []byte, q Query) ([]Pack, error) {
 		for _, md := range p.Models {
 			ids = append(ids, md.SystemID)
 			for _, cand := range []string{md.Name, strings.TrimSpace(md.Display)} {
-				if modelMatches(q.Model, cand) || strings.EqualFold(cand, strings.TrimSpace(q.Model)) || strings.EqualFold(md.SystemID, strings.TrimSpace(q.Model)) {
+				// An exact name wins over a looser match already found in the
+				// same pack, so Exact can find it among the results.
+				if strings.EqualFold(strings.TrimSpace(md.Name), strings.TrimSpace(q.Model)) {
+					model = md.Name
+				} else if model == "" && (modelMatches(q.Model, cand) || strings.EqualFold(cand, strings.TrimSpace(q.Model)) || strings.EqualFold(md.SystemID, strings.TrimSpace(q.Model))) {
 					model = md.Name
 				}
 			}

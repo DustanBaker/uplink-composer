@@ -93,6 +93,45 @@ type Feed interface {
 	Search(ctx context.Context, q Query) ([]Pack, error)
 }
 
+// Lister is a feed that can name every model it has a pack for, so a person
+// can pick one from a list instead of guessing how the vendor spells it.
+type Lister interface {
+	Models(ctx context.Context, os, arch string) ([]string, error)
+}
+
+// ModelFeeds are the vendors whose catalogs are organised by computer model.
+var ModelFeeds = []Vendor{Dell, HP, Lenovo}
+
+// Exact picks the pack for exactly this model name when the search also
+// matched longer names — "OptiPlex 7010" must not become "OptiPlex 7010 Plus"
+// just because the Plus pack is newer. Without an exact match, the newest.
+func Exact(packs []Pack, model string) Pack {
+	want := strings.Join(strings.Fields(strings.ToLower(model)), " ")
+	for _, p := range packs {
+		if strings.Join(strings.Fields(strings.ToLower(p.Model)), " ") == want {
+			return p
+		}
+	}
+	return packs[0]
+}
+
+// sortedUnique trims, de-duplicates case-insensitively and sorts model names.
+func sortedUnique(names []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range names {
+		n = strings.Join(strings.Fields(n), " ")
+		k := strings.ToLower(n)
+		if n == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, n)
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+	return out
+}
+
 // Feeds returns the feed for a vendor name.
 func FeedFor(vendor string, c *Cache) (Feed, error) {
 	switch Vendor(strings.ToLower(vendor)) {

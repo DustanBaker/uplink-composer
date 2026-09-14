@@ -305,7 +305,7 @@ func resolveModel(ctx context.Context, ws *workspace.Workspace, lib *library.Lib
 		return "", fmt.Errorf("no %s driver pack for %q (%s) — check the model with `dsky drivers search %s %q`", h.Vendor, h.Model, osName, h.Vendor, h.Model)
 	}
 	ref := manifest.HardwareRef{Vendor: h.Vendor, Model: h.Model, OS: osName}
-	return AddPack(ctx, ws, lib, feed, packs[0], ref, true, progress)
+	return AddPack(ctx, ws, lib, feed, catalog.Exact(packs, h.Model), ref, true, progress)
 }
 
 // resolveHWID covers one hardware ID through the Microsoft Update Catalog.

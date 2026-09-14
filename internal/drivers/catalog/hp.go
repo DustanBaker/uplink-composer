@@ -56,10 +56,9 @@ func (f *hpFeed) Search(ctx context.Context, q Query) ([]Pack, error) {
 	return parseHP(b, q)
 }
 
-// parseHP walks the document collecting the two record types wherever
-// they sit, so wrapper element names never matter.
-func parseHP(b []byte, q Query) ([]Pack, error) {
-	q.defaults()
+// decodeHP walks the document collecting the two record types wherever they
+// sit, so wrapper element names never matter.
+func decodeHP(b []byte) ([]hpProduct, map[string]hpSoftPaq, error) {
 	dec := xml.NewDecoder(bytes.NewReader(b))
 	var products []hpProduct
 	softpaqs := map[string]hpSoftPaq{}
@@ -69,7 +68,7 @@ func parseHP(b []byte, q Query) ([]Pack, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("parsing HP catalog: %w", err)
+			return nil, nil, fmt.Errorf("parsing HP catalog: %w", err)
 		}
 		se, ok := tok.(xml.StartElement)
 		if !ok {
@@ -79,16 +78,58 @@ func parseHP(b []byte, q Query) ([]Pack, error) {
 		case "ProductOSDriverPack":
 			var p hpProduct
 			if err := dec.DecodeElement(&p, &se); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			products = append(products, p)
 		case "SoftPaq":
 			var s hpSoftPaq
 			if err := dec.DecodeElement(&s, &se); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			softpaqs[s.ID] = s
 		}
+	}
+	return products, softpaqs, nil
+}
+
+// Models lists every HP model with a pack for this OS and architecture.
+func (f *hpFeed) Models(ctx context.Context, osName, arch string) ([]string, error) {
+	xmlPath, err := f.cache.xmlFromCab(ctx, "HPClientDriverPackCatalog.cab", hpCatalogURL, "HPClientDriverPackCatalog.xml")
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(xmlPath)
+	if err != nil {
+		return nil, err
+	}
+	return listHP(b, osName, arch)
+}
+
+func listHP(b []byte, osName, arch string) ([]string, error) {
+	q := Query{OS: osName, Arch: arch}
+	q.defaults()
+	products, softpaqs, err := decodeHP(b)
+	if err != nil {
+		return nil, err
+	}
+	wantOS := "Windows " + strings.TrimPrefix(q.OS, "win")
+	var names []string
+	for _, p := range products {
+		if !strings.HasPrefix(p.OSName, wantOS) || (q.Arch == "x64" && !strings.Contains(p.Architecture, "64")) {
+			continue
+		}
+		if _, ok := softpaqs[p.SoftPaqID]; ok {
+			names = append(names, p.SystemName)
+		}
+	}
+	return sortedUnique(names), nil
+}
+
+func parseHP(b []byte, q Query) ([]Pack, error) {
+	q.defaults()
+	products, softpaqs, err := decodeHP(b)
+	if err != nil {
+		return nil, err
 	}
 
 	wantOS := "Windows " + strings.TrimPrefix(q.OS, "win") // "Windows 11"

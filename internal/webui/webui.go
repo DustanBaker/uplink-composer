@@ -28,6 +28,7 @@ import (
 	"github.com/uplinkresearch/dsky/internal/device"
 	"github.com/uplinkresearch/dsky/internal/diskutil"
 	"github.com/uplinkresearch/dsky/internal/driverresolve"
+	"github.com/uplinkresearch/dsky/internal/drivers/catalog"
 	"github.com/uplinkresearch/dsky/internal/filepicker"
 	"github.com/uplinkresearch/dsky/internal/flashrun"
 	"github.com/uplinkresearch/dsky/internal/helpers"
@@ -101,6 +102,10 @@ type Server struct {
 	idleTimer *time.Timer // running only while clients == 0
 
 	guidesRun map[string]bool // guides closed, when there is no Cfg to keep it in
+
+	// ModelLister names every model a vendor has driver packs for. Nil means
+	// the real vendor catalogs; tests substitute their own.
+	ModelLister func(ctx context.Context, vendor, osName string) ([]string, error)
 
 	updMu  sync.Mutex // guards the cached update check
 	updRel *selfupdate.Release
@@ -201,6 +206,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/recipes/save", s.auth(s.handleSaveRecipe))
 	mux.HandleFunc("POST /api/artifacts/delete", s.auth(s.handleDeleteArtifact))
 	mux.HandleFunc("GET /api/detect", s.auth(s.handleDetect))
+	mux.HandleFunc("GET /api/drivers/models", s.auth(s.handleDriverModels))
 	mux.HandleFunc("GET /api/update", s.auth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/update", s.auth(s.handleUpdateApply))
 	mux.HandleFunc("POST /api/capture", s.auth(s.handleCapture))
@@ -603,6 +609,61 @@ func (s *Server) handleGuide(w http.ResponseWriter, r *http.Request) {
 		s.idleMu.Unlock()
 	}
 	writeJSON(w, 200, map[string]any{"guides_seen": s.seenGuides()})
+}
+
+// vendorModels is one vendor's list for the Install dialog's model picker.
+type vendorModels struct {
+	Vendor string   `json:"vendor"`
+	Name   string   `json:"name"`
+	Models []string `json:"models"`
+	Error  string   `json:"error,omitempty"`
+}
+
+// handleDriverModels lists every model Dell, HP and Lenovo publish driver
+// packs for, for the OS being installed, so a model is picked from the
+// vendor's own list instead of typed and guessed at. Each vendor is fetched
+// on its own: one catalog being unreachable leaves the other two usable, and
+// says why the missing one is missing.
+func (s *Server) handleDriverModels(w http.ResponseWriter, r *http.Request) {
+	osName := "win11"
+	if e, ok := oscatalog.Get(r.URL.Query().Get("os_id")); ok && e.Family == oscatalog.Windows {
+		osName = e.DriverOS()
+	}
+	lister := s.ModelLister
+	if lister == nil {
+		cache := catalog.NewCache(s.Lib.HelpersDir())
+		lister = func(ctx context.Context, vendor, osName string) ([]string, error) {
+			feed, err := catalog.FeedFor(vendor, cache)
+			if err != nil {
+				return nil, err
+			}
+			l, ok := feed.(catalog.Lister)
+			if !ok {
+				return nil, fmt.Errorf("%s has no model list", vendor)
+			}
+			return l.Models(ctx, osName, "x64")
+		}
+	}
+	names := map[catalog.Vendor]string{catalog.Dell: "Dell", catalog.HP: "HP", catalog.Lenovo: "Lenovo"}
+	out := make([]vendorModels, len(catalog.ModelFeeds))
+	var wg sync.WaitGroup
+	for i, v := range catalog.ModelFeeds {
+		wg.Add(1)
+		go func(i int, v catalog.Vendor) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+			defer cancel()
+			vm := vendorModels{Vendor: string(v), Name: names[v], Models: []string{}}
+			if models, err := lister(ctx, string(v), osName); err != nil {
+				vm.Error = err.Error()
+			} else {
+				vm.Models = models
+			}
+			out[i] = vm
+		}(i, v)
+	}
+	wg.Wait()
+	writeJSON(w, 200, map[string]any{"os": osName, "vendors": out})
 }
 
 // handleQuit stops the server (the app's clean exit).

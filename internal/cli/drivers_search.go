@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 
 	"github.com/uplinkresearch/dsky/internal/driverresolve"
 	"github.com/uplinkresearch/dsky/internal/drivers/catalog"
@@ -150,5 +151,39 @@ func driversResolve(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	fmt.Println("all hardware entries have driver packs in the library — build with: dsky", r.ID)
+	return nil
+}
+
+// driversModels lists every model a vendor's catalog has a driver pack for —
+// the same list the Install dialog's model picker offers.
+func driversModels(ctx context.Context, env *Env, args []string) error {
+	fs := flag.NewFlagSet("drivers models", flag.ContinueOnError)
+	osName := fs.String("os", "win11", "win11 or win10")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("drivers models <dell|hp|lenovo> [--os win11|win10]")
+	}
+	lib, err := env.library()
+	if err != nil {
+		return err
+	}
+	feed, err := catalog.FeedFor(fs.Arg(0), catalog.NewCache(lib.HelpersDir()))
+	if err != nil {
+		return err
+	}
+	lister, ok := feed.(catalog.Lister)
+	if !ok {
+		return fmt.Errorf("%s is not organised by computer model — search it by hardware ID instead", fs.Arg(0))
+	}
+	models, err := lister.Models(ctx, *osName, "x64")
+	if err != nil {
+		return err
+	}
+	for _, m := range models {
+		fmt.Println(m)
+	}
+	fmt.Fprintf(os.Stderr, "%d %s models with %s driver packs\n", len(models), fs.Arg(0), *osName)
 	return nil
 }

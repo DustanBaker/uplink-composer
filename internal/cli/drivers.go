@@ -31,12 +31,14 @@ func cmdDrivers(ctx context.Context, env *Env, args []string) error {
 		return driversAdd(ctx, env, args[1:])
 	case "search":
 		return driversSearch(ctx, env, args[1:])
+	case "models":
+		return driversModels(ctx, env, args[1:])
 	case "resolve":
 		return driversResolve(ctx, env, args[1:])
 	case "scan":
 		return driversScan(ctx)
 	default:
-		return fmt.Errorf("drivers: unknown subcommand %q (inspect, add, search, resolve, scan)", args[0])
+		return fmt.Errorf("drivers: unknown subcommand %q (inspect, add, search, models, resolve, scan)", args[0])
 	}
 }
 
