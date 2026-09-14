@@ -75,7 +75,7 @@ jobs:
           ./mf wim-split src.wim parts/install.swm 1
           ls -l parts
           [ "$(ls parts | wc -l)" -gt 1 ] || { echo "expected several parts"; exit 1; }
-          wimlib-imagex info parts/install.swm --ref="parts/install*.swm"
+          wimlib-imagex info parts/install.swm
           wimlib-imagex verify parts/install.swm --ref="parts/install*.swm"
           wimlib-imagex apply parts/install.swm 1 a1 --ref="parts/install*.swm"
           wimlib-imagex apply parts/install.swm 2 a2 --ref="parts/install*.swm"
