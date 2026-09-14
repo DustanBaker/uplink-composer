@@ -1614,8 +1614,26 @@ function isoOpt(os) {
       "There is no link to fetch automatically. Filed under this OS, so later builds reuse it.");
   }
   if (os.family !== "windows") return null;
-  return textOpt("Use an ISO you downloaded (optional)", "C:\\Users\\you\\Downloads\\Win11.iso",
-    "Only needed if Microsoft refuses the download. Filed under this OS, so later builds reuse it.");
+  if (state.host_os === "windows" || os.downloaded) {
+    return textOpt("Use an ISO you downloaded (optional)", "C:\\Users\\you\\Downloads\\Win11.iso",
+      "Only needed if Microsoft refuses the download. Filed under this OS, so later builds reuse it.");
+  }
+  // Microsoft's download link can only be fetched from Windows (Fido, which
+  // gets it, refuses to run anywhere else). Microsoft's own page hands a Mac
+  // or Linux browser the ISO directly, so ask for that file up front rather
+  // than let Download fail.
+  const page = /windows-10/.test(os.id) ? "microsoft.com/software-download/windows10ISO" : "microsoft.com/software-download/windows11";
+  const opt = textOpt("Windows ISO file (needed on this computer)", (state.host_os === "darwin" ? "/Users/you" : "/home/you") + "/Downloads/Win11_English_x64.iso",
+    `DSKY can only fetch Windows itself when it runs on Windows. Download the ISO from ${page} — on a Mac or Linux the page offers the file directly — then choose it here. Filed under this OS, so later builds reuse it.`);
+  const inp = opt.wrap.querySelector("input");
+  const row = el("div"); row.style.cssText = "display:flex;gap:6px;align-items:center";
+  const choose = el("button", null, "Choose…"); choose.type = "button";
+  choose.onclick = async () => {
+    try { const r = await api("/api/browse/image", {}); if (r.path) inp.value = r.path; }
+    catch (e) { showErr(e.message); }
+  };
+  inp.replaceWith(row); inp.style.flex = "1"; row.append(inp, choose);
+  return opt;
 }
 
 function openInstall(os) {

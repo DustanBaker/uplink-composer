@@ -55,9 +55,11 @@ Multi-gigabyte binaries never live in git. Workspace **manifests** pin
 machine-local content-addressed **library**. Official Windows ISOs need no
 browser dance: a manifest with `provider: fido` resolves Microsoft's
 rotating download links at pull time through the hash-pinned
-[Fido](https://github.com/pbatard/Fido) helper, so
+[Fido](https://github.com/pbatard/Fido) helper, so on Windows
 `dsky sources pull win11-iso` goes straight from nothing to the current
-official Pro ISO.
+official Pro ISO. Fido runs only on Windows; on a Mac or Linux, download the
+ISO from Microsoft's page (which offers the file directly there) and hand it
+over with `--iso` or "Use an ISO you downloaded".
 
 **Bloat-free by recipe, not by modified media.** `windows.debloat` (presets
 `standard`/`aggressive`, plus `remove_apps`/`keep_apps` overrides) generates
@@ -129,7 +131,7 @@ dsky install windows-11 --edition Pro --account local --debloat standard
 ```
 
 Twenty-seven operating systems ship in the list today: Windows 11 and 10
-(fetched from Microsoft on demand via Fido); Ubuntu 26.04 LTS desktop and
+(fetched from Microsoft on demand via Fido on Windows, from a downloaded ISO elsewhere); Ubuntu 26.04 LTS desktop and
 server plus 24.04 LTS server; Fedora 44 Workstation and Server; Debian 13;
 Arch; Omarchy; CachyOS desktop and handheld; Linux Mint; Pop!_OS; Bazzite;
 Nobara; Garuda; PikaOS; openSUSE Tumbleweed; NixOS 26.05; Red Hat Enterprise

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -285,6 +286,9 @@ type stateResp struct {
 	AppSets      []appSet       `json:"app_sets"`
 	NotInWinget  []elsewhere    `json:"not_in_winget"`
 	LibraryRoot  string         `json:"library_root"`
+	// HostOS is runtime.GOOS: a Windows download link can only be fetched on
+	// Windows, so elsewhere the page asks for the ISO file instead.
+	HostOS string `json:"host_os"`
 	// GuidesSeen: the guides closed on this machine — "home" for the start
 	// screen's, and one per screen.
 	GuidesSeen []string `json:"guides_seen"`
@@ -393,7 +397,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		Recent: []recentWS{}, Recipes: []recipeInfo{}, Sources: []sourceInfo{},
 		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, Catalog: []catalogEntry{},
 		Apps: []appEntry{}, AppSets: []appSet{}, NotInWinget: []elsewhere{},
-		LibraryRoot: s.Lib.Root, GuidesSeen: s.seenGuides(),
+		LibraryRoot: s.Lib.Root, GuidesSeen: s.seenGuides(), HostOS: runtime.GOOS,
 	}
 	// Only programs with a Windows package: that is all Quick Install can do
 	// for now, and an option that cannot run is worse than no option.

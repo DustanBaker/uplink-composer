@@ -61,9 +61,31 @@ func powershellBinary() (string, error) {
 	return "", fmt.Errorf("pwsh (PowerShell 7+) is required to resolve Microsoft ISO URLs on this OS — https://aka.ms/powershell")
 }
 
+// FidoWindowsOnlyError says what to do instead on a computer that isn't
+// running Windows: where to download the ISO, and how to hand it to DSKY.
+func FidoWindowsOnlyError(spec *manifest.FidoSpec) error {
+	page := "https://www.microsoft.com/software-download/windows11"
+	if spec != nil && spec.Win == "10" {
+		page = "https://www.microsoft.com/software-download/windows10ISO"
+	}
+	return fmt.Errorf("DSKY can only fetch Microsoft's Windows download link when it runs on Windows. "+
+		"On this computer, download the ISO from %s (on a Mac or Linux the page offers the ISO file directly), "+
+		"then give DSKY the file: \"Use an ISO you downloaded\" in the app, or --iso <file> with dsky install", page)
+}
+
 // ResolveFidoURL runs Fido -GetUrl for the spec and returns the ephemeral
 // Microsoft download URL (valid for roughly 24 hours).
+//
+// Only on Windows. Fido refuses to run on any other platform, on purpose (its
+// author calls them "too much of a liability"), and before it gets that far
+// it asks Windows for the CPU type. For a long time DSKY ran it anyway and
+// passed on whatever went wrong first, which read like a broken PowerShell
+// install. Elsewhere, Microsoft's download page offers the ISO directly, so
+// the answer is to send people there and take the file.
 func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoSpec) (string, error) {
+	if runtime.GOOS != "windows" {
+		return "", FidoWindowsOnlyError(spec)
+	}
 	script, err := EnsureFido(ctx, helpersDir)
 	if err != nil {
 		return "", err
