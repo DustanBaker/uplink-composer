@@ -215,8 +215,17 @@ func appsShow(args []string) error {
 		if a.Winget != "" {
 			fmt.Printf("  winget:   %s\n", a.Winget)
 		}
-		if a.Apt != "" {
-			fmt.Printf("  apt:      %s\n", a.Apt)
+		if u := a.Ubuntu; u != nil {
+			switch {
+			case u.Apt != "":
+				fmt.Printf("  ubuntu:   apt %s\n", u.Apt)
+			case u.Snap != "":
+				fmt.Printf("  ubuntu:   snap %s\n", u.Snap)
+			case u.Flatpak != "":
+				fmt.Printf("  ubuntu:   flathub %s\n", u.Flatpak)
+			case u.Repo != "":
+				fmt.Printf("  ubuntu:   vendor repository (%s)\n", u.Repo)
+			}
 		}
 		return nil
 	}

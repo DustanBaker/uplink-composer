@@ -132,7 +132,31 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 	}
 
 	var appIDs []string
-	if strings.TrimSpace(*apps) != "" {
+	if strings.TrimSpace(*apps) != "" && e.Family != oscatalog.Windows {
+		appIDs = strings.Split(*apps, ",")
+		if err := oscatalog.CheckPrograms(e, appIDs); err != nil {
+			return err
+		}
+		plan, _ := appcatalog.ResolveUbuntu(appIDs)
+		fmt.Println("The stick will install Ubuntu with these programs, and erase the computer's disk:")
+		if len(plan.Apt) > 0 {
+			fmt.Printf("  from Ubuntu: %s\n", strings.Join(plan.Apt, ", "))
+		}
+		for _, sn := range plan.Snaps {
+			fmt.Printf("  snap: %s\n", sn.Name)
+		}
+		for _, f := range plan.Flatpaks {
+			fmt.Printf("  Flathub, on first boot: %s\n", f)
+		}
+		for _, r := range plan.Repos {
+			fmt.Printf("  vendor repository, on first boot: %s\n", r)
+		}
+		if e.Group() == oscatalog.Server {
+			fmt.Println("  No questions except the account, which the installer asks for on screen.")
+		} else {
+			fmt.Println("  Ubuntu shows its review screen and waits for Install before erasing anything.")
+		}
+	} else if strings.TrimSpace(*apps) != "" {
 		appIDs = strings.Split(*apps, ",")
 		pkgs, custom, err := appcatalog.Resolve(appIDs)
 		if err != nil {

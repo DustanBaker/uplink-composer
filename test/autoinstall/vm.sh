@@ -17,7 +17,14 @@
 #   desktop-26.04-prompt  Ubuntu Desktop 26.04 as Quick Install would make it:
 #                         GRUB left alone (Ubuntu's own prompt kept) and no
 #                         account in the answers. Observed, not pass/fail:
-#                         screenshots show what a person would see.
+#                         screenshots show what a person would see, and Enter
+#                         is pressed at the review screen to see what follows.
+#   server-26.04-programs Ubuntu Server 26.04 with programs picked the way the
+#                         app picks them (dsky install --apps): an Ubuntu
+#                         package, a snap, a Flathub app and Chrome from
+#                         Google's repository, checked on the installed disk
+#                         after first boot. The generated answers get a test
+#                         account, since the real ones ask for it on screen.
 #
 # Needs: go, qemu-system-x86_64 with KVM, OVMF, qemu-img, qemu-nbd, socat,
 # ImageMagick (convert), sudo for nbd mounts. Screenshots land in
@@ -54,8 +61,18 @@ desktop-26.04-prompt)
   URL=$MIRROR/26.04/ubuntu-26.04.1-desktop-amd64.iso
   SHA=601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f
   KIND=desktop PATCH=false IDENTITY=false OBSERVE=true ;;
+server-26.04-programs)
+  URL=$MIRROR/26.04/ubuntu-26.04.1-live-server-amd64.iso
+  SHA=cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927
+  KIND=server PATCH=true IDENTITY=true OBSERVE=false
+  PROGRAMS=vlc,brave,obsidian,chrome SRC_ID=ubuntu-26.04-server ;;
 *) echo "unknown case $CASE" >&2; exit 2 ;;
 esac
+PROGRAMS=${PROGRAMS:-}
+SRC_ID=${SRC_ID:-ci-ubuntu-iso}
+# The prompt case presses Enter once the review screen has had time to appear.
+KEYS_AT=""; KEYS=""
+[ "$CASE" = desktop-26.04-prompt ] && KEYS_AT=12 KEYS="ret"
 
 say "## $CASE"
 say ""
@@ -68,8 +85,8 @@ export DSKY_LIBRARY="$W/lib"
 rm -rf "$W/ws"
 "$W/dsky" init --org "DSKY CI" "$W/ws" >/dev/null
 
-cat >"$W/ws/manifests/ci-ubuntu-iso.yaml" <<EOF
-id: ci-ubuntu-iso
+cat >"$W/ws/manifests/$SRC_ID.yaml" <<EOF
+id: $SRC_ID
 kind: os-image
 format: iso
 url: $URL
@@ -99,13 +116,34 @@ EOF
   echo '  shutdown: reboot'
 } >"$W/ws/templates/ci-autoinstall.yaml.tmpl"
 
+if [ -n "$PROGRAMS" ]; then
+  # Build exactly what the app builds for these programs, which also downloads
+  # Ubuntu the way DSKY does (fastest mirror), then take its answers and give
+  # them a test account in place of the on-screen question.
+  "$W/dsky" install ubuntu-26.04-server --apps "$PROGRAMS" --build-only
+  gen="$W/lib/quick/templates/dsky-ubuntu-ubuntu-26.04-server.yaml.tmpl"
+  [ -s "$gen" ] || { say "- **FAIL** dsky install --apps wrote no answers"; exit 1; }
+  cp "$gen" "$W/generated-user-data.yaml"
+  python3 - "$gen" "$W/ws/templates/ci-autoinstall.yaml.tmpl" "$(openssl passwd -6 -salt dskyci dsky)" <<'PYEOF'
+import sys
+src, dst, pw = sys.argv[1:]
+text = open(src).read()
+old = "  interactive-sections:\n    - identity\n"
+assert old in text, "generated answers do not ask for the account"
+ident = "  identity:\n    hostname: dsky-ci\n    username: dsky\n    password: \"%s\"\n" % pw
+open(dst, "w").write(text.replace(old, ident))
+PYEOF
+  say "- \`dsky install ubuntu-26.04-server --apps $PROGRAMS\` built its media; its answers are reused with a test account"
+  find "$W/lib/artifacts" -type f -size +1G -delete || true
+fi
+
 cat >"$W/ws/recipes/ci-ubuntu.yaml" <<EOF
 version: 1
 id: ci-ubuntu
 name: "CI: $CASE"
 os:
   type: linux-iso
-  source: ci-ubuntu-iso
+  source: $SRC_ID
 target:
   min_stick: 8GiB
   boot: uefi-only
@@ -124,7 +162,7 @@ if [ "${DRYRUN:-}" = 1 ]; then
   cat "$W/ws/templates/ci-autoinstall.yaml.tmpl"
   exit 0
 fi
-"$W/dsky" -w "$W/ws" sources pull ci-ubuntu-iso
+"$W/dsky" -w "$W/ws" sources pull "$SRC_ID"
 "$W/dsky" -w "$W/ws" build ci-ubuntu | tee "$W/build.log"
 IMG=$(awk '/^artifact:/ {print $2}' "$W/build.log")
 [ -f "$IMG" ] || { say "- **FAIL** build produced no image"; exit 1; }
@@ -157,6 +195,9 @@ run_vm() { # phase, seconds-limit, extra qemu args...
     sleep 30
     n=$((n + 1))
     echo "screendump $W/shots/$phase-$(printf %03d $n).ppm" | socat - UNIX-CONNECT:"$mon" >/dev/null 2>&1 || true
+    if [ "$phase" = install ] && [ -n "$KEYS_AT" ] && [ "$n" = "$KEYS_AT" ]; then
+      for k in $KEYS; do echo "sendkey $k" | socat - UNIX-CONNECT:"$mon" >/dev/null 2>&1 || true; done
+    fi
     if [ $((SECONDS - start)) -ge "$limit" ]; then
       echo "quit" | socat - UNIX-CONNECT:"$mon" >/dev/null 2>&1 || kill "$QPID" || true
       wait "$QPID" 2>/dev/null || true
@@ -197,7 +238,7 @@ trap 'shots_to_png; umount_target' EXIT
 # The image is attached as a USB stick and boots first. -no-reboot turns the
 # installer's final reboot into QEMU exiting, which is how the end is seen.
 LIMIT=$((60 * 60))
-[ "$OBSERVE" = true ] && LIMIT=$((20 * 60))
+[ "$OBSERVE" = true ] && LIMIT=$((30 * 60))
 set +e
 t0=$SECONDS
 run_vm install "$LIMIT" -no-reboot \
@@ -208,7 +249,7 @@ set -e
 mins=$(( (SECONDS - t0) / 60 ))
 
 if [ "$OBSERVE" = true ]; then
-  say "- Observed for $mins min (exit $rc); see the install-* screenshots for what a person sees."
+  say "- Observed for $mins min (exit $rc); see the install-* screenshots for what a person sees${KEYS_AT:+ (Enter pressed at screenshot $KEYS_AT)}."
   exit 0
 fi
 if [ $rc -eq 124 ]; then
@@ -231,11 +272,18 @@ if ! mount_target; then
   say "- **FAIL** no ext4 root filesystem on the target disk"
   exit 1
 fi
-check "late-command ran (/etc/dsky-provisioned)" sudo test -s "$W/mnt/etc/dsky-provisioned"
-check "answers were the ones DSKY wrote (autoinstall-user-data mentions hello-world)" \
-  sudo grep -rq hello-world "$W/mnt/var/log/installer/"
-check "apt package from packages: installed (hello)" \
-  sudo grep -Pzq 'Package: hello\nStatus: install ok installed' "$W/mnt/var/lib/dpkg/status"
+if [ -n "$PROGRAMS" ]; then
+  check "Ubuntu package installed during setup (vlc)" \
+    sudo grep -Pzq 'Package: vlc\nStatus: install ok installed' "$W/mnt/var/lib/dpkg/status"
+  check "first-boot service enabled (dsky-apps.service)" \
+    sudo test -L "$W/mnt/etc/systemd/system/multi-user.target.wants/dsky-apps.service"
+else
+  check "late-command ran (/etc/dsky-provisioned)" sudo test -s "$W/mnt/etc/dsky-provisioned"
+  check "answers were the ones DSKY wrote (autoinstall-user-data mentions hello-world)" \
+    sudo grep -rq hello-world "$W/mnt/var/log/installer/"
+  check "apt package from packages: installed (hello)" \
+    sudo grep -Pzq 'Package: hello\nStatus: install ok installed' "$W/mnt/var/lib/dpkg/status"
+fi
 # Snaps listed in the answers are seeded during install and installed by
 # snapd on first boot, so they are checked after it (below).
 if [ "$IDENTITY" = true ]; then
@@ -245,13 +293,25 @@ umount_target
 
 # ── First boot of the installed system ─────────────────────────────────────
 set +e
-run_vm firstboot $((6 * 60))
+FIRSTBOOT=$((6 * 60))
+# Flathub apps and Chrome download on first boot; give them time.
+[ -n "$PROGRAMS" ] && FIRSTBOOT=$((25 * 60))
+run_vm firstboot "$FIRSTBOOT"
 set -e
 if mount_target; then
   target=multi-user
   [ "$KIND" = desktop ] && target=graphical
-  check "snap from snaps: installed on first boot (hello-world)" \
-    sudo sh -c "ls $W/mnt/var/lib/snapd/snaps/hello-world_*.snap"
+  if [ -n "$PROGRAMS" ]; then
+    check "snap installed on first boot (brave)" sudo sh -c "ls $W/mnt/var/lib/snapd/snaps/brave_*.snap"
+    check "Flathub app installed on first boot (md.obsidian.Obsidian)" sudo test -d "$W/mnt/var/lib/flatpak/app/md.obsidian.Obsidian"
+    check "Chrome installed from Google's repository" \
+      sudo grep -Pzq 'Package: google-chrome-stable\nStatus: install ok installed' "$W/mnt/var/lib/dpkg/status"
+    check "first-boot programs finished (/var/lib/dsky/apps-done)" sudo test -e "$W/mnt/var/lib/dsky/apps-done"
+    sudo cat "$W/mnt/var/log/dsky-apps.log" > "$W/dsky-apps.log" 2>/dev/null || true
+  else
+    check "snap from snaps: installed on first boot (hello-world)" \
+      sudo sh -c "ls $W/mnt/var/lib/snapd/snaps/hello-world_*.snap"
+  fi
   check "installed system booted to $target.target" \
     sudo sh -c "journalctl -D '$W/mnt/var/log/journal' --no-pager 2>/dev/null | grep -qi 'Reached target.*$(echo ${target:0:1} | tr a-z A-Z)${target:1}'"
   umount_target

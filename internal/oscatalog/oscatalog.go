@@ -280,13 +280,8 @@ func SaveRecipe(ctx context.Context, lib *library.Library, wsDir, id, name strin
 	if e.Family == Windows && genericKeys[opts.Edition] == "" {
 		return "", fmt.Errorf("unknown Windows edition %q (have: %s)", opts.Edition, strings.Join(e.Editions, ", "))
 	}
-	if len(opts.Apps) > 0 {
-		if e.Family != Windows {
-			return "", fmt.Errorf("installing programs alongside %s is not supported yet — it needs an autoinstall recipe", e.Name)
-		}
-		if _, _, err := appcatalog.Resolve(opts.Apps); err != nil {
-			return "", err
-		}
+	if err := checkPrograms(e, opts.Apps); err != nil {
+		return "", err
 	}
 	path := filepath.Join(wsDir, "recipes", id+".yaml")
 	if _, err := os.Stat(path); err == nil {
@@ -343,6 +338,13 @@ func SaveRecipe(ctx context.Context, lib *library.Library, wsDir, id, name strin
 		hw = res.Specs
 	}
 	meta := recipeMeta{ID: id, Name: name, Template: savedTemplate}
+	if e.Family == Linux && len(opts.Apps) > 0 {
+		rel, err := writeUbuntuUserData(wsDir, id, e, opts.Apps)
+		if err != nil {
+			return "", err
+		}
+		meta.UserData = rel
+	}
 	if err := os.WriteFile(path, []byte(recipeYAML(meta, e, opts, hw)), 0o644); err != nil {
 		return "", err
 	}
@@ -368,14 +370,9 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 	if e.Family == Windows && genericKeys[opts.Edition] == "" {
 		return nil, fmt.Errorf("unknown Windows edition %q (have: %s)", opts.Edition, strings.Join(e.Editions, ", "))
 	}
-	if len(opts.Apps) > 0 {
-		if e.Family != Windows {
-			return nil, fmt.Errorf("installing programs alongside %s is not supported yet — it needs an autoinstall recipe", e.Name)
-		}
-		// Fail before downloading gigabytes, not after.
-		if _, _, err := appcatalog.Resolve(opts.Apps); err != nil {
-			return nil, err
-		}
+	// Fail before downloading gigabytes, not after.
+	if err := checkPrograms(e, opts.Apps); err != nil {
+		return nil, err
 	}
 
 	if err := ensureSource(ctx, lib, e, progress); err != nil {
@@ -589,6 +586,13 @@ func scaffoldQuickWorkspace(lib *library.Library, e Entry, opts Options, hw []re
 
 func writeQuickRecipe(dir string, e Entry, opts Options, hw []recipe.HardwareSpec) error {
 	meta := recipeMeta{ID: e.ID, Name: e.Name, Template: quickTemplate}
+	if e.Family == Linux && len(opts.Apps) > 0 {
+		rel, err := writeUbuntuUserData(dir, e.ID, e, opts.Apps)
+		if err != nil {
+			return err
+		}
+		meta.UserData = rel
+	}
 	return os.WriteFile(filepath.Join(dir, "recipes", e.ID+".yaml"), []byte(recipeYAML(meta, e, opts, hw)), 0o644)
 }
 
@@ -686,6 +690,9 @@ func hardwareYAML(hw []recipe.HardwareSpec) string {
 // somebody chose and may share a workspace with a hand-edited template.
 type recipeMeta struct {
 	ID, Name, Template string
+	// UserData is the workspace-relative autoinstall answers for a Linux
+	// entry with programs; empty writes the ISO as it is.
+	UserData string
 }
 
 func recipeYAML(m recipeMeta, e Entry, opts Options, hw []recipe.HardwareSpec) string {
@@ -694,6 +701,12 @@ func recipeYAML(m recipeMeta, e Entry, opts Options, hw []recipe.HardwareSpec) s
 		// stick they need is much bigger than the download suggests.
 		minStick := "4GiB"
 		if e.Kind() == ImageRaw {
+			minStick = "8GiB"
+		}
+		linux := ""
+		if m.UserData != "" {
+			// Desktop keeps Ubuntu's confirmation screen; Server is hands-off.
+			linux = fmt.Sprintf("linux:\n  autoinstall:\n    user_data: %s\n    kernel_patch: %v\n", m.UserData, !e.ubuntuDesktop())
 			minStick = "8GiB"
 		}
 		return fmt.Sprintf(`version: 1
@@ -705,9 +718,9 @@ os:
 target:
   min_stick: %s
   boot: uefi-only
-flash:
+%sflash:
   verify: readback-sha256
-`, m.ID, m.Name, e.recipeOSType(), e.ID, minStick)
+`, m.ID, m.Name, e.recipeOSType(), e.ID, minStick, linux)
 	}
 	bypass := "0"
 	if opts.BypassRequirement {

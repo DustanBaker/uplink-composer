@@ -307,6 +307,11 @@ type appEntry struct {
 	// Mine marks an installer the operator added, which behaves differently
 	// enough to say so: it rides on the stick and needs no network.
 	Mine bool `json:"mine,omitempty"`
+	// Windows and Ubuntu say where the program can be installed; the picker
+	// shows only what the chosen OS can take.
+	Windows    bool   `json:"windows,omitempty"`
+	Ubuntu     bool   `json:"ubuntu,omitempty"`
+	UbuntuNote string `json:"ubuntu_note,omitempty"`
 	// Winget is the package id, searchable for someone who knows it.
 	Winget string `json:"winget,omitempty"`
 	// Labels say how the program differs from installed-for-everyone and
@@ -344,6 +349,9 @@ type catalogEntry struct {
 	ImportFrom string `json:"import_from,omitempty"`
 	// Downloaded: the OS image is already in the library.
 	Downloaded bool `json:"downloaded,omitempty"`
+	// Programs: the program picker is offered (Windows, and Ubuntu's
+	// installer, which takes autoinstall answers).
+	Programs bool `json:"programs,omitempty"`
 	// FoundISO: not in the library, but its ISO is sitting in Downloads, so
 	// the dialog can use it instead of asking Microsoft.
 	FoundISO string `json:"found_iso,omitempty"`
@@ -411,12 +419,18 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	// Only programs with a Windows package: that is all Quick Install can do
 	// for now, and an option that cannot run is worse than no option.
 	for _, a := range appcatalog.Catalog() {
-		if a.InstallsOnWindows() {
-			resp.Apps = append(resp.Apps, appEntry{
-				ID: a.ID, Name: a.Name, Category: a.Category,
-				Mine: a.Custom != nil, Winget: a.Winget, Labels: a.Labels(),
-			})
+		if !a.InstallsOnWindows() && a.Ubuntu == nil {
+			continue
 		}
+		ent := appEntry{
+			ID: a.ID, Name: a.Name, Category: a.Category,
+			Mine: a.Custom != nil, Winget: a.Winget, Labels: a.Labels(),
+			Windows: a.InstallsOnWindows(), Ubuntu: a.Ubuntu != nil,
+		}
+		if a.Ubuntu != nil {
+			ent.UbuntuNote = a.Ubuntu.Note
+		}
+		resp.Apps = append(resp.Apps, ent)
 	}
 	for _, set := range appcatalog.Sets {
 		resp.AppSets = append(resp.AppSets, appSet{ID: set.ID, Name: set.Name, Apps: set.Apps})
@@ -435,7 +449,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 			Category: string(e.Group()), Arch: e.CPUArch(), Version: e.Version,
 			Notes: e.Notes, FirmwareNotes: e.FirmwareNotes, Editions: e.Editions,
 			ImportOnly: e.ImportOnly(), ImportFrom: e.ImportFrom,
-			Downloaded: downloaded, FoundISO: found,
+			Downloaded: downloaded, FoundISO: found, Programs: e.ProgramsSupported(),
 		})
 	}
 	if s.Cfg != nil {
@@ -856,10 +870,8 @@ func (s *Server) installOptions(ctx context.Context, req installRequest) (oscata
 		}
 		hw = append(hw, h)
 	}
-	if len(req.Apps) > 0 {
-		if _, err := appcatalog.WingetIDs(req.Apps); err != nil {
-			return e, oscatalog.Options{}, err
-		}
+	if err := oscatalog.CheckPrograms(e, req.Apps); err != nil {
+		return e, oscatalog.Options{}, err
 	}
 	blobsDir := strings.TrimSpace(req.DomainBlobsDir)
 	if blobsDir != "" {

@@ -1425,13 +1425,14 @@ function driverOpt() {
 // list: the server checks winget has it first. And a search for something
 // winget does not carry, such as RustDesk, says so and offers Add installer.
 const WINGET_ID = /^[A-Za-z0-9][A-Za-z0-9+_-]*(\.[A-Za-z0-9+_-]+)+$/;
-function appsOpt() {
+function appsOpt(target = "windows") {
+  const ubuntu = target === "ubuntu";
   const wrap = el("div", "opt modelpick progpick");
   wrap.append(el("label", null, "Install programs"));
   const sets = el("div", "sets");
   const chips = el("div", "chips");
   const box = el("input"); box.type = "search"; box.autocomplete = "off";
-  box.placeholder = "Search programs, e.g. Brave, or type a winget id such as Brave.Brave";
+  box.placeholder = ubuntu ? "Search programs, e.g. Brave or VLC" : "Search programs, e.g. Brave, or type a winget id such as Brave.Brave";
   box.setAttribute("role", "combobox"); box.setAttribute("aria-expanded", "false");
   const results = el("div", "modelresults"); results.hidden = true;
   results.setAttribute("role", "listbox");
@@ -1443,19 +1444,32 @@ function appsOpt() {
 
   // Read at every search rather than once, so an installer added from here
   // (Add installer…) can be found without reopening the dialog.
-  const items = () => (state.apps || []).map(a => {
+  // Only what the chosen OS can install: a Windows-only program or your own
+  // .msi is not offered for Ubuntu.
+  const available = () => (state.apps || []).filter(a => ubuntu ? a.ubuntu : a.windows !== false);
+  const items = () => available().map(a => {
     const name = a.name.toLowerCase();
     const nameWords = name.split(/[^a-z0-9]+/).filter(Boolean);
     const other = ((a.winget || "") + " " + a.category + (a.mine ? " on the stick" : "")).toLowerCase()
       .split(/[^a-z0-9]+/).filter(Boolean);
     return { spec: a.id, app: a, nameWords, words: nameWords.concat(other), flat: nameWords.join(" ") };
   });
-  const byWinget = id => (state.apps || []).find(a => a.winget && a.winget.toLowerCase() === id.toLowerCase());
+  const byWinget = id => available().find(a => a.winget && a.winget.toLowerCase() === id.toLowerCase());
 
+  // Windows' labels (first account only, licence, large download) describe
+  // winget packages; on Ubuntu the only thing worth saying is when what
+  // installs is not obviously the program asked for.
+  const appLabels = a => ubuntu ? (a.ubuntu_note ? [a.ubuntu_note] : [])
+                                : (a.mine ? ["on the stick"] : []).concat(a.labels || []);
   const setNote = extra => {
     const anyMine = [...picked.keys()].some(k => (state.apps || []).some(a => a.id === k && a.mine));
-    note.textContent = extra || ("Programs from the list install at first boot with winget, so the machine needs to be online then." +
-      (anyMine ? " Your own installers are carried on the stick and need no network." : ""));
+    note.textContent = extra || (ubuntu
+      ? "Picking programs makes the stick install Ubuntu by itself and erase the computer's disk. The programs install during setup and on first boot, so the computer needs to be online. " +
+        (installOS && installOS.category === "server"
+          ? "The installer asks only for the account."
+          : "Ubuntu shows its review screen and waits for Install before erasing anything.")
+      : "Programs from the list install at first boot with winget, so the machine needs to be online then." +
+        (anyMine ? " Your own installers are carried on the stick and need no network." : ""));
   };
 
   const drawChips = () => {
@@ -1474,7 +1488,7 @@ function appsOpt() {
     setNote();
   };
   const addApp = a => {
-    if (!picked.has(a.id)) picked.set(a.id, { label: a.name, labels: (a.mine ? ["on the stick"] : []).concat(a.labels || []) });
+    if (!picked.has(a.id)) picked.set(a.id, { label: a.name, labels: appLabels(a) });
   };
   const addWinget = async typed => {
     const known = byWinget(typed);
@@ -1497,14 +1511,13 @@ function appsOpt() {
   const finish = () => { box.value = ""; draw(); box.focus(); };
 
   for (const set of state.app_sets || []) {
+    // A starter set brings what the chosen OS can install.
+    const members = set.apps.map(id => available().find(a => a.id === id)).filter(Boolean);
+    if (members.length < 2) continue;
     const b = el("button", "setbtn", "+ " + set.name);
     b.type = "button";
-    const names = set.apps.map(id => ((state.apps || []).find(a => a.id === id) || { name: id }).name);
-    b.title = "Adds " + names.join(", ");
-    b.onclick = () => {
-      for (const id of set.apps) { const a = (state.apps || []).find(x => x.id === id); if (a) addApp(a); }
-      drawChips();
-    };
+    b.title = "Adds " + members.map(a => a.name).join(", ");
+    b.onclick = () => { for (const a of members) addApp(a); drawChips(); };
     sets.append(b);
   }
   if (sets.childElementCount) sets.prepend(el("span", "sub", "Starter sets:"));
@@ -1534,7 +1547,7 @@ function appsOpt() {
     }
     shown = hits.map(m => ({ kind: "app", m }));
     // A full winget id not in the list: offer it, at the top.
-    if (WINGET_ID.test(raw) && !byWinget(raw) && !picked.has("winget:" + raw))
+    if (!ubuntu && WINGET_ID.test(raw) && !byWinget(raw) && !picked.has("winget:" + raw))
       shown.unshift({ kind: "winget", id: raw });
 
     let lastCat = "";
@@ -1551,7 +1564,7 @@ function appsOpt() {
         const a = s.m.app;
         const name = el("span", "grow", a.name);
         if (a.mine) { const t = el("span", "badge ok", "on the stick"); t.style.marginLeft = "6px"; name.append(t); }
-        for (const l of a.labels || []) name.append(el("span", "applabel", l));
+        for (const l of appLabels(a).filter(l => l !== "on the stick")) name.append(el("span", "applabel", l));
         row.append(name);
         // Browsing, the heading above already names the category.
         if (tokens.length) row.append(el("span", "appcatname", a.category));
@@ -1562,7 +1575,7 @@ function appsOpt() {
     });
 
     if (!shown.length) {
-      const hint = tokens.length && (state.not_in_winget || []).find(h => h.words.some(w => tokens.some(t => w.startsWith(t) && t.length >= 3)));
+      const hint = !ubuntu && tokens.length && (state.not_in_winget || []).find(h => h.words.some(w => tokens.some(t => w.startsWith(t) && t.length >= 3)));
       const empty = el("div", "empty");
       if (hint) {
         empty.append(el("div", null, hint.note));
@@ -1571,6 +1584,8 @@ function appsOpt() {
           b.onmousedown = e => { e.preventDefault(); results.hidden = true; addInstaller(); };
           empty.append(b);
         }
+      } else if (tokens.length && ubuntu) {
+        empty.textContent = "No program matches. Only programs from Ubuntu, verified snaps, verified Flathub apps and Google Chrome are offered for Ubuntu.";
       } else if (tokens.length) {
         empty.textContent = "No program matches. Any winget package can be used by its id, such as Brave.Brave; an installer winget doesn't have can be added under Your installers.";
       } else {
@@ -1737,7 +1752,9 @@ function domainOpt() {
   };
 }
 
+let installOS = null;
 function openInstall(os) {
+  installOS = os;
   // A stick is only needed to write. Downloading, setting up the image and
   // saving a recipe all happen without one.
   const dev = (state.devices || []).find(d => d.flashable) || null;
@@ -1763,12 +1780,12 @@ function openInstall(os) {
     });
   } else {
     const iso = isoOpt(os);
-    if (iso) {
-      opts.append(iso.wrap);
-      getOpts = () => ({ iso: iso.get() });
-    } else {
-      opts.append(el("div", "sub", "Boots the installer — nothing to configure here."));
-    }
+    // Ubuntu's installer takes answers, so programs can go on with it.
+    const ap = os.programs ? appsOpt("ubuntu") : null;
+    if (ap) opts.append(ap.wrap);
+    if (iso) opts.append(iso.wrap);
+    if (!ap && !iso) opts.append(el("div", "sub", "Boots the installer — nothing to configure here."));
+    getOpts = () => ({ iso: iso ? iso.get() : "", apps: ap ? ap.get() : [] });
   }
   const run = (mode, extra) => {
     api("/api/install", { os_id: os.id, ...getOpts(), mode, ...extra })
@@ -1783,7 +1800,7 @@ function openInstall(os) {
   dl.onclick = () => run("download");
   // Only Windows has anything to build; every other entry is written as it is
   // downloaded, so "set up" would just be the download under another name.
-  $("instSetup").hidden = !windows;
+  $("instSetup").hidden = !windows && !os.programs;
   $("instSetup").onclick = () => run("setup");
   $("instSave").onclick = async () => {
     const opts = getOpts();

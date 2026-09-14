@@ -17,8 +17,10 @@ type App struct {
 	Name     string
 	Category string
 	Winget   string // winget package id; empty = not available on Windows
-	Apt      string // apt package name; empty = not available via apt
-	Notes    string
+	// Ubuntu is where the program comes from on Ubuntu; nil = not offered
+	// there. Filled from the ubuntu table in ubuntu.go.
+	Ubuntu *UbuntuSource
+	Notes  string
 	// Custom is set when this is an installer the operator supplied rather
 	// than a package from winget. It carries the library blob and the silent
 	// switches; see custom.go.
@@ -64,7 +66,7 @@ func (a App) Labels() []string {
 // Microsoft Edge is left out because Windows already has it.
 var builtin = []App{
 	{ID: "chrome", Name: "Google Chrome", Category: "Browsers", Winget: "Google.Chrome"},
-	{ID: "firefox", Name: "Mozilla Firefox", Category: "Browsers", Winget: "Mozilla.Firefox", Apt: "firefox"},
+	{ID: "firefox", Name: "Mozilla Firefox", Category: "Browsers", Winget: "Mozilla.Firefox"},
 	{ID: "brave", Name: "Brave", Category: "Browsers", Winget: "Brave.Brave"},
 	{ID: "opera", Name: "Opera", Category: "Browsers", Winget: "Opera.Opera"},
 	{ID: "vivaldi", Name: "Vivaldi", Category: "Browsers", Winget: "Vivaldi.Vivaldi"},
@@ -73,7 +75,7 @@ var builtin = []App{
 	{ID: "zoom", Name: "Zoom", Category: "Communication", Winget: "Zoom.Zoom"},
 	{ID: "teams", Name: "Microsoft Teams", Category: "Communication", Winget: "Microsoft.Teams"},
 	{ID: "slack", Name: "Slack", Category: "Communication", Winget: "SlackTechnologies.Slack", PerUser: true},
-	{ID: "thunderbird", Name: "Mozilla Thunderbird", Category: "Communication", Winget: "Mozilla.Thunderbird", Apt: "thunderbird"},
+	{ID: "thunderbird", Name: "Mozilla Thunderbird", Category: "Communication", Winget: "Mozilla.Thunderbird"},
 	{ID: "discord", Name: "Discord", Category: "Communication", Winget: "Discord.Discord", PerUser: true},
 	{ID: "signal", Name: "Signal", Category: "Communication", Winget: "OpenWhisperSystems.Signal", PerUser: true},
 	{ID: "telegram", Name: "Telegram Desktop", Category: "Communication", Winget: "Telegram.TelegramDesktop", PerUser: true},
@@ -81,7 +83,7 @@ var builtin = []App{
 
 	{ID: "adobereader", Name: "Adobe Acrobat Reader", Category: "Documents", Winget: "Adobe.Acrobat.Reader.64-bit"},
 	{ID: "office", Name: "Microsoft 365 Apps (Word, Excel, Outlook…)", Category: "Documents", Winget: "Microsoft.Office", Licence: true, Large: true},
-	{ID: "libreoffice", Name: "LibreOffice", Category: "Documents", Winget: "TheDocumentFoundation.LibreOffice", Apt: "libreoffice"},
+	{ID: "libreoffice", Name: "LibreOffice", Category: "Documents", Winget: "TheDocumentFoundation.LibreOffice"},
 	{ID: "onlyoffice", Name: "ONLYOFFICE Desktop Editors", Category: "Documents", Winget: "ONLYOFFICE.DesktopEditors"},
 	{ID: "foxitreader", Name: "Foxit PDF Reader", Category: "Documents", Winget: "Foxit.FoxitReader"},
 	{ID: "pdf24", Name: "PDF24 Creator", Category: "Documents", Winget: "geeksoftwareGmbH.PDF24Creator"},
@@ -100,9 +102,9 @@ var builtin = []App{
 	{ID: "onedrive", Name: "Microsoft OneDrive", Category: "Cloud storage", Winget: "Microsoft.OneDrive"},
 	{ID: "box", Name: "Box Drive", Category: "Cloud storage", Winget: "Box.Box"},
 
-	{ID: "vlc", Name: "VLC media player", Category: "Media", Winget: "VideoLAN.VLC", Apt: "vlc"},
+	{ID: "vlc", Name: "VLC media player", Category: "Media", Winget: "VideoLAN.VLC"},
 	{ID: "spotify", Name: "Spotify", Category: "Media", Winget: "Spotify.Spotify", PerUser: true},
-	{ID: "gimp", Name: "GIMP", Category: "Media", Winget: "GIMP.GIMP", Apt: "gimp"},
+	{ID: "gimp", Name: "GIMP", Category: "Media", Winget: "GIMP.GIMP"},
 	{ID: "paintdotnet", Name: "Paint.NET", Category: "Media", Winget: "dotPDN.PaintDotNet"},
 	{ID: "obs", Name: "OBS Studio", Category: "Media", Winget: "OBSProject.OBSStudio"},
 	{ID: "audacity", Name: "Audacity", Category: "Media", Winget: "Audacity.Audacity"},
@@ -135,7 +137,7 @@ var builtin = []App{
 	{ID: "bleachbit", Name: "BleachBit", Category: "IT tools", Winget: "BleachBit.BleachBit"},
 	{ID: "winmerge", Name: "WinMerge", Category: "IT tools", Winget: "WinMerge.WinMerge"},
 
-	{ID: "7zip", Name: "7-Zip", Category: "Utilities", Winget: "7zip.7zip", Apt: "p7zip-full"},
+	{ID: "7zip", Name: "7-Zip", Category: "Utilities", Winget: "7zip.7zip"},
 	{ID: "notepadplusplus", Name: "Notepad++", Category: "Utilities", Winget: "Notepad++.Notepad++"},
 	{ID: "powertoys", Name: "Microsoft PowerToys", Category: "Utilities", Winget: "Microsoft.PowerToys"},
 	{ID: "sharex", Name: "ShareX", Category: "Utilities", Winget: "ShareX.ShareX"},
@@ -148,9 +150,9 @@ var builtin = []App{
 	{ID: "java21", Name: "Java 21 (Eclipse Temurin JRE)", Category: "Runtimes", Winget: "EclipseAdoptium.Temurin.21.JRE"},
 	{ID: "oraclejava", Name: "Oracle Java 8", Category: "Runtimes", Winget: "Oracle.JavaRuntimeEnvironment"},
 
-	{ID: "vscode", Name: "Visual Studio Code", Category: "Development", Winget: "Microsoft.VisualStudioCode", Apt: "code"},
-	{ID: "git", Name: "Git", Category: "Development", Winget: "Git.Git", Apt: "git"},
-	{ID: "python", Name: "Python 3", Category: "Development", Winget: "Python.Python.3.13", Apt: "python3"},
+	{ID: "vscode", Name: "Visual Studio Code", Category: "Development", Winget: "Microsoft.VisualStudioCode"},
+	{ID: "git", Name: "Git", Category: "Development", Winget: "Git.Git"},
+	{ID: "python", Name: "Python 3", Category: "Development", Winget: "Python.Python.3.13"},
 	{ID: "powershell", Name: "PowerShell 7", Category: "Development", Winget: "Microsoft.PowerShell"},
 	{ID: "windowsterminal", Name: "Windows Terminal", Category: "Development", Winget: "Microsoft.WindowsTerminal", PerUser: true},
 	{ID: "nodejs", Name: "Node.js LTS", Category: "Development", Winget: "OpenJS.NodeJS.LTS"},
@@ -159,7 +161,7 @@ var builtin = []App{
 	{ID: "jetbrainstoolbox", Name: "JetBrains Toolbox", Category: "Development", Winget: "JetBrains.Toolbox", PerUser: true},
 	{ID: "postman", Name: "Postman", Category: "Development", Winget: "Postman.Postman", PerUser: true},
 	{ID: "winscp", Name: "WinSCP", Category: "Development", Winget: "WinSCP.WinSCP"},
-	{ID: "putty", Name: "PuTTY", Category: "Development", Winget: "PuTTY.PuTTY", Apt: "putty"},
+	{ID: "putty", Name: "PuTTY", Category: "Development", Winget: "PuTTY.PuTTY"},
 
 	{ID: "steam", Name: "Steam", Category: "Games", Winget: "Valve.Steam"},
 	{ID: "epicgames", Name: "Epic Games Launcher", Category: "Games", Winget: "EpicGames.EpicGamesLauncher"},
