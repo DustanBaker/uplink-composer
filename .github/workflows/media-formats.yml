@@ -167,31 +167,39 @@ jobs:
             .\mf.exe fat32-image "$t\tree" $vhd $scheme vhd
             if ($LASTEXITCODE) { throw "image build failed" }
             Mount-DiskImage -ImagePath $vhd -Access ReadOnly | Out-Null
+            $mnt = "$t\mnt-$scheme"
             try {
-              $letter = $null
+              $part = $null
               foreach ($try in 1..20) {
                 Start-Sleep -Seconds 1
                 $num = (Get-DiskImage -ImagePath $vhd).Number
                 if ($null -eq $num) { continue }
-                $letter = (Get-Partition -DiskNumber $num -ErrorAction SilentlyContinue | Where-Object DriveLetter).DriveLetter
-                if ($letter) { break }
+                $part = Get-Partition -DiskNumber $num -ErrorAction SilentlyContinue | Where-Object { $_.AccessPaths -match '^\\\\\?\\Volume' }
+                if ($part) { break }
               }
-              Get-DiskImage -ImagePath $vhd | Format-List Attached, Number, Size, DevicePath
-              try {
-                Get-Disk -Number $num | Format-Table Number, PartitionStyle, Size, IsReadOnly, OperationalStatus
-                Get-Partition -DiskNumber $num | Format-Table PartitionNumber, DriveLetter, Offset, Size, Type
-              } catch { "Storage module: " + ($_ | Out-String) }
-              Get-CimInstance Win32_Volume | Format-Table DriveLetter, FileSystem, Label, Capacity, DeviceID
-              "list disk", "list volume" | diskpart
-              if (-not $letter) { throw "Windows mounted the $scheme image but gave its volume no drive letter" }
-              chkdsk "${letter}:" | Out-String | Write-Output
+              if (-not $part) { "list disk" | diskpart; throw "Windows attached the $scheme image but found no volume on it" }
+              Get-Disk -Number $num | Format-Table Number, PartitionStyle, Size, IsReadOnly
+              $part | Format-Table PartitionNumber, DriveLetter, Offset, Size, Type
+              if ($part.DriveLetter -match '[A-Z]') {
+                $root = "$($part.DriveLetter):\"
+              } else {
+                # Windows never gives an EFI system partition a drive letter,
+                # just as on a real stick, so mount the volume in a folder.
+                New-Item -ItemType Directory -Force $mnt | Out-Null
+                $vol = @($part.AccessPaths -match '^\\\\\?\\Volume')[0]
+                mountvol $mnt $vol
+                if ($LASTEXITCODE) { throw "mountvol could not mount $vol" }
+                $root = "$mnt\"
+              }
+              chkdsk $root.TrimEnd('\') | Out-String | Write-Output
               if ($LASTEXITCODE -ne 0) { throw "chkdsk reported problems on the $scheme image (exit $LASTEXITCODE)" }
               $want = Get-ChildItem -Recurse -File "$t\tree" | ForEach-Object { "{0} {1}" -f $_.FullName.Substring("$t\tree".Length), (Get-FileHash $_.FullName).Hash }
-              $got = Get-ChildItem -Recurse -File "${letter}:\" | ForEach-Object { "{0} {1}" -f $_.FullName.Substring(2), (Get-FileHash $_.FullName).Hash }
+              $got = Get-ChildItem -Recurse -File $root | ForEach-Object { "{0} {1}" -f $_.FullName.Substring($root.Length - 1), (Get-FileHash $_.FullName).Hash }
               $diff = Compare-Object ($want | Sort-Object) ($got | Sort-Object)
               if ($diff) { $diff | Format-Table; throw "files on the $scheme image differ" }
               "FAT32 ${scheme}: Windows mounted it, chkdsk clean, every file identical ($($want.Count) files)"
             } finally {
+              if (Test-Path $mnt) { mountvol $mnt /D }
               Dismount-DiskImage -ImagePath $vhd | Out-Null
             }
           }
