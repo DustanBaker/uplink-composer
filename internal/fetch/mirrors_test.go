@@ -100,7 +100,10 @@ func (s server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func shorten(t *testing.T) {
 	t.Helper()
 	pb, pt, st := probeBytes, probeTimeout, stallTimeout
-	probeBytes, probeTimeout, stallTimeout = 256<<10, 3*time.Second, 600*time.Millisecond
+	// The stall limit is ten times Download's 200 ms progress interval. At
+	// 600 ms a loaded Windows runner once went that long between reports on a
+	// healthy mirror and gave up on it too.
+	probeBytes, probeTimeout, stallTimeout = 256<<10, 3*time.Second, 2*time.Second
 	t.Cleanup(func() { probeBytes, probeTimeout, stallTimeout = pb, pt, st })
 }
 
