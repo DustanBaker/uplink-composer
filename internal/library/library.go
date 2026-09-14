@@ -249,10 +249,15 @@ func (l *Library) Pull(ctx context.Context, src *manifest.Source, pinTOFU bool, 
 		return Entry{}, fmt.Errorf("library: source %s has no url; use `dsky sources import %s <file>`", src.ID, src.ID)
 	}
 	dest := filepath.Join(l.TmpDir(), src.ID+"-"+src.DownloadFilename())
-	sum, err := fetch.Download(ctx, url, dest, progress)
+	// A pinned file may come from a mirror (Ubuntu's release server is slow
+	// from some networks), because the hash below decides whether what arrived
+	// is the file. An unpinned one only ever comes from its own URL: there is
+	// nothing to catch a mirror serving something else.
+	sum, used, err := fetch.DownloadAny(ctx, pullURLs(src, url), dest, progress, nil)
 	if err != nil {
 		return Entry{}, err
 	}
+	url = used
 	if src.SHA256 != "" && sum != src.SHA256 {
 		os.Remove(dest)
 		return Entry{}, fmt.Errorf("library: %s downloaded from %s hashes to %s, manifest pins %s — refusing (upstream changed or download corrupted)",
@@ -284,6 +289,16 @@ func (l *Library) Pull(ctx context.Context, src *manifest.Source, pinTOFU bool, 
 		return Entry{}, &ErrUnpinned{ID: src.ID, SHA256: sum}
 	}
 	return e, l.record(e)
+}
+
+// pullURLs is where a source may be downloaded from: its own URL, plus known
+// mirrors when the file is pinned by hash and not resolved by a provider.
+func pullURLs(src *manifest.Source, url string) []string {
+	urls := []string{url}
+	if src.SHA256 != "" && src.Provider == "" {
+		urls = append(urls, fetch.Alternates(url)...)
+	}
+	return urls
 }
 
 func (l *Library) record(e Entry) error {

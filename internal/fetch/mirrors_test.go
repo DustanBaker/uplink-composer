@@ -1,0 +1,187 @@
+package fetch
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestAlternates(t *testing.T) {
+	got := Alternates("https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso")
+	if len(got) == 0 || got[0] != "https://mirrors.edge.kernel.org/ubuntu-releases/26.04/ubuntu-26.04.1-desktop-amd64.iso" {
+		t.Fatalf("alternates = %v", got)
+	}
+	if Alternates("https://example.com/releases.ubuntu.com/x.iso") != nil {
+		t.Fatal("matched a URL that only mentions the host")
+	}
+	if Alternates("http://releases.ubuntu.com/24.04/a.iso") == nil {
+		t.Fatal("http origin not matched")
+	}
+}
+
+func testFile(n int) ([]byte, string) {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = byte(i*7 + i/4096)
+	}
+	s := sha256.Sum256(b)
+	return b, hex.EncodeToString(s[:])
+}
+
+// server serves data with Range support. chunkDelay throttles it; failAt, if
+// positive, drops the connection once that many bytes of the file have gone
+// out; hangAt stops sending without closing.
+type server struct {
+	data       []byte
+	chunkDelay time.Duration
+	failAt     int
+	hangAt     int
+	size       int // reported size, if it should differ from len(data)
+}
+
+func (s server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	start := 0
+	if rg := r.Header.Get("Range"); strings.HasPrefix(rg, "bytes=") {
+		spec := strings.TrimPrefix(rg, "bytes=")
+		start, _ = strconv.Atoi(strings.SplitN(spec, "-", 2)[0])
+	}
+	size := len(s.data)
+	if s.size > 0 {
+		size = s.size
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(s.data)-start))
+	if r.Header.Get("Range") != "" {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, size-1, size))
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	fl, _ := w.(http.Flusher)
+	for off := start; off < len(s.data); off += 16 << 10 {
+		end := min(off+16<<10, len(s.data))
+		if s.failAt > 0 && end > s.failAt {
+			if hj, ok := w.(http.Hijacker); ok {
+				w.Write(s.data[off:s.failAt])
+				fl.Flush()
+				c, _, _ := hj.Hijack()
+				c.Close()
+			}
+			return
+		}
+		if s.hangAt > 0 && end > s.hangAt {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(time.Minute):
+			}
+			return
+		}
+		if _, err := w.Write(s.data[off:end]); err != nil {
+			return
+		}
+		if fl != nil {
+			fl.Flush()
+		}
+		if s.chunkDelay > 0 {
+			time.Sleep(s.chunkDelay)
+		}
+	}
+}
+
+func shorten(t *testing.T) {
+	t.Helper()
+	pb, pt, st := probeBytes, probeTimeout, stallTimeout
+	probeBytes, probeTimeout, stallTimeout = 256<<10, 3*time.Second, 600*time.Millisecond
+	t.Cleanup(func() { probeBytes, probeTimeout, stallTimeout = pb, pt, st })
+}
+
+func run(t *testing.T, urls []string) (sum, used string, got []byte, notes []string, err error) {
+	t.Helper()
+	dest := filepath.Join(t.TempDir(), "file.iso")
+	sum, used, err = DownloadAny(context.Background(), urls, dest, nil, func(s string) { notes = append(notes, s) })
+	if err == nil {
+		got, _ = os.ReadFile(dest)
+	}
+	return
+}
+
+func TestDownloadAnyPicksTheFastest(t *testing.T) {
+	shorten(t)
+	data, want := testFile(2 << 20)
+	slow := httptest.NewServer(server{data: data, chunkDelay: 40 * time.Millisecond})
+	defer slow.Close()
+	fast := httptest.NewServer(server{data: data})
+	defer fast.Close()
+
+	sum, used, got, notes, err := run(t, []string{slow.URL + "/a.iso", fast.URL + "/a.iso"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used != fast.URL+"/a.iso" || sum != want || !bytes.Equal(got, data) {
+		t.Fatalf("used %s, sum ok=%v, bytes ok=%v", used, sum == want, bytes.Equal(got, data))
+	}
+	if len(notes) == 0 || !strings.Contains(notes[0], "faster than") {
+		t.Errorf("no note saying a mirror was chosen: %v", notes)
+	}
+}
+
+func TestDownloadAnyIgnoresAMirrorWithAnotherFile(t *testing.T) {
+	shorten(t)
+	data, want := testFile(1 << 20)
+	origin := httptest.NewServer(server{data: data, chunkDelay: 5 * time.Millisecond})
+	defer origin.Close()
+	other, _ := testFile(1<<20 + 512)
+	wrong := httptest.NewServer(server{data: other})
+	defer wrong.Close()
+
+	sum, used, _, _, err := run(t, []string{origin.URL + "/a.iso", wrong.URL + "/a.iso"})
+	if err != nil || used != origin.URL+"/a.iso" || sum != want {
+		t.Fatalf("used %s, err %v, sum ok=%v", used, err, sum == want)
+	}
+}
+
+func TestDownloadAnyResumesFromAnotherServer(t *testing.T) {
+	shorten(t)
+	data, want := testFile(3 << 20)
+	// The origin is fastest at first and drops the connection a third of the
+	// way in; the mirror, slower, carries on from there.
+	origin := httptest.NewServer(server{data: data, failAt: 1 << 20})
+	defer origin.Close()
+	mirror := httptest.NewServer(server{data: data, chunkDelay: 2 * time.Millisecond})
+	defer mirror.Close()
+
+	sum, used, got, notes, err := run(t, []string{origin.URL + "/a.iso", mirror.URL + "/a.iso"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used != mirror.URL+"/a.iso" || sum != want || !bytes.Equal(got, data) {
+		t.Fatalf("used %s, sum ok=%v, bytes ok=%v, notes %v", used, sum == want, bytes.Equal(got, data), notes)
+	}
+}
+
+func TestDownloadAnyLeavesAServerThatStopsSending(t *testing.T) {
+	shorten(t)
+	data, want := testFile(2 << 20)
+	origin := httptest.NewServer(server{data: data, hangAt: 768 << 10})
+	defer origin.Close()
+	mirror := httptest.NewServer(server{data: data, chunkDelay: 3 * time.Millisecond})
+	defer mirror.Close()
+
+	start := time.Now()
+	sum, used, _, _, err := run(t, []string{origin.URL + "/a.iso", mirror.URL + "/a.iso"})
+	if err != nil || used != mirror.URL+"/a.iso" || sum != want {
+		t.Fatalf("used %s, err %v, sum ok=%v", used, err, sum == want)
+	}
+	if time.Since(start) > 20*time.Second {
+		t.Fatalf("took %s to give up on a silent server", time.Since(start))
+	}
+}

@@ -57,7 +57,9 @@ func Download(ctx context.Context, url, dest string, progress Progress) (string,
 	total := int64(-1)
 	switch resp.StatusCode {
 	case http.StatusPartialContent:
-		f, err = os.OpenFile(part, os.O_WRONLY|os.O_APPEND, 0o644)
+		// O_CREATE: a server may answer 206 to a request with no Range at all,
+		// when there is no partial file yet.
+		f, err = os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
 			return "", err
 		}
