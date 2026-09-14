@@ -1,7 +1,7 @@
 # Plan: a first-run guide
 
 A clickable guide that explains how everything works the first time someone
-opens DSKY. Nothing here is built yet.
+opens DSKY. Built in v0.7.5; this is the plan it was built from.
 
 **Decided (2026-09-13):** no themed names. An Apollo-era naming scheme was
 proposed alongside this and dropped in favour of keeping every label as plain as

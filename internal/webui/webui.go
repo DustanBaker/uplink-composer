@@ -100,6 +100,8 @@ type Server struct {
 	sawClient bool        // a page has connected at least once
 	idleTimer *time.Timer // running only while clients == 0
 
+	guideSeenRun bool // guide state when there is no Cfg to keep it in
+
 	updMu  sync.Mutex // guards the cached update check
 	updRel *selfupdate.Release
 	updAt  time.Time
@@ -205,6 +207,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/identify", s.auth(s.handleIdentify))
 	mux.HandleFunc("POST /api/duplicate", s.auth(s.handleDuplicate))
 	mux.HandleFunc("POST /api/quit", s.auth(s.handleQuit))
+	mux.HandleFunc("POST /api/guide", s.auth(s.handleGuide))
 	mux.HandleFunc("GET /api/events", s.auth(s.handleEvents))
 	return s.hostGuard(mux)
 }
@@ -273,6 +276,8 @@ type stateResp struct {
 	Catalog      []catalogEntry `json:"catalog"`
 	Apps         []appEntry     `json:"apps"`
 	LibraryRoot  string         `json:"library_root"`
+	// GuideSeen: the first-run guide has been closed on this machine.
+	GuideSeen bool `json:"guide_seen"`
 }
 
 // appEntry is one program the install picker can offer.
@@ -358,7 +363,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	resp := stateResp{
 		Recent: []recentWS{}, Recipes: []recipeInfo{}, Sources: []sourceInfo{},
 		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, Catalog: []catalogEntry{},
-		Apps: []appEntry{}, LibraryRoot: s.Lib.Root,
+		Apps: []appEntry{}, LibraryRoot: s.Lib.Root, GuideSeen: s.guideSeen(),
 	}
 	// Only programs with a Windows package: that is all Quick Install can do
 	// for now, and an option that cannot run is worse than no option.
@@ -544,6 +549,41 @@ func (s *Server) handleSetWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"ok": "1"})
+}
+
+// guideSeen reports whether the first-run guide has been closed. Without a
+// config (tests, or a portal started with no user config) it is remembered for
+// this run only.
+func (s *Server) guideSeen() bool {
+	if s.Cfg != nil {
+		return s.Cfg.Seen()
+	}
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
+	return s.guideSeenRun
+}
+
+// handleGuide records that the first-run guide was closed — or, with
+// {"seen": false}, forgets it so the guide is offered again.
+func (s *Server) handleGuide(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Seen bool `json:"seen"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpErr(w, 400, "body must be {\"seen\": true|false}")
+		return
+	}
+	if s.Cfg != nil {
+		if err := s.Cfg.SetGuideSeen(req.Seen); err != nil {
+			httpErr(w, 500, "saving settings: %v", err)
+			return
+		}
+	} else {
+		s.idleMu.Lock()
+		s.guideSeenRun = req.Seen
+		s.idleMu.Unlock()
+	}
+	writeJSON(w, 200, map[string]bool{"seen": req.Seen})
 }
 
 // handleQuit stops the server (the app's clean exit).

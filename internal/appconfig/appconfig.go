@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 const maxRecent = 8
@@ -15,8 +16,12 @@ const maxRecent = 8
 type Config struct {
 	// Recent workspace directories, most-recently-used first.
 	Recent []string `json:"recent_workspaces,omitempty"`
+	// GuideSeen is set once the first-run guide has been closed, so it is
+	// offered once per machine rather than once per window or browser profile.
+	GuideSeen bool `json:"guide_seen,omitempty"`
 
-	path string // where this was loaded from (not serialized)
+	path string     // where this was loaded from (not serialized)
+	mu   sync.Mutex // the portal's handlers save from several goroutines
 }
 
 // Dir is the per-user config directory (%AppData%\dsky,
@@ -64,8 +69,24 @@ func (c *Config) Current() string {
 	return ""
 }
 
+// SetGuideSeen records whether the first-run guide has been closed, and saves.
+func (c *Config) SetGuideSeen(seen bool) error {
+	c.mu.Lock()
+	c.GuideSeen = seen
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// Seen reports whether the first-run guide has been closed.
+func (c *Config) Seen() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.GuideSeen
+}
+
 // AddRecent moves dir to the front of the recents and saves.
 func (c *Config) AddRecent(dir string) {
+	c.mu.Lock()
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		abs = dir
@@ -77,11 +98,14 @@ func (c *Config) AddRecent(dir string) {
 		}
 	}
 	c.Recent = out
+	c.mu.Unlock()
 	_ = c.Save()
 }
 
 // Save writes the config, creating the directory as needed.
 func (c *Config) Save() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.path == "" {
 		c.path = filepath.Join(Dir(), "config.json")
 	}

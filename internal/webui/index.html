@@ -248,6 +248,38 @@
   dialog .laterbtns { display: flex; gap: 8px; flex-wrap: wrap; }
   dialog .later .sub { color: var(--dim); font-size: 12px; margin-top: 7px; }
   #instArm { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 4px; }
+  /* ── First-run guide ───────────────────────────────────────────────────
+     A dimmed page with one real part of it lit, and a card saying what that
+     part is for. The spotlight is a box with an enormous shadow rather than a
+     mask, so the lit area stays live and exactly the shape of what it shows. */
+  #guideBtn { margin-left: 10px; width: 30px; padding: 5px 0; font-weight: 600; }
+  .guide-shade { position: fixed; inset: 0; z-index: 90; }
+  .guide-spot { position: fixed; z-index: 91; border-radius: 10px; pointer-events: none;
+    box-shadow: 0 0 0 9999px rgba(2, 2, 8, .72), 0 0 0 2px var(--accent);
+    transition: top .2s, left .2s, width .2s, height .2s; }
+  .guide-spot.none { box-shadow: 0 0 0 9999px rgba(2, 2, 8, .72); width: 0; height: 0; }
+  .guide-card { position: fixed; z-index: 92; width: min(400px, calc(100vw - 32px));
+    background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
+    padding: 16px 18px 14px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  .guide-card:focus { outline: none; }
+  .guide-card .gstep { color: var(--dim); font-size: 11px; letter-spacing: .8px;
+    text-transform: uppercase; }
+  .guide-card h3 { margin: 4px 0 8px; font-size: 16px; }
+  .guide-card p { margin: 0 0 10px; line-height: 1.55; font-size: 13.5px; }
+  .guide-card .gactions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .guide-card .gactions .skip { margin-right: auto; background: none; border: none;
+    color: var(--dim); padding: 5px 0; text-decoration: underline; }
+  .guide-card .gdots { display: flex; gap: 5px; margin-top: 10px; }
+  .guide-card .gdots i { width: 6px; height: 6px; border-radius: 3px; background: var(--line); }
+  .guide-card .gdots i.on { background: var(--accent); }
+  .guide-card .idcard { margin: 6px 0 4px; }
+  .guide-example { color: var(--dim); font-size: 11px; font-style: italic; }
+  /* Narrow windows: the card sits along the bottom instead of chasing the
+     spotlight around a screen too small to fit both side by side. */
+  @media (max-width: 640px) {
+    .guide-card { left: 16px !important; right: 16px; top: auto !important; bottom: 16px; width: auto; }
+  }
+  @media (prefers-reduced-motion: reduce) { .guide-spot { transition: none; } }
   #err { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
     background: var(--danger); color: #fff; padding: 9px 16px; border-radius: 8px;
     max-width: 80%; display: none; font-size: 13px; }
@@ -261,6 +293,7 @@
   <span class="org" id="org"></span>
   <span class="ws" id="ws"></span>
   <span class="ver" id="ver" title="Check for a newer release"></span>
+  <button id="guideBtn" onclick="startGuide()" title="How DSKY works — a one-minute guide" aria-label="How DSKY works">?</button>
   <button id="updBtn" onclick="checkUpdate(true)" title="Ask GitHub for the newest release now">Check for updates</button>
   <button id="quitBtn" title="Stop the app" onclick="quitApp()">Quit</button>
 </header>
@@ -330,8 +363,8 @@
     <section data-door="advanced"><h2>Workspace<span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
       <div class="rows" id="wsPanel"></div>
     </section>
-    <section data-door="install advanced"><h2>Recipes <span class="spacer"></span><span class="sub" id="recipesWhere"></span></h2><div class="rows" id="recipes"></div></section>
-    <section data-door="install advanced"><h2>Built images <span class="spacer"></span><span class="sub">ready to write, no rebuilding</span></h2><div class="rows" id="artifacts"></div></section>
+    <section data-door="install advanced" id="recipesSec"><h2>Recipes <span class="spacer"></span><span class="sub" id="recipesWhere"></span></h2><div class="rows" id="recipes"></div></section>
+    <section data-door="install advanced" id="imagesSec"><h2>Built images <span class="spacer"></span><span class="sub">ready to write, no rebuilding</span></h2><div class="rows" id="artifacts"></div></section>
   </div>
   <div class="col" style="display:flex;flex-direction:column;gap:16px">
     <section data-door="install advanced"><h2>Devices <span class="spacer"></span><button onclick="loadState()">Rescan</button></h2><div class="rows" id="devices"></div></section>
@@ -1639,8 +1672,211 @@ async function quitApp() {
 }
 
 async function loadState() {
-  try { state = await api("/api/state"); render(); }
+  try { state = await api("/api/state"); render(); maybeStartGuide(); }
   catch (e) { showErr(e.message); }
+}
+
+// ── First-run guide ─────────────────────────────────────────────────────────
+// Shown once, the first time DSKY opens, and again from the ? in the header.
+// It only ever points: it opens screens to show them, and draws its own
+// examples, but it never downloads, saves or erases anything, and the only
+// request it makes is recording that it has been closed.
+const GUIDE_STEPS = [
+  {
+    door: "home", target: () => document.querySelector("#home .doors"),
+    title: "Start here",
+    text: "DSKY does three jobs: install an operating system, copy a drive, or look at a disk. Pick the one you came to do.",
+  },
+  {
+    door: "install", target: () => $("catalogSec"),
+    title: "Install an operating system",
+    text: "Choose an operating system and its options. You don't need a USB stick yet: you can download it, or set up the image, now and write it to a stick later.",
+  },
+  {
+    door: "install", target: () => $("recipesSec"),
+    title: "Recipes",
+    text: "Save the options you use often as a recipe, one per customer or type of machine, and use them again without choosing everything twice.",
+  },
+  {
+    door: "install", target: () => $("imagesSec"),
+    title: "Built images",
+    text: "Images you set up wait here. Write one to as many sticks as you like without building it again.",
+  },
+  {
+    door: "home", target: () => $("jobsSec"), example: "activity",
+    title: "Activity",
+    text: "Downloads, builds and writes show their progress here, on every screen, until you dismiss them.",
+  },
+  {
+    door: "home", target: () => null, example: "disk",
+    title: "Before anything is erased",
+    text: "DSKY describes the disk the way you'd recognise it (model, size, what's on it) and asks you to type its size before erasing. It never writes to the disk this computer is running from.",
+  },
+];
+
+let guide = null;
+
+function startGuide() {
+  if (guide) return;
+  if (document.querySelector("dialog[open]")) return;
+  guide = { step: 0, returnTo: door, focusBack: document.activeElement };
+  const shade = el("div", "guide-shade");
+  const spot = el("div", "guide-spot");
+  const card = el("div", "guide-card");
+  card.tabIndex = -1;
+  card.setAttribute("role", "dialog");
+  card.setAttribute("aria-modal", "true");
+  card.setAttribute("aria-labelledby", "guideTitle");
+  // A click on the dimmed page does nothing rather than closing: somebody
+  // clicking at what is lit up should not lose their place.
+  shade.onclick = () => card.focus();
+  document.body.append(shade, spot, card);
+  Object.assign(guide, { shade, spot, card });
+  document.addEventListener("keydown", guideKeys, true);
+  window.addEventListener("resize", placeGuide);
+  window.addEventListener("scroll", placeGuide, true);
+  // The page keeps changing under the guide for reasons it is not told about:
+  // the update banner arrives a moment after load and pushes everything down,
+  // and a state refresh can re-render a panel. Re-measuring a few times a
+  // second keeps the light on what it describes.
+  guide.follow = setInterval(placeGuide, 200);
+  showGuideStep(0);
+}
+
+function guideKeys(e) {
+  if (!guide) return;
+  if (e.key === "Escape") { e.preventDefault(); endGuide(); }
+  else if (e.key === "ArrowRight" || (e.key === "Enter" && e.target === guide.card)) { e.preventDefault(); guideNext(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); guideBack(); }
+  else if (e.key === "Tab") {
+    // Keep focus inside the card while it is open.
+    const f = [...guide.card.querySelectorAll("button")];
+    if (!f.length) return;
+    const i = f.indexOf(document.activeElement);
+    e.preventDefault();
+    f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+  }
+}
+
+function guideNext() {
+  if (guide.step >= GUIDE_STEPS.length - 1) return endGuide();
+  showGuideStep(guide.step + 1);
+}
+function guideBack() { if (guide.step > 0) showGuideStep(guide.step - 1); }
+
+function showGuideStep(i) {
+  const st = GUIDE_STEPS[i];
+  guide.step = i;
+  clearGuideExample();
+  if (door !== st.door) setDoor(st.door);
+  if (st.example === "activity") showActivityExample();
+
+  const card = guide.card;
+  card.replaceChildren();
+  card.append(el("div", "gstep", `Step ${i + 1} of ${GUIDE_STEPS.length}`));
+  const h = el("h3", "", st.title); h.id = "guideTitle";
+  card.append(h, el("p", "", st.text));
+  if (st.example === "disk") card.append(exampleDiskCard());
+  if (i === GUIDE_STEPS.length - 1)
+    card.append(el("p", "guide-example", "You can open this guide again from the ? at the top."));
+  const dots = el("div", "gdots");
+  GUIDE_STEPS.forEach((_, n) => dots.append(el("i", n === i ? "on" : "")));
+  const actions = el("div", "gactions");
+  const skip = el("button", "skip", "Skip guide"); skip.onclick = endGuide;
+  actions.append(skip);
+  if (i > 0) { const b = el("button", "", "Back"); b.onclick = guideBack; actions.append(b); }
+  const next = el("button", "primary", i === GUIDE_STEPS.length - 1 ? "Done" : "Next");
+  next.onclick = guideNext;
+  actions.append(next);
+  card.append(actions, dots);
+
+  const target = st.target();
+  if (target) target.scrollIntoView({ block: "center", behavior: "instant" });
+  placeGuide();
+  next.focus();
+}
+
+// placeGuide lights the step's target and puts the card beside it, below if
+// there is room, otherwise above, otherwise centred.
+function placeGuide() {
+  if (!guide) return;
+  const { spot, card } = guide;
+  const target = GUIDE_STEPS[guide.step].target();
+  const r = target && !target.hidden ? target.getBoundingClientRect() : null;
+  const pad = 6, gap = 12, vw = innerWidth, vh = innerHeight;
+  if (!r || r.width === 0) {
+    spot.classList.add("none");
+    Object.assign(spot.style, { top: vh / 2 + "px", left: vw / 2 + "px" });
+    const cr = card.getBoundingClientRect();
+    card.style.top = Math.max(16, (vh - cr.height) / 2) + "px";
+    card.style.left = Math.max(16, (vw - cr.width) / 2) + "px";
+    return;
+  }
+  spot.classList.remove("none");
+  Object.assign(spot.style, {
+    top: (r.top - pad) + "px", left: (r.left - pad) + "px",
+    width: (r.width + pad * 2) + "px", height: (r.height + pad * 2) + "px",
+  });
+  const cr = card.getBoundingClientRect();
+  let top = r.bottom + pad + gap;
+  if (top + cr.height > vh - 16) top = r.top - pad - gap - cr.height;
+  if (top < 16) top = Math.max(16, (vh - cr.height) / 2);
+  let left = Math.min(Math.max(16, r.left), vw - cr.width - 16);
+  card.style.top = top + "px";
+  card.style.left = left + "px";
+}
+
+// The Activity step needs something in the strip to point at. It draws one
+// clearly labelled example row and removes it again; nothing is started.
+function showActivityExample() {
+  upsertJob({ job_id: "guide-example", kind: "example",
+    title: "Example: download Ubuntu (not really running)",
+    stage: "downloading", done: 2.1e9, total: 6.1e9 });
+}
+function clearGuideExample() {
+  const j = jobEls.get("guide-example");
+  if (j) { j.row.remove(); jobEls.delete("guide-example"); renderActivity(); }
+}
+
+function exampleDiskCard() {
+  const c = el("div", "idcard warn");
+  c.append(el("div", "idhead", "Samsung SSD 990 PRO 1TB · 931.5 GiB · S6Z1NJ0W123456"),
+    el("div", "idkind", "Fixed disk (NVMe)"));
+  const ul = el("ul");
+  ul.append(el("li", "", 'p1 · 931.5 GiB · NTFS · "Photos" · mounted at E:'));
+  c.append(ul, el("div", "idwarn", "This disk has files on it and is in use."),
+    el("div", "guide-example", "Example only"));
+  return c;
+}
+
+function endGuide() {
+  if (!guide) return;
+  const g = guide;
+  guide = null;
+  clearGuideExample();
+  document.removeEventListener("keydown", guideKeys, true);
+  window.removeEventListener("resize", placeGuide);
+  window.removeEventListener("scroll", placeGuide, true);
+  clearInterval(g.follow);
+  g.shade.remove(); g.spot.remove(); g.card.remove();
+  setDoor(g.returnTo);
+  if (!state.guide_seen) {
+    state.guide_seen = true;
+    api("/api/guide", { seen: true }).catch(() => {});
+  }
+  const back = g.focusBack && document.contains(g.focusBack) ? g.focusBack : $("guideBtn");
+  back.focus();
+}
+
+// maybeStartGuide offers the guide once, on first open — but not over a dialog
+// or while something is already running, which is no moment for a tour.
+let guideOffered = false;
+function maybeStartGuide() {
+  if (guideOffered || state.guide_seen === undefined) return;
+  guideOffered = true;
+  if (state.guide_seen) return;
+  if ([...jobEls.values()].some(j => !j.final)) return;
+  startGuide();
 }
 restoreDoor();
 loadState();
