@@ -15,7 +15,8 @@ func IsElevated() bool { return os.Geteuid() == 0 }
 
 // RunElevated re-runs this executable with args under pkexec (Linux
 // desktops); elsewhere it returns an error telling the user the exact sudo
-// command. (macOS authopen fd-handoff is the planned upgrade.)
+// command. macOS device jobs don't come here: they run in process and open
+// each disk through authopen (see OpensEachDisk and flash.openRaw).
 func RunElevated(args []string) (int, error) {
 	exe, err := os.Executable()
 	if err != nil {
