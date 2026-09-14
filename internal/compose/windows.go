@@ -609,6 +609,16 @@ func splitOversizeWIM(ctx context.Context, req Request, stage fsimg.StageMap) er
 		}
 	}
 	delete(stage, wimImg)
+	// The split is cached inside the extraction, so staging the extraction
+	// on a later build picks the parts up a second time, at /dsky-swm/. That
+	// put 7 GiB of duplicate parts on every rebuilt Windows image (17 GiB
+	// instead of 9, too big for an 8 GB stick); the first build of an ISO
+	// split after staging and never showed it. They belong only in /sources.
+	for imgPath, hostPath := range stage {
+		if rel, err := filepath.Rel(outDir, hostPath); err == nil && !strings.HasPrefix(rel, "..") {
+			delete(stage, imgPath)
+		}
+	}
 	matches, err := filepath.Glob(filepath.Join(outDir, "install*.swm"))
 	if err != nil || len(matches) == 0 {
 		return fmt.Errorf("compose: WIM split produced no .swm files in %s", outDir)
