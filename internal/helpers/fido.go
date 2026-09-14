@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/uplinkresearch/dsky/internal/fetch"
@@ -49,48 +51,168 @@ func EnsureFido(ctx context.Context, helpersDir string) (string, error) {
 	return path, nil
 }
 
-// powershellBinary picks the host's PowerShell (Windows PowerShell on
-// Windows; pwsh 7+ elsewhere).
-func powershellBinary() (string, error) {
+// powershellBinary picks the host's PowerShell: Windows PowerShell on
+// Windows, pwsh 7+ elsewhere.
+//
+// Finding a file called pwsh is not enough. Version managers such as mise and
+// asdf put a shim on PATH that fails when no version is selected, and running
+// one made downloading Windows fail with mise's own error. So each candidate
+// is run once, and a PowerShell those tools installed is found in their
+// install folders even when the shim is broken.
+func powershellBinary(ctx context.Context) (string, error) {
 	if runtime.GOOS == "windows" {
 		return "powershell", nil
 	}
-	if p, err := exec.LookPath("pwsh"); err == nil {
-		return p, nil
+	var candidates []string
+	if env := os.Getenv("DSKY_PWSH"); env != "" {
+		candidates = append(candidates, env)
 	}
-	return "", fmt.Errorf("pwsh (PowerShell 7+) is required to resolve Microsoft ISO URLs on this OS — https://aka.ms/powershell")
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir != "" {
+			candidates = append(candidates, filepath.Join(dir, "pwsh"))
+		}
+	}
+	candidates = append(candidates,
+		"/opt/homebrew/bin/pwsh", "/usr/local/bin/pwsh", "/usr/bin/pwsh",
+		"/opt/microsoft/powershell/7/pwsh", "/usr/local/microsoft/powershell/7/pwsh")
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, pattern := range []string{
+			".local/share/mise/installs/powershell/*/pwsh",
+			".asdf/installs/powershell*/*/pwsh",
+			".dotnet/tools/pwsh",
+		} {
+			matches, _ := filepath.Glob(filepath.Join(home, pattern))
+			for i := len(matches) - 1; i >= 0; i-- { // newest-looking first
+				candidates = append(candidates, matches[i])
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, c := range candidates {
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		if st, err := os.Stat(c); err != nil || st.IsDir() {
+			continue
+		}
+		check, cancel := context.WithTimeout(ctx, 20*time.Second)
+		out, err := exec.CommandContext(check, c, "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.Major").Output()
+		cancel()
+		if major, perr := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && perr == nil && major >= 7 {
+			return c, nil
+		}
+	}
+	hint := "install it with your package manager, e.g. mise use -g powershell"
+	if runtime.GOOS == "darwin" {
+		hint = "brew install powershell"
+	}
+	return "", fmt.Errorf("fetching Windows on this computer needs PowerShell 7 (%s; https://aka.ms/powershell). "+
+		"Or download the ISO in a browser from microsoft.com/software-download and choose it under \"Use an ISO you downloaded\" (--iso <file> with dsky install)", hint)
 }
 
-// FidoWindowsOnlyError says what to do instead on a computer that isn't
-// running Windows: where to download the ISO, and how to hand it to DSKY.
-func FidoWindowsOnlyError(spec *manifest.FidoSpec) error {
-	page := "https://www.microsoft.com/software-download/windows11"
-	if spec != nil && spec.Win == "10" {
-		page = "https://www.microsoft.com/software-download/windows10ISO"
+var (
+	pwshMu      sync.Mutex
+	pwshFound   bool
+	pwshChecked time.Time
+)
+
+// CanFetchWindows reports whether this computer can fetch Windows from
+// Microsoft: always on Windows, and elsewhere when a working PowerShell 7 is
+// installed. A negative answer is rechecked after a minute, so installing
+// PowerShell takes effect without restarting DSKY.
+func CanFetchWindows(ctx context.Context) bool {
+	if runtime.GOOS == "windows" {
+		return true
 	}
-	return fmt.Errorf("DSKY can only fetch Microsoft's Windows download link when it runs on Windows. "+
-		"On this computer, download the ISO from %s (on a Mac or Linux the page offers the ISO file directly), "+
-		"then give DSKY the file: \"Use an ISO you downloaded\" in the app, or --iso <file> with dsky install", page)
+	pwshMu.Lock()
+	defer pwshMu.Unlock()
+	if pwshFound || time.Since(pwshChecked) < time.Minute {
+		return pwshFound
+	}
+	_, err := powershellBinary(ctx)
+	pwshFound, pwshChecked = err == nil, time.Now()
+	return pwshFound
+}
+
+// Fido stops on anything but Windows: it takes the Windows version from the
+// OS, gives every other platform version 0.0, and then refuses any version at
+// or below Windows 7 ("This feature is not available on this platform.").
+// Its author did that on purpose in March 2023 (commit 425eb4d, issues #58 and
+// #60) so as not to support platforms he does not test, and told anyone who
+// wanted Linux to keep their own copy. This is that copy: one line changed, so
+// a platform that is not Windows counts as a current one. The download is
+// still Microsoft's and still resolved by Fido's own code.
+//
+// The patch is applied on this machine to the hash-verified original and the
+// result is verified against its own pinned hash, so a changed upstream line
+// fails loudly instead of running something unreviewed. Moving fidoVersion
+// means re-deriving fidoPatchedSHA256 (TestFidoPatch prints it).
+const (
+	fidoPatchFrom      = "\t$version = 0.0\n"
+	fidoPatchTo        = "\t$version = 10.0 # DSKY: not Windows counts as Windows 10+, so Fido runs on macOS and Linux\n"
+	fidoPatchedSHA256  = "30ceaf0c0d452a1b9021718a7ac8e5936e8f8e576886e149fe9104223261b18a"
+	fidoModifiedNotice = "# Modified by DSKY (github.com/uplinkresearch/dsky) from Fido " + fidoVersion + ":\n" +
+		"# Get-Platform-Version treats non-Windows platforms as Windows 10 so the script\n" +
+		"# runs under PowerShell 7 on macOS and Linux. Original: " + fidoURL + "\n"
+)
+
+// fidoForHost returns the script to run here: Fido as pinned on Windows, and
+// DSKY's patched copy everywhere else.
+func fidoForHost(original string) (string, error) {
+	if runtime.GOOS == "windows" {
+		return original, nil
+	}
+	patched := strings.TrimSuffix(original, ".ps1") + "-dsky.ps1"
+	if sum, err := fetch.SHA256File(patched); err == nil && sum == fidoPatchedSHA256 {
+		return patched, nil
+	}
+	b, err := os.ReadFile(original)
+	if err != nil {
+		return "", err
+	}
+	out, err := patchFido(b)
+	if err != nil {
+		return "", err
+	}
+	tmp := patched + ".tmp"
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		return "", err
+	}
+	if sum, err := fetch.SHA256File(tmp); err != nil || sum != fidoPatchedSHA256 {
+		os.Remove(tmp)
+		return "", fmt.Errorf("patched Fido hash mismatch: got %s, pinned %s — refusing to run it", sum, fidoPatchedSHA256)
+	}
+	return patched, os.Rename(tmp, patched)
+}
+
+func patchFido(b []byte) ([]byte, error) {
+	s := string(b)
+	if n := strings.Count(s, fidoPatchFrom); n != 1 {
+		return nil, fmt.Errorf("Fido %s no longer has the one line DSKY patches to run it off Windows (found %d)", fidoVersion, n)
+	}
+	s = strings.Replace(s, fidoPatchFrom, fidoPatchTo, 1)
+	// The notice goes after the byte-order mark: ahead of it, PowerShell reads
+	// the mark as a stray character, the first comment stops being one, and
+	// the param block no longer parses.
+	bom, rest := "", s
+	if strings.HasPrefix(s, "\ufeff") {
+		bom, rest = "\ufeff", strings.TrimPrefix(s, "\ufeff")
+	}
+	return []byte(bom + fidoModifiedNotice + rest), nil
 }
 
 // ResolveFidoURL runs Fido -GetUrl for the spec and returns the ephemeral
 // Microsoft download URL (valid for roughly 24 hours).
 //
-// Only on Windows. Fido refuses to run on any other platform, on purpose (its
-// author calls them "too much of a liability"), and before it gets that far
-// it asks Windows for the CPU type. For a long time DSKY ran it anyway and
-// passed on whatever went wrong first, which read like a broken PowerShell
-// install. Elsewhere, Microsoft's download page offers the ISO directly, so
-// the answer is to send people there and take the file.
+// Fido refuses to run anywhere but Windows, so on macOS and Linux the copy
+// that runs is patched first; see fidoForHost.
 func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoSpec) (string, error) {
-	if runtime.GOOS != "windows" {
-		return "", FidoWindowsOnlyError(spec)
-	}
-	script, err := EnsureFido(ctx, helpersDir)
+	original, err := EnsureFido(ctx, helpersDir)
 	if err != nil {
 		return "", err
 	}
-	ps, err := powershellBinary()
+	script, err := fidoForHost(original)
 	if err != nil {
 		return "", err
 	}
@@ -120,12 +242,20 @@ func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoS
 	if url := cachedURL(cachePath, cacheKey); url != "" {
 		return url, nil
 	}
+	ps, err := powershellBinary(ctx)
+	if err != nil {
+		return "", err
+	}
 
 	cmd := exec.CommandContext(ctx, ps,
 		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
 		"-File", script,
 		"-Win", s.Win, "-Rel", s.Release, "-Ed", s.Edition,
-		"-Lang", s.Language, "-Arch", s.Arch, "-GetUrl")
+		"-Lang", s.Language, "-Arch", s.Arch, "-GetUrl",
+		// Without this Fido asks Windows for the CPU type (Get-CimInstance,
+		// which PowerShell on macOS and Linux lacks) and stops. It only sets
+		// Fido's default choice; -Arch decides the download.
+		"-PlatformArch", s.Arch)
 	out, err := cmd.Output()
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
