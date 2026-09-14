@@ -22,7 +22,7 @@ func OpenTarget(ctx context.Context, dev device.Device) (Target, error) {
 	if out, err := exec.CommandContext(ctx, "diskutil", "unmountDisk", buffered).CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("flash: diskutil unmountDisk %s: %v\n%s", buffered, err, out)
 	}
-	f, err := os.OpenFile(dev.ID, os.O_RDWR, 0)
+	f, err := openRaw(ctx, dev.ID)
 	if err != nil {
 		if os.IsPermission(err) {
 			return nil, ErrNeedsElevation

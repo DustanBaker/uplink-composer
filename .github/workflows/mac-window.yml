@@ -16,6 +16,10 @@ on:
       - internal/cli/window_darwin_test.go
       - internal/cli/serve.go
       - internal/cab/**
+      - internal/flash/**
+      - internal/diskutil/**
+      - internal/flashrun/**
+      - internal/elevate/**
       - internal/drivers/catalog/**
       - .github/workflows/mac-window.yml
 
@@ -120,6 +124,29 @@ jobs:
             echo "$v: $n models"
             [ "$n" -gt 5 ] || { echo "$v list is empty or nearly so"; exit 1; }
           done
+
+      # Writing a disk from the Mac app goes through authopen, which shows the
+      # administrator password dialog and hands DSKY the opened disk. Nobody is
+      # here to type a password, so this runner's authorization database is
+      # told to allow authopen's request, which exercises everything else: the
+      # refused normal open, the descriptor handoff, and the write, read back
+      # as root. The disks are RAM disks, not real ones. Erase and prepare runs
+      # diskutil as this user, with no password, on a second one.
+      - name: Writing and erasing a disk without root
+        if: inputs.release == ''
+        timeout-minutes: 5
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -eu
+          sudo security authorizationdb write sys.openfile.readwrite. allow
+          D1=$(hdiutil attach -nomount ram://131072 | awk '{print $1}')
+          D2=$(hdiutil attach -nomount ram://131072 | awk '{print $1}')
+          ls -l "${D1/disk/rdisk}"
+          DSKY_TEST_DISK=$D1 go test -count=1 -v -run TestAuthopenWritesDisk ./internal/flash
+          DSKY_TEST_DISK2=$D2 go test -count=1 -v -run TestPrepareWithoutRoot ./internal/diskutil
+          hdiutil detach "$D1" || true
+          hdiutil detach "$D2" || true
 
       # An update must bring the app back. This checkout, stamped as an older
       # version, updates itself to the latest published release through the

@@ -45,5 +45,8 @@ func RunElevated(args []string) (int, error) {
 	return 0, nil
 }
 
+// OpensEachDisk is false: Windows elevates a worker once through UAC.
+func OpensEachDisk() bool { return false }
+
 // Hint tells the user how to elevate manually.
 func Hint() string { return "approve the UAC prompt, or run from an Administrator terminal" }

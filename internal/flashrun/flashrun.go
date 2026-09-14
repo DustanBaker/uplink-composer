@@ -22,6 +22,11 @@ import (
 	"github.com/uplinkresearch/dsky/internal/flash"
 )
 
+// inProcess says whether device jobs run here rather than in a relaunched
+// elevated worker: when already root or Administrator, and on macOS, where
+// each disk is opened through the system password dialog instead.
+func inProcess() bool { return elevate.IsElevated() || elevate.OpensEachDisk() }
+
 // Progress mirrors flash.Progress.
 type Progress func(stage string, done, total int64)
 
@@ -76,7 +81,7 @@ func RunFlashMany(ctx context.Context, art *compose.Artifact, devs []device.Devi
 	if len(devs) == 0 {
 		return fmt.Errorf("no devices to write")
 	}
-	if elevate.IsElevated() {
+	if inProcess() {
 		return flashAll(ctx, art, devs, func(id, stage string, done, total int64) {
 			if progress != nil {
 				progress(id, stage, done, total)
@@ -98,7 +103,7 @@ func RunDuplicate(ctx context.Context, src device.Device, dsts []device.Device, 
 	if len(dsts) == 0 {
 		return fmt.Errorf("no destination to copy onto")
 	}
-	if elevate.IsElevated() {
+	if inProcess() {
 		_, err := flash.Clone(ctx, src, dsts, allowFixed,
 			func(target, stage string, done, total int64) {
 				if progress != nil {
@@ -114,7 +119,7 @@ func RunDuplicate(ctx context.Context, src device.Device, dsts []device.Device, 
 // RunClone reads dev into outPath (through the end of its last partition),
 // elevating as needed. Returns the result summary (sha256:size).
 func RunClone(ctx context.Context, dev device.Device, outPath string, progress Progress) (string, error) {
-	if elevate.IsElevated() {
+	if inProcess() {
 		return flash.Capture(ctx, dev, outPath, flash.Progress(progress))
 	}
 	return runElevated(ctx, Job{Op: "clone", Devices: []device.Device{dev}, OutPath: outPath},
@@ -128,7 +133,7 @@ func RunClone(ctx context.Context, dev device.Device, outPath string, progress P
 // RunPrepare rewrites a removable disk's partition table and gives it one
 // full-size formatted volume, elevating as needed.
 func RunPrepare(ctx context.Context, dev device.Device, opts diskutil.Options, progress Progress) (string, error) {
-	if elevate.IsElevated() {
+	if inProcess() {
 		err := diskutil.Prepare(ctx, dev, opts, func(stage string) {
 			if progress != nil {
 				progress(stage, 0, -1)
