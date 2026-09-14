@@ -166,8 +166,8 @@ dsky detect --resolve       # fetch those drivers now, cached for later
 dsky install windows-11 --drivers
 ```
 
-Dell, Lenovo and HP machines get their per-model driver pack; everything else
-resolves per device through the Microsoft Update Catalog. Devices the catalogs
+Dell, Lenovo, HP and Framework machines get their per-model driver pack;
+everything else resolves per device through the Microsoft Update Catalog. Devices the catalogs
 do not carry are reported and skipped rather than failing the build — Windows
 Update covers most of them. GPU packages are large (easily a gigabyte each),
 so driver media wants a 16 GB stick.
@@ -176,11 +176,20 @@ Building media for a machine you are *not* sitting at — the bench case, where
 the target is a customer's fleet — names the model instead:
 
 ```
-dsky install windows-11 --drivers-for "dell:OptiPlex 7010"
+dsky install windows-11 --drivers-for "dell:OptiPlex 7010 Micro"
+dsky drivers models dell        # every model Dell has a pack for
 ```
 
-It is repeatable and combines with `--drivers`: pnputil installs only what
-matches the hardware it finds, so one stick can carry packs for several models.
+In the app, the Install dialog has a searchable list of every model Dell, HP,
+Lenovo and Framework publish Windows drivers for. It is repeatable and combines
+with `--drivers`: pnputil installs only what matches the hardware it finds, so
+one stick can carry packs for several models.
+
+Framework is different in one way. It publishes a driver *bundle* per model
+rather than a pack of drivers, and the bundle is Framework's own installer. It
+runs unattended at first boot, and only on the model it is for: on any other
+computer it is skipped, and it is stopped if it runs past 90 minutes. That path
+has not yet been run on a real Framework.
 
 ### Programs
 

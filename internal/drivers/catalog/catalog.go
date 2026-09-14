@@ -22,6 +22,7 @@ const (
 	Lenovo    Vendor = "lenovo"
 	HP        Vendor = "hp"
 	MSCatalog Vendor = "mscatalog"
+	Framework Vendor = "framework"
 )
 
 // Pack is one downloadable driver package.
@@ -38,10 +39,15 @@ type Pack struct {
 	SHA256    string
 	SHA1      string
 	MD5       string
-	Format    string   // "cab" | "exe"
-	Extract   []string // silent-extract args for exe packs; {dir} = destination
-	Products  string   // MS Catalog: products/OS column
-	UpdateID  string   // MS Catalog GUID
+	Format    string // "cab" | "exe"
+	// Install, when set, is how the pack is installed instead of the default
+	// for its format: "exe" runs it with Args, which is how Framework's
+	// bundles install.
+	Install  string
+	Args     []string
+	Extract  []string // silent-extract args for exe packs; {dir} = destination
+	Products string   // MS Catalog: products/OS column
+	UpdateID string   // MS Catalog GUID
 }
 
 // ID derives a stable manifest id for the pack.
@@ -100,7 +106,7 @@ type Lister interface {
 }
 
 // ModelFeeds are the vendors whose catalogs are organised by computer model.
-var ModelFeeds = []Vendor{Dell, HP, Lenovo}
+var ModelFeeds = []Vendor{Dell, HP, Lenovo, Framework}
 
 // Exact picks the pack for exactly this model name when the search also
 // matched longer names — "OptiPlex 7010" must not become "OptiPlex 7010 Plus"
@@ -141,10 +147,12 @@ func FeedFor(vendor string, c *Cache) (Feed, error) {
 		return &lenovoFeed{cache: c}, nil
 	case HP:
 		return &hpFeed{cache: c}, nil
+	case Framework:
+		return &frameworkFeed{cache: c}, nil
 	case MSCatalog, "catalog", "ms", "microsoft":
 		return &msCatalogFeed{}, nil
 	default:
-		return nil, fmt.Errorf("unknown driver feed %q (dell, lenovo, hp, mscatalog)", vendor)
+		return nil, fmt.Errorf("unknown driver feed %q (dell, lenovo, hp, framework, mscatalog)", vendor)
 	}
 }
 

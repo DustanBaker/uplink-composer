@@ -164,6 +164,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		return nil, err
 	}
 	packs = append(packs, hwPacks...)
+	gateStaged := false
 	for _, pack := range packs {
 		switch pack.Install {
 		case recipe.InstallSweep:
@@ -211,10 +212,20 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 			stage.AddFile(file.host, path.Join(scriptsImg, file.name))
 			refFiles[pack.Ref] = file.name
 			drivers.Exes = append(drivers.Exes, struct {
-				File string
-				Args []string
-				Log  string
-			}{File: file.name, Args: pack.Args, Log: pack.Log})
+				File       string
+				Args       []string
+				Log        string
+				OnlyVendor string
+				OnlyModel  string
+			}{File: file.name, Args: pack.Args, Log: pack.Log, OnlyVendor: pack.OnlyVendor, OnlyModel: pack.OnlyModel})
+			if pack.OnlyModel != "" && !gateStaged {
+				gatePath := filepath.Join(buildTmp, recipe.ModelInstallerScriptName)
+				if err := os.WriteFile(gatePath, []byte(recipe.ModelInstallerScriptFile()), 0o644); err != nil {
+					return nil, err
+				}
+				stage.AddFile(gatePath, path.Join(scriptsImg, recipe.ModelInstallerScriptName))
+				gateStaged = true
+			}
 		}
 	}
 
@@ -424,7 +435,15 @@ func hardwarePacks(ws *workspace.Workspace, hw []recipe.HardwareSpec) ([]recipe.
 						install = recipe.InstallSweep
 					}
 				}
-				out = append(out, recipe.DriverPack{Ref: src.ID, Install: install, Extract: src.Extract})
+				pack := recipe.DriverPack{Ref: src.ID, Install: install, Extract: src.Extract, Args: src.Args}
+				// An installer found for a model runs only on that model. A sweep
+				// needs no such care — pnputil installs only what matches — but an
+				// installer does whatever it does, and Framework's stops at a
+				// prompt on the wrong mainboard.
+				if install == recipe.InstallExe && src.Hardware != nil && src.Hardware.Model != "" {
+					pack.OnlyVendor, pack.OnlyModel = src.Hardware.Vendor, src.Hardware.Model
+				}
+				out = append(out, pack)
 			}
 			if found == 0 {
 				what := t.hwid

@@ -56,7 +56,8 @@ Library (machine-local, multi-GB safe)
   gc                        drop unreferenced blobs and tmp files
 
 Drivers
-  drivers search <dell|lenovo|hp> "<model>"   find the vendor's driver pack for a model (--add)
+  drivers search <dell|lenovo|hp|framework> "<model>"   find the vendor's driver pack for a model (--add)
+  drivers models <dell|lenovo|hp|framework>   list every model the vendor has drivers for
   drivers search mscatalog "<hardware-id>"     find a driver in the Microsoft Update Catalog (--add)
   drivers resolve <recipe>  fetch packs for every windows.hardware entry (compose does this itself)
   drivers inspect <pack>    what a dir/.zip/.cab/.inf covers (class, versions, hardware IDs)

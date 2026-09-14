@@ -94,8 +94,8 @@ func SpecForModel(spec, osName string) (recipe.HardwareSpec, error) {
 	switch {
 	case !ok || model == "":
 		return recipe.HardwareSpec{}, fmt.Errorf("want \"vendor:model\", e.g. \"dell:OptiPlex 7010\" (got %q)", spec)
-	case vendor != string(catalog.Dell) && vendor != string(catalog.Lenovo) && vendor != string(catalog.HP):
-		return recipe.HardwareSpec{}, fmt.Errorf("vendor must be dell, lenovo, or hp (got %q) — "+
+	case vendor != string(catalog.Dell) && vendor != string(catalog.Lenovo) && vendor != string(catalog.HP) && vendor != string(catalog.Framework):
+		return recipe.HardwareSpec{}, fmt.Errorf("vendor must be dell, lenovo, hp or framework (got %q) — "+
 			"other makers have no per-model feed, so build on the machine itself and detect it", vendor)
 	}
 	return recipe.HardwareSpec{Vendor: vendor, Model: model, OS: osName}, nil
@@ -117,6 +117,9 @@ func AddPack(ctx context.Context, ws *workspace.Workspace, lib *library.Library,
 		install = recipe.InstallExpandSweep
 	case "exe":
 		install = recipe.InstallExtractSweep
+	}
+	if p.Install != "" {
+		install = recipe.InstallMethod(p.Install)
 	}
 	manPath := filepath.Join(ws.Dir, "manifests", id+".yaml")
 	if _, err := os.Stat(manPath); err != nil {
@@ -143,12 +146,18 @@ func AddPack(ctx context.Context, ws *workspace.Workspace, lib *library.Library,
 		}
 		fmt.Fprintf(&b, "  os: %s\n", ref.OS)
 		fmt.Fprintf(&b, "install: %s\n", install)
-		if install == recipe.InstallExtractSweep {
-			quoted := make([]string, len(p.Extract))
-			for i, a := range p.Extract {
+		quote := func(list []string) string {
+			quoted := make([]string, len(list))
+			for i, a := range list {
 				quoted[i] = fmt.Sprintf("%q", a)
 			}
-			fmt.Fprintf(&b, "extract: [%s]\n", strings.Join(quoted, ", "))
+			return strings.Join(quoted, ", ")
+		}
+		if install == recipe.InstallExtractSweep {
+			fmt.Fprintf(&b, "extract: [%s]\n", quote(p.Extract))
+		}
+		if install == recipe.InstallExe && len(p.Args) > 0 {
+			fmt.Fprintf(&b, "args: [%s]\n", quote(p.Args))
 		}
 		note := strings.TrimSpace(fmt.Sprintf("%s %s %s %s", p.Model, p.OSVersion, p.Version, p.Released))
 		fmt.Fprintf(&b, "notes: %q\n", note)

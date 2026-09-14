@@ -88,6 +88,10 @@ type ResolvedDrivers struct {
 		File string
 		Args []string
 		Log  string
+		// OnlyVendor/OnlyModel, when set, run it through the model gate
+		// script (ModelInstallerScript) instead of directly.
+		OnlyVendor string
+		OnlyModel  string
 	}
 }
 
@@ -219,6 +223,16 @@ func GenerateFirstboot(r *Recipe, drivers ResolvedDrivers, resolveRef func(ref s
 				args := strings.Join(exe.Args, " ")
 				if exe.Log != "" {
 					args = strings.ReplaceAll(args, "{log}", `%SCRIPTS%\`+exe.Log)
+				}
+				if exe.OnlyModel != "" {
+					line(`rem --- %s driver installer for %s: runs only on that model, for at most %d minutes ---`,
+						exe.OnlyVendor, exe.OnlyModel, ModelInstallerTimeoutMinutes)
+					line(`if exist "%%SCRIPTS%%\%s" (`, exe.File)
+					line(`  powershell -NoProfile -ExecutionPolicy Bypass -File "%%SCRIPTS%%\%s" -Installer "%%SCRIPTS%%\%s" -Arguments "%s" -Vendor "%s" -Model "%s" -TimeoutMinutes %d >> "%%LOG%%" 2>&1`,
+						ModelInstallerScriptName, exe.File, args, exe.OnlyVendor, exe.OnlyModel, ModelInstallerTimeoutMinutes)
+					line(`  echo [%%date%% %%time%%] %s exited with %%errorlevel%% >> "%%LOG%%"`, exe.File)
+					line(`)`)
+					continue
 				}
 				line(`rem --- vendor driver installer %s ---`, exe.File)
 				line(`if exist "%%SCRIPTS%%\%s" (`, exe.File)

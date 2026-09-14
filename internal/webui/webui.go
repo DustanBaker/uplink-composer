@@ -619,7 +619,7 @@ type vendorModels struct {
 	Error  string   `json:"error,omitempty"`
 }
 
-// handleDriverModels lists every model Dell, HP and Lenovo publish driver
+// handleDriverModels lists every model Dell, HP, Lenovo and Framework publish driver
 // packs for, for the OS being installed, so a model is picked from the
 // vendor's own list instead of typed and guessed at. Each vendor is fetched
 // on its own: one catalog being unreachable leaves the other two usable, and
@@ -644,7 +644,7 @@ func (s *Server) handleDriverModels(w http.ResponseWriter, r *http.Request) {
 			return l.Models(ctx, osName, "x64")
 		}
 	}
-	names := map[catalog.Vendor]string{catalog.Dell: "Dell", catalog.HP: "HP", catalog.Lenovo: "Lenovo"}
+	names := map[catalog.Vendor]string{catalog.Dell: "Dell", catalog.HP: "HP", catalog.Lenovo: "Lenovo", catalog.Framework: "Framework"}
 	out := make([]vendorModels, len(catalog.ModelFeeds))
 	var wg sync.WaitGroup
 	for i, v := range catalog.ModelFeeds {

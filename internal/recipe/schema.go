@@ -269,6 +269,12 @@ type DriverPack struct {
 	Args    []string      `yaml:"args,omitempty"`    // exe only
 	Log     string        `yaml:"log,omitempty"`     // exe only; log filename
 	Extract []string      `yaml:"extract,omitempty"` // extract-then-sweep: silent-extract args, {dir} = destination
+
+	// OnlyVendor and OnlyModel restrict an exe pack to the machine it is for,
+	// checked at first boot against what Windows reports about the computer.
+	// Set by compose for packs found by model; never read from a recipe.
+	OnlyVendor string `yaml:"-"`
+	OnlyModel  string `yaml:"-"`
 }
 
 // Name is the pack's staging directory name.
@@ -566,9 +572,9 @@ func (r *Recipe) Validate() error {
 			}
 			if h.Vendor != "" {
 				switch strings.ToLower(h.Vendor) {
-				case "dell", "lenovo", "hp":
+				case "dell", "lenovo", "hp", "framework":
 				default:
-					return fail("windows.hardware[%d] vendor must be dell, lenovo, or hp (use hwids for others)", i)
+					return fail("windows.hardware[%d] vendor must be dell, lenovo, hp or framework (use hwids for others)", i)
 				}
 			}
 		}

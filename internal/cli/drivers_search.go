@@ -28,7 +28,7 @@ func driversSearch(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if fs.NArg() != 2 {
-		return fmt.Errorf("drivers search <dell|lenovo|hp|mscatalog> <model or hardware-id> [--add] [--pick N]")
+		return fmt.Errorf("drivers search <dell|lenovo|hp|framework|mscatalog> <model or hardware-id> [--add] [--pick N]")
 	}
 	lib, err := env.library()
 	if err != nil {
@@ -163,7 +163,7 @@ func driversModels(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("drivers models <dell|hp|lenovo> [--os win11|win10]")
+		return fmt.Errorf("drivers models <dell|hp|lenovo|framework> [--os win11|win10]")
 	}
 	lib, err := env.library()
 	if err != nil {

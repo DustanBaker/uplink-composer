@@ -214,7 +214,7 @@ func TestDriverModelsPerVendor(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil || w.Code != 200 {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
-	if resp.OS != "win10" || len(asked) != 3 || asked["dell"] != "win10" {
+	if resp.OS != "win10" || len(asked) != 4 || asked["framework"] != "win10" {
 		t.Errorf("os %q, asked %v", resp.OS, asked)
 	}
 	byVendor := map[string]int{}

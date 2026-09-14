@@ -85,8 +85,9 @@ type Source struct {
 	// machine they serve and how to install them, so a recipe's
 	// windows.hardware entries pick them up without naming them.
 	Hardware *HardwareRef `yaml:"hardware,omitempty"`
-	Install  string       `yaml:"install,omitempty"` // pnputil-sweep | expand-then-sweep | extract-then-sweep
+	Install  string       `yaml:"install,omitempty"` // pnputil-sweep | expand-then-sweep | extract-then-sweep | exe
 	Extract  []string     `yaml:"extract,omitempty"` // extract-then-sweep args; {dir} = destination
+	Args     []string     `yaml:"args,omitempty"`    // exe: installer arguments
 }
 
 // HardwareRef ties a driver pack to a vendor model or a hardware ID.

@@ -42,6 +42,8 @@ func (h *Hardware) KnownVendor() string {
 		return "lenovo"
 	case strings.Contains(v, "hp") || strings.Contains(v, "hewlett"):
 		return "hp"
+	case strings.Contains(v, "framework"):
+		return "framework"
 	}
 	return ""
 }
