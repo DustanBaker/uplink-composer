@@ -174,10 +174,15 @@ jobs:
                 if ($letter) { break }
               }
               Get-DiskImage -ImagePath $vhd | Format-List Attached, Number, Size, DevicePath
-              if ($null -ne $num) {
-                Get-Disk -Number $num | Format-Table Number, PartitionStyle, Size, IsReadOnly
+              try {
+                Get-Disk -Number $num | Format-Table Number, PartitionStyle, Size, IsReadOnly, OperationalStatus
                 Get-Partition -DiskNumber $num | Format-Table PartitionNumber, DriveLetter, Offset, Size, Type
-                Get-Partition -DiskNumber $num | Get-Volume | Format-Table DriveLetter, FileSystem, FileSystemLabel, Size
+              } catch { "Storage module: " + ($_ | Out-String) }
+              Get-CimInstance Win32_Volume | Format-Table DriveLetter, FileSystem, Label, Capacity, DeviceID
+              "list disk", "list volume" | diskpart
+              if (-not $letter) {
+                $v = Get-CimInstance Win32_Volume | Where-Object { $_.FileSystem -eq 'FAT32' -and $_.DriveLetter }
+                if ($v) { $letter = $v[0].DriveLetter.TrimEnd(':') }
               }
               if (-not $letter) { throw "Windows mounted the $scheme image but gave its volume no drive letter" }
               chkdsk "${letter}:" | Out-String | Write-Output
