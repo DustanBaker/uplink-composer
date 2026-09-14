@@ -293,7 +293,7 @@
   <span class="org" id="org"></span>
   <span class="ws" id="ws"></span>
   <span class="ver" id="ver" title="Check for a newer release"></span>
-  <button id="guideBtn" onclick="startGuide()" title="How DSKY works — a one-minute guide" aria-label="How DSKY works">?</button>
+  <button id="guideBtn" onclick="startGuide(door)" title="How this screen works" aria-label="How this screen works">?</button>
   <button id="updBtn" onclick="checkUpdate(true)" title="Ask GitHub for the newest release now">Check for updates</button>
   <button id="quitBtn" title="Stop the app" onclick="quitApp()">Quit</button>
 </header>
@@ -360,19 +360,19 @@
       </div>
       <div id="duCard"></div>
     </section>
-    <section data-door="advanced"><h2>Workspace<span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
+    <section data-door="advanced" id="wsSec"><h2>Workspace<span class="spacer"></span><span class="sub" id="wsHint"></span></h2>
       <div class="rows" id="wsPanel"></div>
     </section>
     <section data-door="install advanced" id="recipesSec"><h2>Recipes <span class="spacer"></span><span class="sub" id="recipesWhere"></span></h2><div class="rows" id="recipes"></div></section>
     <section data-door="install advanced" id="imagesSec"><h2>Built images <span class="spacer"></span><span class="sub">ready to write, no rebuilding</span></h2><div class="rows" id="artifacts"></div></section>
   </div>
   <div class="col" style="display:flex;flex-direction:column;gap:16px">
-    <section data-door="install advanced"><h2>Devices <span class="spacer"></span><button onclick="loadState()">Rescan</button></h2><div class="rows" id="devices"></div></section>
-    <section data-door="disks advanced"><h2>Disks <span class="spacer"></span><button onclick="loadDisks()">Refresh</button></h2><div class="rows" id="disks"><div class="empty">Reading disks…</div></div></section>
-    <section data-door="install"><h2>Your installers <span class="spacer"></span><button onclick="addInstaller()" title="Add a .msi or .exe from this machine">Add installer…</button></h2>
+    <section data-door="install advanced" id="devicesSec"><h2>Devices <span class="spacer"></span><button onclick="loadState()">Rescan</button></h2><div class="rows" id="devices"></div></section>
+    <section data-door="disks advanced" id="disksSec"><h2>Disks <span class="spacer"></span><button onclick="loadDisks()">Refresh</button></h2><div class="rows" id="disks"><div class="empty">Reading disks…</div></div></section>
+    <section data-door="install" id="myappsSec"><h2>Your installers <span class="spacer"></span><button onclick="addInstaller()" title="Add a .msi or .exe from this machine">Add installer…</button></h2>
       <div class="rows" id="myapps"></div>
     </section>
-    <section data-door="advanced"><h2>Sources</h2><div class="rows" id="sources"></div></section>
+    <section data-door="advanced" id="sourcesSec"><h2>Sources</h2><div class="rows" id="sources"></div></section>
   </div>
 </main>
 
@@ -785,6 +785,9 @@ function setDoor(name) {
   if (name === "disks") renderDiskUtil();
   try { localStorage.setItem("door", name); } catch (e) {}
   window.scrollTo(0, 0);
+  // The first time a screen opens, its guide. A guide opening screens to point
+  // at them is not somebody opening a screen.
+  if (!guide) setTimeout(maybeStartGuide, 150);
 }
 
 // Reopening the app lands on the start screen deliberately. The exception is a
@@ -1676,50 +1679,120 @@ async function loadState() {
   catch (e) { showErr(e.message); }
 }
 
-// ── First-run guide ─────────────────────────────────────────────────────────
-// Shown once, the first time DSKY opens, and again from the ? in the header.
-// It only ever points: it opens screens to show them, and draws its own
-// examples, but it never downloads, saves or erases anything, and the only
-// request it makes is recording that it has been closed.
-const GUIDE_STEPS = [
-  {
-    door: "home", target: () => document.querySelector("#home .doors"),
-    title: "Start here",
-    text: "DSKY does three jobs: install an operating system, copy a drive, or look at a disk. Pick the one you came to do.",
-  },
-  {
-    door: "install", target: () => $("catalogSec"),
-    title: "Install an operating system",
-    text: "Choose an operating system and its options. You don't need a USB stick yet: you can download it, or set up the image, now and write it to a stick later.",
-  },
-  {
-    door: "install", target: () => $("recipesSec"),
-    title: "Recipes",
-    text: "Save the options you use often as a recipe, one per customer or type of machine, and use them again without choosing everything twice.",
-  },
-  {
-    door: "install", target: () => $("imagesSec"),
-    title: "Built images",
-    text: "Images you set up wait here. Write one to as many sticks as you like without building it again.",
-  },
-  {
-    door: "home", target: () => $("jobsSec"), example: "activity",
-    title: "Activity",
-    text: "Downloads, builds and writes show their progress here, on every screen, until you dismiss them.",
-  },
-  {
-    door: "home", target: () => null, example: "disk",
-    title: "Before anything is erased",
-    text: "DSKY describes the disk the way you'd recognise it (model, size, what's on it) and asks you to type its size before erasing. It never writes to the disk this computer is running from.",
-  },
-];
+// ── Guides ──────────────────────────────────────────────────────────────────
+// One short guide for the start screen, shown the first time DSKY opens, and
+// one per screen, shown the first time that screen is opened. The ? in the
+// header opens the guide for whichever screen is showing.
+//
+// They only ever point: a guide may open its screen and draw its own clearly
+// marked examples, but it never downloads, saves or erases anything, and the
+// only request it makes is recording that it has been closed.
+const onScreen = id => () => $(id);
+const GUIDES = {
+  home: [
+    {
+      door: "home", target: () => document.querySelector("#home .doors"),
+      title: "Start here",
+      text: "DSKY does three jobs: install an operating system, copy a drive, or look at a disk. Pick the one you came to do.",
+    },
+    {
+      door: "home", target: onScreen("jobsSec"), example: "activity",
+      title: "Activity",
+      text: "Downloads, builds and writes show their progress here, on every screen, until you dismiss them.",
+    },
+    {
+      door: "home", target: () => null, example: "disk",
+      title: "Before anything is erased",
+      text: "DSKY describes the disk the way you'd recognise it (model, size, what's on it) and asks you to type its size before erasing. It never writes to the disk this computer is running from.",
+    },
+    {
+      door: "home", target: onScreen("guideBtn"),
+      title: "A guide on every screen",
+      text: "Install, Copy a drive and Disk utility each have a short guide of their own, shown the first time you open them. This ? opens the guide for whichever screen you're on.",
+    },
+  ],
+  install: [
+    {
+      door: "install", target: onScreen("catalogSec"),
+      title: "Choose an operating system",
+      text: "Pick one, then Install… to choose its options. You don't need a USB stick to download it or set up the image; write it to a stick later. Use your own ISO… writes an image you already have.",
+    },
+    {
+      door: "install", target: onScreen("recipesSec"),
+      title: "Recipes",
+      text: "Save the options you use often as a recipe, one per customer or type of machine, and use them again without choosing everything twice.",
+    },
+    {
+      door: "install", target: onScreen("imagesSec"),
+      title: "Built images",
+      text: "Images you've set up wait here. Write one to as many sticks as you like without building it again.",
+    },
+    {
+      door: "install", target: onScreen("devicesSec"),
+      title: "Devices",
+      text: "The disks this computer can see. USB sticks are the ones installers are written to. The disk this computer runs from is marked SYSTEM and is never written.",
+    },
+    {
+      door: "install", target: onScreen("myappsSec"),
+      title: "Your installers",
+      text: "Add your own .msi or .exe files, such as an RMM agent, to install along with Windows. They go on the stick, so the machine doesn't need a network connection for them.",
+    },
+  ],
+  clone: [
+    {
+      door: "clone", target: () => $("srcPick").closest(".pick"),
+      title: "Copy from",
+      text: "Choose the disk to copy. Any disk will do, including the one this computer runs from: reading a disk changes nothing on it.",
+    },
+    {
+      door: "clone", target: onScreen("dstList"),
+      title: "Copy onto",
+      text: "Tick every disk to copy onto. Each one is erased. Several can be written at once from a single read, and every copy is checked against the original.",
+    },
+    {
+      door: "clone", target: () => null, example: "disk",
+      title: "Confirm which disks",
+      text: "Each disk you tick is described so you can recognise it. Type its size (or each size, in order) to confirm, and only then can the copy start.",
+    },
+  ],
+  disks: [
+    {
+      door: "disks", target: () => $("duPick").closest(".pick"),
+      title: "Look at a disk",
+      text: "Choose any disk to see what's on it: its partitions, their labels, and what's using them. Looking changes nothing.",
+    },
+    {
+      door: "disks", target: () => null,
+      title: "Erase and prepare",
+      text: "If a disk can't be used here, such as a stick that held a Linux installer, Erase and prepare wipes it and makes one full-size volume this computer can read: exFAT, FAT32 or NTFS.",
+    },
+    {
+      door: "disks", target: onScreen("disksSec"),
+      title: "Every disk",
+      text: "All the disks this computer can see. Refresh after plugging one in or taking one out.",
+    },
+  ],
+  advanced: [
+    {
+      door: "advanced", target: onScreen("wsSec"),
+      title: "Workspaces",
+      text: "A workspace is a folder of recipes for one organisation, such as a customer. Open or create one here; saving a recipe on the Install screen creates one if you have none. It's an ordinary folder, so you can back it up or keep it in git.",
+    },
+    {
+      door: "advanced", target: onScreen("sourcesSec"),
+      title: "Sources",
+      text: "What each recipe downloads, whether it's pinned to a checksum, and whether it's already downloaded.",
+    },
+  ],
+};
 
 let guide = null;
 
-function startGuide() {
+function startGuide(name) {
   if (guide) return;
+  if (!GUIDES[name]) name = "home";
   if (document.querySelector("dialog[open]")) return;
-  guide = { step: 0, returnTo: door, focusBack: document.activeElement };
+  guide = { name, steps: GUIDES[name], step: 0, returnTo: door, focusBack: document.activeElement };
   const shade = el("div", "guide-shade");
   const spot = el("div", "guide-spot");
   const card = el("div", "guide-card");
@@ -1759,13 +1832,14 @@ function guideKeys(e) {
 }
 
 function guideNext() {
-  if (guide.step >= GUIDE_STEPS.length - 1) return endGuide();
+  if (guide.step >= guide.steps.length - 1) return endGuide();
   showGuideStep(guide.step + 1);
 }
 function guideBack() { if (guide.step > 0) showGuideStep(guide.step - 1); }
 
 function showGuideStep(i) {
-  const st = GUIDE_STEPS[i];
+  const st = guide.steps[i];
+  const total = guide.steps.length;
   guide.step = i;
   clearGuideExample();
   if (door !== st.door) setDoor(st.door);
@@ -1773,19 +1847,19 @@ function showGuideStep(i) {
 
   const card = guide.card;
   card.replaceChildren();
-  card.append(el("div", "gstep", `Step ${i + 1} of ${GUIDE_STEPS.length}`));
+  card.append(el("div", "gstep", total > 1 ? `Step ${i + 1} of ${total}` : "Guide"));
   const h = el("h3", "", st.title); h.id = "guideTitle";
   card.append(h, el("p", "", st.text));
   if (st.example === "disk") card.append(exampleDiskCard());
-  if (i === GUIDE_STEPS.length - 1)
+  if (i === total - 1 && guide.name !== "home")
     card.append(el("p", "guide-example", "You can open this guide again from the ? at the top."));
   const dots = el("div", "gdots");
-  GUIDE_STEPS.forEach((_, n) => dots.append(el("i", n === i ? "on" : "")));
+  guide.steps.forEach((_, n) => dots.append(el("i", n === i ? "on" : "")));
   const actions = el("div", "gactions");
   const skip = el("button", "skip", "Skip guide"); skip.onclick = endGuide;
   actions.append(skip);
   if (i > 0) { const b = el("button", "", "Back"); b.onclick = guideBack; actions.append(b); }
-  const next = el("button", "primary", i === GUIDE_STEPS.length - 1 ? "Done" : "Next");
+  const next = el("button", "primary", i === total - 1 ? "Done" : "Next");
   next.onclick = guideNext;
   actions.append(next);
   card.append(actions, dots);
@@ -1801,7 +1875,7 @@ function showGuideStep(i) {
 function placeGuide() {
   if (!guide) return;
   const { spot, card } = guide;
-  const target = GUIDE_STEPS[guide.step].target();
+  const target = guide.steps[guide.step].target();
   const r = target && !target.hidden ? target.getBoundingClientRect() : null;
   const pad = 6, gap = 12, vw = innerWidth, vh = innerHeight;
   if (!r || r.width === 0) {
@@ -1859,24 +1933,31 @@ function endGuide() {
   window.removeEventListener("scroll", placeGuide, true);
   clearInterval(g.follow);
   g.shade.remove(); g.spot.remove(); g.card.remove();
-  setDoor(g.returnTo);
-  if (!state.guide_seen) {
-    state.guide_seen = true;
-    api("/api/guide", { seen: true }).catch(() => {});
+  // Recorded before the screen changes back, or returning to the screen would
+  // offer the guide that just closed.
+  const seen = state.guides_seen || (state.guides_seen = []);
+  if (!seen.includes(g.name)) {
+    seen.push(g.name);
+    api("/api/guide", { guide: g.name, seen: true }).catch(() => {});
   }
+  // A screen's own guide leaves you on that screen; the start screen's guide,
+  // which opens others to point at them, puts you back where you were.
+  setDoor(g.name === "home" ? g.returnTo : g.name);
   const back = g.focusBack && document.contains(g.focusBack) ? g.focusBack : $("guideBtn");
   back.focus();
 }
 
-// maybeStartGuide offers the guide once, on first open — but not over a dialog
-// or while something is already running, which is no moment for a tour.
-let guideOffered = false;
+// maybeStartGuide offers a screen's guide the first time that screen is open —
+// but not over a dialog, over another guide, or while something is running,
+// which is no moment for a tour. Skipped is not seen: it is offered next time.
 function maybeStartGuide() {
-  if (guideOffered || state.guide_seen === undefined) return;
-  guideOffered = true;
-  if (state.guide_seen) return;
+  if (guide || !state.guides_seen) return;
+  if (state.guides_seen.includes(door)) return;
+  if (document.querySelector("dialog[open]")) return;
   if ([...jobEls.values()].some(j => !j.final)) return;
-  startGuide();
+  // The start screen's guide comes first: it is where the others are pointed out.
+  if (door !== "home" && !state.guides_seen.includes("home")) return;
+  startGuide(door);
 }
 restoreDoor();
 loadState();

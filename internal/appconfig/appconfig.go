@@ -16,8 +16,12 @@ const maxRecent = 8
 type Config struct {
 	// Recent workspace directories, most-recently-used first.
 	Recent []string `json:"recent_workspaces,omitempty"`
-	// GuideSeen is set once the first-run guide has been closed, so it is
-	// offered once per machine rather than once per window or browser profile.
+	// GuidesSeen names the guides that have been closed — the start screen's
+	// and one per screen — so each is offered once per machine rather than once
+	// per window or browser profile.
+	GuidesSeen []string `json:"guides_seen,omitempty"`
+	// GuideSeen is v0.7.5's single flag for the one guide it had, the start
+	// screen's. Still read, so updating does not replay it.
 	GuideSeen bool `json:"guide_seen,omitempty"`
 
 	path string     // where this was loaded from (not serialized)
@@ -69,19 +73,49 @@ func (c *Config) Current() string {
 	return ""
 }
 
-// SetGuideSeen records whether the first-run guide has been closed, and saves.
-func (c *Config) SetGuideSeen(seen bool) error {
+// MarkGuide records that the named guide has been closed, or with seen false
+// forgets it so it is offered again. An empty name with seen false forgets
+// every guide. It saves.
+func (c *Config) MarkGuide(name string, seen bool) error {
 	c.mu.Lock()
-	c.GuideSeen = seen
+	var kept []string
+	for _, g := range c.GuidesSeen {
+		if g != name {
+			kept = append(kept, g)
+		}
+	}
+	switch {
+	case seen:
+		kept = append(kept, name)
+	case name == "":
+		kept = nil
+		c.GuideSeen = false
+	case name == "home":
+		c.GuideSeen = false
+	}
+	c.GuidesSeen = kept
 	c.mu.Unlock()
 	return c.Save()
 }
 
-// Seen reports whether the first-run guide has been closed.
-func (c *Config) Seen() bool {
+// SeenGuides lists the guides that have been closed.
+func (c *Config) SeenGuides() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.GuideSeen
+	out := append([]string{}, c.GuidesSeen...)
+	if c.GuideSeen && !contains(out, "home") {
+		out = append(out, "home")
+	}
+	return out
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // AddRecent moves dir to the front of the recents and saves.
