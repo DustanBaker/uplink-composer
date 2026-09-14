@@ -1237,30 +1237,60 @@ function render() {
 // ── arm dialog ──────────────────────────────────────────────────────────────
 const appDialog = $("appDialog");
 const armDialog = $("armDialog");
-function pickDevice() {
-  const usable = state.devices.filter(d => d.flashable);
-  if (!usable.length) { showErr("No flashable USB device attached — plug one in and Rescan."); return null; }
-  return usable[0]; // single-target flow; multiple sticks pick the first listed
+// stickChooser shows the stick that will be erased. With one plugged in it
+// names it; with several it is a list with nothing chosen, and the erase
+// button and size box stay disabled until one is picked, so a write never
+// lands on whichever stick happened to be listed first. Returns a getter for
+// the chosen stick.
+function stickChooser(target, sizeEl, input, go, devs) {
+  const describe = d => `${d.model || d.id} — ${d.id} — ${d.size_gib} GiB` +
+    (d.mounts && d.mounts.length ? ` (mounted: ${d.mounts.join(", ")})` : "");
+  let chosen = null;
+  const choose = d => {
+    chosen = d || null;
+    sizeEl.textContent = chosen ? chosen.confirm : "the size of the stick you choose";
+    input.value = ""; input.placeholder = chosen ? chosen.confirm : "";
+    input.disabled = !chosen; go.disabled = !chosen;
+  };
+  target.replaceChildren();
+  if (devs.length === 1) {
+    target.textContent = describe(devs[0]);
+    choose(devs[0]);
+  } else {
+    const sel = el("select");
+    sel.setAttribute("aria-label", "Stick to erase");
+    sel.append(new Option(`Choose which stick to erase — ${devs.length} are plugged in`, ""));
+    for (const d of devs) sel.append(new Option(describe(d), d.id));
+    sel.onchange = () => { choose(devs.find(d => d.id === sel.value)); if (chosen) input.focus(); };
+    target.append(sel);
+    choose(null);
+  }
+  return () => chosen;
 }
-function openArm(dev, title, note, onGo) {
+function openArm(devs, title, note, onGo) {
   $("armTitle").textContent = title;
-  $("armTarget").textContent = `${dev.model || dev.id} — ${dev.id} — ${dev.size_gib} GiB` +
-    (dev.mounts && dev.mounts.length ? ` (mounted: ${dev.mounts.join(", ")})` : "");
   $("armNote").innerHTML = note;
-  $("armSize").textContent = dev.confirm;
-  const input = $("armInput"); input.value = ""; input.placeholder = dev.confirm;
+  const input = $("armInput");
+  const chosen = stickChooser($("armTarget"), $("armSize"), input, $("armGo"), devs);
   $("armGo").onclick = () => {
-    onGo(input.value.trim());
+    const dev = chosen();
+    if (!dev) return;
+    onGo(dev, input.value.trim());
     armDialog.close();
   };
-  armDialog.showModal(); input.focus();
+  armDialog.showModal();
+  if (chosen()) input.focus(); else $("armTarget").querySelector("select").focus();
 }
-function armFlash(what) {
-  const dev = pickDevice(); if (!dev) return;
-  openArm(dev, `Write ${what.label || what.recipe || "image"} to a stick`,
+async function armFlash(what) {
+  // Read the sticks again first: one plugged in since the page last looked
+  // must be in the list, and one pulled out must not.
+  await loadState();
+  const usable = state.devices.filter(d => d.flashable);
+  if (!usable.length) { showErr("No USB stick is plugged in — plug one in and Rescan."); return; }
+  openArm(usable, `Write ${what.label || what.recipe || "image"} to a stick`,
     "This <b>permanently erases</b> everything on the device, then writes and verifies the media." +
       (what.note ? "<br><br>" + what.note : ""),
-    confirm => api("/api/flash",
+    (dev, confirm) => api("/api/flash",
       { ...what, label: undefined, note: undefined, device_id: dev.id, confirm })
       .catch(e => showErr(e.message)));
 }
@@ -1299,9 +1329,9 @@ async function writeOwnImage() {
   });
 }
 function armCapture(dev) {
-  openArm(dev, "Capture device to image",
+  openArm([dev], "Capture device to image",
     "Read-only: copies the device (through its last partition) into the library as a master image.",
-    confirm => api("/api/capture", { device_id: dev.id, confirm })
+    (dev, confirm) => api("/api/capture", { device_id: dev.id, confirm })
       .catch(e => showErr(e.message)));
 }
 
@@ -1841,7 +1871,8 @@ function openInstall(os, edit) {
   const saved = editing ? editing.form : null;
   // A stick is only needed to write. Downloading, setting up the image and
   // saving a recipe all happen without one.
-  const dev = (state.devices || []).find(d => d.flashable) || null;
+  const sticks = (state.devices || []).filter(d => d.flashable);
+  const dev = sticks[0] || null;
   $("instTitle").textContent = editing ? "Edit recipe" : "Install " + os.name;
   const opts = $("instOpts"); opts.replaceChildren();
   let getOpts = () => ({});
@@ -1958,15 +1989,16 @@ function openInstall(os, edit) {
   $("instNoStick").hidden = !!dev;
   $("instGo").hidden = !dev;
   const input = $("instInput"); input.value = "";
+  let chosen = () => null;
   if (dev) {
-    $("instTarget").textContent = `${dev.model || dev.id} — ${dev.id} — ${dev.size_gib} GiB` +
-      (dev.mounts && dev.mounts.length ? ` (mounted: ${dev.mounts.join(", ")})` : "");
-    $("instSize").textContent = dev.confirm;
-    input.placeholder = dev.confirm;
-    $("instGo").onclick = () => run("install", { device_id: dev.id, confirm: input.value.trim() });
+    chosen = stickChooser($("instTarget"), $("instSize"), input, $("instGo"), sticks);
+    $("instGo").onclick = () => {
+      const d = chosen();
+      if (d) run("install", { device_id: d.id, confirm: input.value.trim() });
+    };
   }
   installDialog.showModal();
-  if (dev) input.focus();
+  if (chosen()) input.focus();
 }
 
 // ── recipe dialog ───────────────────────────────────────────────────────────
