@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"github.com/uplinkresearch/dsky/internal/cab"
+
+	"github.com/uplinkresearch/dsky/internal/hidewin"
 )
 
 // Status describes one tool requirement for `dsky doctor`.
@@ -32,7 +34,7 @@ type Status struct {
 
 // run executes a tool, returning combined output in the error on failure.
 func run(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := hidewin.Cmd(exec.CommandContext(ctx, name, args...))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s %s: %w\n%s", filepath.Base(name), strings.Join(args, " "), err, strings.TrimSpace(string(out)))

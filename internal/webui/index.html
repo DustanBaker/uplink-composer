@@ -1614,18 +1614,31 @@ function isoOpt(os) {
       "There is no link to fetch automatically. Filed under this OS, so later builds reuse it.");
   }
   if (os.family !== "windows") return null;
+  const home = state.host_os === "darwin" ? "/Users/you" : "/home/you";
+  const page = /windows-10/.test(os.id) ? "microsoft.com/software-download/windows10" : "microsoft.com/software-download/windows11";
+  let opt;
   if (state.windows_fetch || os.downloaded) {
-    return textOpt("Use an ISO you downloaded (optional)",
-      state.host_os === "windows" ? "C:\\Users\\you\\Downloads\\Win11.iso" : (state.host_os === "darwin" ? "/Users/you" : "/home/you") + "/Downloads/Win11.iso",
-      "Only needed if Microsoft refuses the download. Filed under this OS, so later builds reuse it.");
+    opt = textOpt("Use an ISO you downloaded (optional)",
+      state.host_os === "windows" ? "C:\\Users\\you\\Downloads\\Win11.iso" : home + "/Downloads/Win11.iso",
+      os.downloaded
+        ? "Already downloaded, so this is not needed."
+        : `Microsoft limits how often an address can download. If it refuses, download the ISO from ${page} and choose it here. Filed under this OS, so later builds reuse it.`);
+  } else {
+    // Off Windows, fetching Windows runs Fido under PowerShell 7. Without it,
+    // ask for the ISO up front rather than let Download fail.
+    const install = state.host_os === "darwin" ? "brew install powershell" : "your package manager";
+    opt = textOpt("Windows ISO file (needed on this computer)", home + "/Downloads/Win11_English_x64.iso",
+      `Fetching Windows here needs PowerShell 7 (${install}). Without it, download the ISO from ${page} — on a Mac or Linux the page offers the file directly — then choose it here. Filed under this OS, so later builds reuse it.`);
   }
-  // Off Windows, fetching Windows runs Fido under PowerShell 7. Without it,
-  // ask for the ISO up front rather than let Download fail.
-  const page = /windows-10/.test(os.id) ? "microsoft.com/software-download/windows10ISO" : "microsoft.com/software-download/windows11";
-  const install = state.host_os === "darwin" ? "brew install powershell" : "your package manager";
-  const opt = textOpt("Windows ISO file (needed on this computer)", (state.host_os === "darwin" ? "/Users/you" : "/home/you") + "/Downloads/Win11_English_x64.iso",
-    `Fetching Windows here needs PowerShell 7 (${install}). Without it, download the ISO from ${page} — on a Mac or Linux the page offers the file directly — then choose it here. Filed under this OS, so later builds reuse it.`);
   const inp = opt.wrap.querySelector("input");
+  // A Windows ISO already in Downloads is used rather than asking Microsoft,
+  // which refuses an address for a day after a few requests.
+  if (os.found_iso && !os.downloaded) {
+    inp.value = os.found_iso;
+    const hint = opt.wrap.querySelector(".sub");
+    if (hint) hint.textContent = "Found in your Downloads folder, so DSKY will use this file instead of downloading." +
+      (state.windows_fetch ? " Clear it to download from Microsoft." : "");
+  }
   const row = el("div"); row.style.cssText = "display:flex;gap:6px;align-items:center";
   const choose = el("button", null, "Choose…"); choose.type = "button";
   choose.onclick = async () => {

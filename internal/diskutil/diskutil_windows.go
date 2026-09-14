@@ -9,6 +9,8 @@ import (
 
 	"github.com/uplinkresearch/dsky/internal/device"
 	"github.com/yusufpapurcu/wmi"
+
+	"github.com/uplinkresearch/dsky/internal/hidewin"
 )
 
 type win32Partition struct {
@@ -123,7 +125,7 @@ func prepare(ctx context.Context, dev device.Device, opts Options, progress func
 	}
 
 	progress(fmt.Sprintf("preparing %s as %s/%s", dev.ID, scheme, fsName))
-	out, err := exec.CommandContext(ctx, "diskpart", "/s", path).CombinedOutput()
+	out, err := hidewin.Cmd(exec.CommandContext(ctx, "diskpart", "/s", path)).CombinedOutput()
 	text := string(out)
 	if err != nil {
 		return fmt.Errorf("diskpart: %v\n%s", err, strings.TrimSpace(text))

@@ -15,6 +15,8 @@ import (
 	"github.com/uplinkresearch/dsky/internal/drivers"
 	"github.com/uplinkresearch/dsky/internal/helpers"
 	"github.com/uplinkresearch/dsky/internal/manifest"
+
+	"github.com/uplinkresearch/dsky/internal/hidewin"
 )
 
 func cmdDrivers(ctx context.Context, env *Env, args []string) error {
@@ -76,7 +78,7 @@ func materializeForInspect(ctx context.Context, env *Env, src string) (dir strin
 			return "", cleanup, err
 		}
 		cleanup = func() { os.RemoveAll(tmp) }
-		out, err := exec.CommandContext(ctx, "expand", src, "-F:*", tmp).CombinedOutput()
+		out, err := hidewin.Cmd(exec.CommandContext(ctx, "expand", src, "-F:*", tmp)).CombinedOutput()
 		if err != nil {
 			cleanup()
 			return "", func() {}, fmt.Errorf("expand: %v\n%s", err, out)
@@ -235,7 +237,7 @@ func driversScan(ctx context.Context) error {
 		return fmt.Errorf("drivers scan inspects the local Windows machine; run it on the target hardware")
 	}
 	script := `Get-CimInstance Win32_PnPEntity | Where-Object { $_.ConfigManagerErrorCode -ne 0 } | ForEach-Object { ($_.Name, $_.ConfigManagerErrorCode -join "|") + "|" + (($_.HardwareID | Select-Object -First 2) -join " ") }`
-	out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script).Output()
+	out, err := hidewin.Cmd(exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)).Output()
 	if err != nil {
 		return fmt.Errorf("querying PnP devices: %w", err)
 	}

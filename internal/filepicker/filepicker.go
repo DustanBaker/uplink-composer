@@ -16,6 +16,8 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+
+	"github.com/uplinkresearch/dsky/internal/hidewin"
 )
 
 // ErrUnavailable means this host has no usable folder chooser (headless, or
@@ -75,7 +77,7 @@ func PickInstaller(ctx context.Context, title string) (string, error) {
 // run executes a chooser and tidies its output. An empty result is a
 // cancellation: every chooser here prints the path only on OK.
 func run(ctx context.Context, name string, args ...string) (string, error) {
-	out, err := exec.CommandContext(ctx, name, args...).Output()
+	out, err := hidewin.Cmd(exec.CommandContext(ctx, name, args...)).Output()
 	path := strings.TrimSpace(string(out))
 	if err != nil {
 		// zenity and kdialog exit non-zero on cancel, which is not a fault.

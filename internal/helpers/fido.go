@@ -15,6 +15,8 @@ import (
 
 	"github.com/uplinkresearch/dsky/internal/fetch"
 	"github.com/uplinkresearch/dsky/internal/manifest"
+
+	"github.com/uplinkresearch/dsky/internal/hidewin"
 )
 
 // Fido (github.com/pbatard/Fido, GPLv3, by the Rufus author) resolves
@@ -97,7 +99,7 @@ func powershellBinary(ctx context.Context) (string, error) {
 			continue
 		}
 		check, cancel := context.WithTimeout(ctx, 20*time.Second)
-		out, err := exec.CommandContext(check, c, "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.Major").Output()
+		out, err := hidewin.Cmd(exec.CommandContext(check, c, "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.Major")).Output()
 		cancel()
 		if major, perr := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && perr == nil && major >= 7 {
 			return c, nil
@@ -242,12 +244,18 @@ func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoS
 	if url := cachedURL(cachePath, cacheKey); url != "" {
 		return url, nil
 	}
+	// Asking again straight after a refusal only prolongs it, and every click
+	// of Set up or Install asked again. For an hour after one, say so without
+	// asking; a different network after that gets a fresh try.
+	if at, ok := recentRejection(cachePath); ok {
+		return "", sentinelError(s.Win, at)
+	}
 	ps, err := powershellBinary(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	cmd := exec.CommandContext(ctx, ps,
+	cmd := hidewin.Cmd(exec.CommandContext(ctx, ps,
 		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
 		"-File", script,
 		"-Win", s.Win, "-Rel", s.Release, "-Ed", s.Edition,
@@ -255,7 +263,7 @@ func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoS
 		// Without this Fido asks Windows for the CPU type (Get-CimInstance,
 		// which PowerShell on macOS and Linux lacks) and stops. It only sets
 		// Fido's default choice; -Arch decides the download.
-		"-PlatformArch", s.Arch)
+		"-PlatformArch", s.Arch))
 	out, err := cmd.Output()
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
@@ -263,7 +271,8 @@ func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoS
 			detail = strings.TrimSpace(detail + "\n" + strings.TrimSpace(string(ee.Stderr)))
 		}
 		if strings.Contains(detail, "Sentinel") {
-			return "", fmt.Errorf("Microsoft's rate limiter rejected this IP for roughly 24 hours (\"%s\").\nOptions: retry tomorrow; use another network/VPN; or download the ISO in a browser from microsoft.com/software-download/windows11 and run `dsky sources import <id> <path-to.iso>`", detail)
+			saveRejection(cachePath, time.Now())
+			return "", sentinelError(s.Win, time.Now())
 		}
 		return "", fmt.Errorf("Fido could not resolve a download URL: %w\n%s", err, detail)
 	}
@@ -278,6 +287,49 @@ func ResolveFidoURL(ctx context.Context, helpersDir string, spec *manifest.FidoS
 type fidoCacheEntry struct {
 	URL       string    `json:"url"`
 	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// sentinelError explains a refusal from Microsoft's rate limiter in terms of
+// what to do in DSKY: the ISO field, not a command a Quick Install user has no
+// workspace for.
+func sentinelError(win string, at time.Time) error {
+	page := "microsoft.com/software-download/windows11"
+	if win == "10" {
+		page = "microsoft.com/software-download/windows10"
+	}
+	return fmt.Errorf("Microsoft refused the download link (its rate limiter blocks an address for about a day after a few requests; refused at %s). "+
+		"Download the ISO in a browser from %s, then choose it under \"Use an ISO you downloaded\" and try again (--iso <file> with dsky install). "+
+		"Or try again tomorrow, or from another network", at.Local().Format("15:04"), page)
+}
+
+const rejectionKey = "_sentinel_rejected_at"
+
+func saveRejection(path string, at time.Time) {
+	m := map[string]fidoCacheEntry{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	m[rejectionKey] = fidoCacheEntry{FetchedAt: at.UTC()}
+	if b, err := json.MarshalIndent(m, "", "  "); err == nil {
+		_ = os.MkdirAll(filepath.Dir(path), 0o755)
+		_ = os.WriteFile(path, b, 0o644)
+	}
+}
+
+func recentRejection(path string) (time.Time, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}, false
+	}
+	var m map[string]fidoCacheEntry
+	if json.Unmarshal(b, &m) != nil {
+		return time.Time{}, false
+	}
+	e, ok := m[rejectionKey]
+	if !ok || time.Since(e.FetchedAt) > time.Hour {
+		return time.Time{}, false
+	}
+	return e.FetchedAt, true
 }
 
 // cachedURL returns a still-fresh previously resolved URL for key, if any.

@@ -341,6 +341,9 @@ type catalogEntry struct {
 	ImportFrom string `json:"import_from,omitempty"`
 	// Downloaded: the OS image is already in the library.
 	Downloaded bool `json:"downloaded,omitempty"`
+	// FoundISO: not in the library, but its ISO is sitting in Downloads, so
+	// the dialog can use it instead of asking Microsoft.
+	FoundISO string `json:"found_iso,omitempty"`
 }
 
 type recentWS struct {
@@ -419,12 +422,17 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		resp.NotInWinget = append(resp.NotInWinget, elsewhere{Name: e.Name, Words: e.Words, Note: e.Note})
 	}
 	for _, e := range oscatalog.Catalog() {
+		downloaded := oscatalog.InLibrary(s.Lib, e)
+		found := ""
+		if !downloaded {
+			found = oscatalog.FindDownloadedISO(e)
+		}
 		resp.Catalog = append(resp.Catalog, catalogEntry{
 			ID: e.ID, Name: e.Name, Family: string(e.Family),
 			Category: string(e.Group()), Arch: e.CPUArch(), Version: e.Version,
 			Notes: e.Notes, FirmwareNotes: e.FirmwareNotes, Editions: e.Editions,
 			ImportOnly: e.ImportOnly(), ImportFrom: e.ImportFrom,
-			Downloaded: oscatalog.InLibrary(s.Lib, e),
+			Downloaded: downloaded, FoundISO: found,
 		})
 	}
 	if s.Cfg != nil {

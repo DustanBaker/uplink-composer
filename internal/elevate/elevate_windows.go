@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/uplinkresearch/dsky/internal/hidewin"
 )
 
 // IsElevated reports whether this process already has administrator rights.
@@ -31,7 +33,7 @@ func RunElevated(args []string) (int, error) {
 	script := fmt.Sprintf(
 		`$p = Start-Process -FilePath '%s' -ArgumentList @(%s) -Verb RunAs -Wait -PassThru -WindowStyle Hidden; exit $p.ExitCode`,
 		strings.ReplaceAll(exe, "'", "''"), strings.Join(quoted, ","))
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd := hidewin.Cmd(exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script))
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	err = cmd.Run()
 	if ee, ok := err.(*exec.ExitError); ok {

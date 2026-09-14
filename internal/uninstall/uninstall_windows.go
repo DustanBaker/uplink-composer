@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/uplinkresearch/dsky/internal/hidewin"
 )
 
 // installDir is where install.ps1 puts the program.
@@ -88,7 +90,7 @@ func removeFromPath(dir string) error {
 	// setx truncates at 1024 characters, which would silently eat a long
 	// PATH; the .NET call the installer used has no such limit.
 	script := fmt.Sprintf(`[Environment]::SetEnvironmentVariable('Path', %s, 'User')`, psQuote(strings.Join(kept, ";")))
-	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	out, err := hidewin.Cmd(exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("updating PATH: %v: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -96,8 +98,8 @@ func removeFromPath(dir string) error {
 }
 
 func userPath() (string, error) {
-	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
-		`[Environment]::GetEnvironmentVariable('Path','User')`).Output()
+	out, err := hidewin.Cmd(exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+		`[Environment]::GetEnvironmentVariable('Path','User')`)).Output()
 	if err != nil {
 		return "", fmt.Errorf("reading PATH: %w", err)
 	}
