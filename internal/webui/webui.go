@@ -210,6 +210,11 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/install", s.auth(s.handleInstall))
 	mux.HandleFunc("POST /api/recipes/save", s.auth(s.handleSaveRecipe))
 	mux.HandleFunc("POST /api/artifacts/delete", s.auth(s.handleDeleteArtifact))
+	mux.HandleFunc("GET /api/recipes/get", s.auth(s.handleRecipeGet))
+	mux.HandleFunc("POST /api/recipes/update", s.auth(s.handleRecipeUpdate))
+	mux.HandleFunc("POST /api/recipes/file", s.auth(s.handleRecipeFile))
+	mux.HandleFunc("POST /api/recipes/delete", s.auth(s.handleRecipeDelete))
+	mux.HandleFunc("POST /api/downloads/delete", s.auth(s.handleDownloadDelete))
 	mux.HandleFunc("GET /api/detect", s.auth(s.handleDetect))
 	mux.HandleFunc("GET /api/drivers/models", s.auth(s.handleDriverModels))
 	mux.HandleFunc("GET /api/update", s.auth(s.handleUpdateCheck))
@@ -284,11 +289,13 @@ type stateResp struct {
 	Sources      []sourceInfo   `json:"sources"`
 	Devices      []deviceInfo   `json:"devices"`
 	Artifacts    []artifactInfo `json:"artifacts"`
-	Catalog      []catalogEntry `json:"catalog"`
-	Apps         []appEntry     `json:"apps"`
-	AppSets      []appSet       `json:"app_sets"`
-	NotInWinget  []elsewhere    `json:"not_in_winget"`
-	LibraryRoot  string         `json:"library_root"`
+	// Downloads are the OS images already in the library.
+	Downloads   []downloadInfo `json:"downloads"`
+	Catalog     []catalogEntry `json:"catalog"`
+	Apps        []appEntry     `json:"apps"`
+	AppSets     []appSet       `json:"app_sets"`
+	NotInWinget []elsewhere    `json:"not_in_winget"`
+	LibraryRoot string         `json:"library_root"`
 	// HostOS is runtime.GOOS. WindowsFetch says whether Windows can be fetched
 	// from Microsoft here (off Windows it needs PowerShell 7); when it can't,
 	// the page asks for the ISO file instead.
@@ -417,6 +424,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		Recent: []recentWS{}, Recipes: []recipeInfo{}, Sources: []sourceInfo{},
 		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, Catalog: []catalogEntry{},
 		Apps: []appEntry{}, AppSets: []appSet{}, NotInWinget: []elsewhere{},
+		Downloads:   s.downloads(),
 		LibraryRoot: s.Lib.Root, GuidesSeen: s.seenGuides(), HostOS: runtime.GOOS,
 		WindowsFetch:        helpers.CanFetchWindows(r.Context()),
 		WindowsToolsMissing: helpers.MissingForWindowsMedia(s.Lib.HelpersDir()),

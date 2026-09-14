@@ -326,6 +326,37 @@ func (l *Library) Resolve(id string) (Entry, error) {
 	return e, nil
 }
 
+// Remove takes id out of the catalog and deletes its blob, unless another
+// entry shares it. Returns bytes freed.
+func (l *Library) Remove(id string) (int64, error) {
+	cat, err := l.loadCatalog()
+	if err != nil {
+		return 0, err
+	}
+	e, ok := cat[id]
+	if !ok {
+		return 0, fmt.Errorf("library: %s is not in the local library", id)
+	}
+	delete(cat, id)
+	if err := l.saveCatalog(cat); err != nil {
+		return 0, err
+	}
+	for _, other := range cat {
+		if strings.EqualFold(other.SHA256, e.SHA256) {
+			return 0, nil
+		}
+	}
+	p := l.BlobPath(e.SHA256)
+	st, err := os.Stat(p)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err := os.Remove(p); err != nil {
+		return 0, err
+	}
+	return st.Size(), nil
+}
+
 // List returns catalog entries sorted by ID.
 func (l *Library) List() ([]Entry, error) {
 	cat, err := l.loadCatalog()

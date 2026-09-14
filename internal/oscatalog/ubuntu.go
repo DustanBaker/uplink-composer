@@ -89,7 +89,11 @@ func writeUbuntuUserData(wsDir, recipeID string, e Entry, ids []string) (string,
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", err
 	}
-	return rel, os.WriteFile(p, []byte(ubuntuUserData(plan, e.ubuntuDesktop())), 0o644)
+	// The picker's choices go in as a comment, so the recipe can be opened
+	// in the install dialog again: the answers alone only say what Ubuntu
+	// installs, not which programs were picked.
+	data := strings.Replace(ubuntuUserData(plan, e.ubuntuDesktop()), "\n", "\n"+programsMarker+strings.Join(ids, " ")+"\n", 1)
+	return rel, os.WriteFile(p, []byte(data), 0o644)
 }
 
 // ubuntuUserData renders the cloud-config autoinstall answers. The output is
