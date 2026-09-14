@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"unsafe"
 
 	"github.com/uplinkresearch/dsky/internal/device"
 )
@@ -34,9 +35,25 @@ func OpenTarget(ctx context.Context, dev device.Device) (Target, error) {
 	return &darwinTarget{f: f}, nil
 }
 
+// Disk ioctls from <sys/disk.h>: DKIOCGETBLOCKSIZE is _IOR('d', 24, uint32)
+// and DKIOCGETBLOCKCOUNT is _IOR('d', 25, uint64).
+const (
+	dkiocGetBlockSize  = 0x40046418
+	dkiocGetBlockCount = 0x40086419
+)
+
 func (t *darwinTarget) Size() (int64, error) {
-	// Raw character devices don't support seek-to-end reliably; ask the
-	// enumerator's cached size via stat fallback.
+	// A raw disk node can't seek to its end, so ask the disk: block count
+	// times block size, as diskutil does. Seeking is kept for anything that
+	// isn't a disk.
+	fd := int(t.f.Fd())
+	var bs uint32
+	var count uint64
+	if err := ioctl(fd, dkiocGetBlockSize, unsafe.Pointer(&bs)); err == nil && bs > 0 {
+		if err := ioctl(fd, dkiocGetBlockCount, unsafe.Pointer(&count)); err == nil && count > 0 {
+			return int64(count) * int64(bs), nil
+		}
+	}
 	if n, err := t.f.Seek(0, 2); err == nil && n > 0 {
 		if _, err := t.f.Seek(0, 0); err != nil {
 			return 0, err
@@ -44,6 +61,13 @@ func (t *darwinTarget) Size() (int64, error) {
 		return n, nil
 	}
 	return 0, fmt.Errorf("flash: cannot determine size of %s", t.f.Name())
+}
+
+func ioctl(fd int, req uintptr, arg unsafe.Pointer) error {
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), req, uintptr(arg)); errno != 0 {
+		return errno
+	}
+	return nil
 }
 
 func (t *darwinTarget) WriteAt(p []byte, off int64) (int, error) { return t.f.WriteAt(p, off) }
