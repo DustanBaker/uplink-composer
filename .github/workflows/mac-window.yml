@@ -127,11 +127,11 @@ jobs:
 
       # Writing a disk from the Mac app goes through authopen, which shows the
       # administrator password dialog and hands DSKY the opened disk. Nobody is
-      # here to type a password, so this runner's authorization database is
-      # told to allow authopen's request, which exercises everything else: the
-      # refused normal open, the descriptor handoff, and the write, read back
-      # as root. The disks are RAM disks, not real ones. Erase and prepare runs
-      # diskutil as this user, with no password, on a second one.
+      # here to type a password and macOS refuses to change that rule even for
+      # root, so authopen is run as root, which its rule lets through with no
+      # dialog: that exercises the descriptor handoff and the write, read back.
+      # The disks are RAM disks. Erase and prepare runs diskutil as this user,
+      # with no password, on a second one.
       - name: Writing and erasing a disk without root
         if: inputs.release == ''
         timeout-minutes: 5
@@ -139,11 +139,12 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -eu
-          sudo security authorizationdb write sys.openfile.readwrite. allow
+          security authorizationdb read sys.openfile. 2>/dev/null | head -40 || true
           D1=$(hdiutil attach -nomount ram://131072 | awk '{print $1}')
           D2=$(hdiutil attach -nomount ram://131072 | awk '{print $1}')
           ls -l "${D1/disk/rdisk}"
-          DSKY_TEST_DISK=$D1 go test -count=1 -v -run TestAuthopenWritesDisk ./internal/flash
+          go test -c -o flash.test ./internal/flash
+          sudo DSKY_TEST_DISK="$D1" ./flash.test -test.count=1 -test.v -test.run TestAuthopenWritesDisk
           DSKY_TEST_DISK2=$D2 go test -count=1 -v -run TestPrepareWithoutRoot ./internal/diskutil
           hdiutil detach "$D1" || true
           hdiutil detach "$D2" || true
