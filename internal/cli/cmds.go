@@ -64,13 +64,20 @@ func cmdDoctor(ctx context.Context, env *Env) error {
 		fmt.Printf("artifacts:     %d built image(s)\n", len(metas))
 	}
 	fmt.Println()
-	fmt.Println("required tools on this host:")
+	fmt.Println("tools on this host:")
 	for _, st := range helpers.Check(lib.HelpersDir()) {
 		mark := "ok  "
 		detail := st.Path
-		if st.Path == "" {
+		switch {
+		case st.Path != "":
+		case st.Required:
 			mark = "MISS"
 			detail = "not found — " + st.Hint
+		default:
+			// A fallback DSKY rarely needs: absent is fine, and [MISS] read
+			// like something was broken.
+			mark = "  - "
+			detail = "not installed, not needed (optional: " + st.Hint + ")"
 		}
 		fmt.Printf("  [%s] %-16s %-26s %s\n", mark, st.Name, st.Purpose, detail)
 	}
