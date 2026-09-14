@@ -15,6 +15,8 @@ on:
       - internal/cli/window_darwin.go
       - internal/cli/window_darwin_test.go
       - internal/cli/serve.go
+      - internal/cab/**
+      - internal/drivers/catalog/**
       - .github/workflows/mac-window.yml
 
 jobs:
@@ -99,6 +101,25 @@ jobs:
           curl -s -X POST -H "X-DSKY-Token: $TOKEN" -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:$PORT/api/quit; echo
           for i in $(seq 1 20); do kill -0 $APP 2>/dev/null || { echo "exited ${i}s after Quit"; exit 0; }; sleep 1; done
           echo "still running 20s after Quit"; cat app.log; exit 1
+
+      # Dell and HP publish their model lists as cabinet files. Unpacking them
+      # once needed 7-Zip, which a Mac usually lacks, and the picker quietly
+      # showed only Lenovo and Framework. DSKY_7Z points at a tool that always
+      # fails, so the runner's own 7-Zip can't hide a regression.
+      - name: Every vendor's model list, without 7-Zip
+        if: inputs.release == ''
+        timeout-minutes: 5
+        env:
+          CGO_ENABLED: "0"
+          DSKY_7Z: /usr/bin/false
+        run: |
+          set -eu
+          go build -o models/dsky ./cmd/dsky
+          for v in dell hp lenovo framework; do
+            n=$(./models/dsky drivers models $v | wc -l)
+            echo "$v: $n models"
+            [ "$n" -gt 5 ] || { echo "$v list is empty or nearly so"; exit 1; }
+          done
 
       # An update must bring the app back. This checkout, stamped as an older
       # version, updates itself to the latest published release through the

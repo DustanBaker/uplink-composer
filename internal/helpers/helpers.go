@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/uplinkresearch/dsky/internal/cab"
 )
 
 // Status describes one tool requirement for `dsky doctor`.
@@ -150,11 +152,17 @@ func SplitWIM(ctx context.Context, helpersDir, wimPath, swmPath string, chunkMB 
 	return run(ctx, wimlib, "split", wimPath, swmPath, fmt.Sprintf("%d", chunkMB))
 }
 
-// ExpandCab extracts a Microsoft cabinet into destDir: expand.exe on
-// Windows, 7-Zip elsewhere.
+// ExpandCab extracts a Microsoft cabinet into destDir: built in for MSZIP,
+// otherwise expand.exe on Windows and 7-Zip elsewhere.
 func ExpandCab(ctx context.Context, helpersDir, cabPath, destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
+	}
+	// MSZIP cabinets, which is what Dell and HP publish their catalogs as, need
+	// no tool at all. LZX cabinets, and anything the built-in reader trips on,
+	// still go to expand.exe or 7-Zip.
+	if _, err := cab.Extract(cabPath, destDir); err == nil {
+		return nil
 	}
 	if runtime.GOOS == "windows" {
 		return run(ctx, "expand", cabPath, "-F:*", destDir)

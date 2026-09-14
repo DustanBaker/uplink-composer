@@ -1368,7 +1368,7 @@ function modelPickerOpt(os) {
           }
       }
       note.textContent = `${all.length} models with ${r.os === "win10" ? "Windows 10" : "Windows 11"} driver packs. One stick can carry packs for several.` +
-        (missing.length ? ` ${missing.join(" and ")} could not be reached; type vendor:model to add one anyway.` : "");
+        (missing.length ? ` ${missing.join(" and ")} could not be loaded (${r.vendors.find(v => v.error).error}); type vendor:model to add one anyway.` : "");
       draw();
     } catch (e) {
       delete modelLists[key];
