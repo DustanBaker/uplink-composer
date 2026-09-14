@@ -41,6 +41,7 @@ jobs:
           mk tree/sources/boot.bin $((3 * 1024 * 1024))
           mk "tree/deep/a/b/c/d/naïve café – ünïcødé.txt" 4096
           mk "tree/a very long file name that goes on and on and on and on and on and on and on.dat" 8192
+          mkdir -p tree/text tree/many
           seq 1 200000 > tree/text/compressible.txt
           for i in $(seq 1 300); do echo "file $i" > tree/many/f$i.txt; done
           # Over UDF's largest single extent (just under 1 GiB), so the file
@@ -114,6 +115,7 @@ jobs:
 
           dism /Get-WimInfo /WimFile:$t\parts\install.swm
           if ($LASTEXITCODE) { throw "DISM could not read the split set" }
+          New-Item -ItemType Directory -Force "$t\applied" | Out-Null  # DISM applies only into an existing folder
           dism /Apply-Image /ImageFile:$t\parts\install.swm /SWMFile:$t\parts\install*.swm /Index:2 /ApplyDir:$t\applied
           if ($LASTEXITCODE) { throw "DISM could not apply from the split set" }
 
