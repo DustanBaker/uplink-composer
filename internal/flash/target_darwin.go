@@ -2,10 +2,12 @@ package flash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/uplinkresearch/dsky/internal/device"
 )
@@ -46,6 +48,16 @@ func (t *darwinTarget) Size() (int64, error) {
 
 func (t *darwinTarget) WriteAt(p []byte, off int64) (int, error) { return t.f.WriteAt(p, off) }
 func (t *darwinTarget) ReadAt(p []byte, off int64) (int, error)  { return t.f.ReadAt(p, off) }
-func (t *darwinTarget) Sync() error                              { return t.f.Sync() }
+func (t *darwinTarget) Sync() error {
+	// Go's Sync on macOS is F_FULLFSYNC, which a raw disk node (/dev/rdiskN)
+	// doesn't support ("inappropriate ioctl for device"). Writes to a raw node
+	// go straight to the device unbuffered, so there is nothing to flush —
+	// but the error failed every Mac write at the very end, after the image
+	// had been written. The readback verify that follows is the real check.
+	if err := t.f.Sync(); err != nil && !errors.Is(err, syscall.ENOTTY) && !errors.Is(err, syscall.EINVAL) {
+		return err
+	}
+	return nil
+}
 func (t *darwinTarget) Finalize() error                          { return nil }
 func (t *darwinTarget) Close() error                             { return t.f.Close() }

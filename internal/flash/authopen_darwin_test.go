@@ -41,14 +41,24 @@ func TestAuthopenWritesDisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("opening through authopen: %v", err)
 	}
+	// Through the same target the stick writer uses, so its size, flush and
+	// readback behave as a real write's would.
+	tgt := &darwinTarget{f: f}
+	if size, err := tgt.Size(); err != nil || size != 64<<20 {
+		t.Fatalf("size = %d, %v; want 64 MiB", size, err)
+	}
 	pattern := bytes.Repeat([]byte("DSKY"), 1<<18) // 1 MiB, sector-aligned
-	if _, err := f.WriteAt(pattern, 0); err != nil {
+	if _, err := tgt.WriteAt(pattern, 0); err != nil {
 		t.Fatalf("write through the authopen descriptor: %v", err)
 	}
-	if err := f.Sync(); err != nil {
-		t.Logf("sync: %v", err)
+	if err := tgt.Sync(); err != nil {
+		t.Fatalf("flush: %v", err)
 	}
-	f.Close()
+	back := make([]byte, len(pattern))
+	if _, err := tgt.ReadAt(back, 0); err != nil || !bytes.Equal(back, pattern) {
+		t.Fatalf("readback through the same descriptor: %v", err)
+	}
+	tgt.Close()
 	out, err := exec.Command("dd", "if="+raw, "bs=1048576", "count=1").Output()
 	if os.Geteuid() != 0 {
 		out, err = exec.Command("sudo", "dd", "if="+raw, "bs=1048576", "count=1").Output()
