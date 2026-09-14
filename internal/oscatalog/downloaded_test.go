@@ -46,6 +46,17 @@ func TestFindDownloadedISO(t *testing.T) {
 	if got := FindDownloadedISO(win10); got != "" {
 		t.Fatalf("Windows 10 matched %q", got)
 	}
+	// Saved to the Desktop instead, and newer: found there too.
+	desk := filepath.Join(home, "Desktop")
+	os.MkdirAll(desk, 0o755)
+	onDesk := filepath.Join(desk, "Win11_25H2_English_x64v2.iso")
+	if f, err := os.Create(onDesk); err == nil {
+		f.Truncate(2 << 30)
+		f.Close()
+	}
+	if got := FindDownloadedISO(win11); got != onDesk {
+		t.Fatalf("found %q, want the newer one on the Desktop %q", got, onDesk)
+	}
 	ubuntu, _ := Get("ubuntu-26.04-desktop")
 	if got := FindDownloadedISO(ubuntu); got != "" {
 		t.Fatalf("a hash-pinned distro used an unverified file: %q", got)

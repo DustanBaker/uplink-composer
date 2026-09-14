@@ -497,6 +497,19 @@ func ensureSource(ctx context.Context, lib *library.Library, e Entry, progress f
 	if e.ImportOnly() {
 		return e.ImportOnlyError()
 	}
+	// A Windows ISO already downloaded in a browser is used rather than
+	// asking Microsoft, which refuses an address for a day after a few
+	// requests. This is the one place every path fetches through — the
+	// Install dialog, a saved recipe, Download only, the command line — so
+	// none of them can skip it; v0.7.10 only checked in the Install dialog,
+	// and writing a recipe went to Microsoft anyway.
+	if found := FindDownloadedISO(e); found != "" {
+		if progress != nil {
+			progress("using "+filepath.Base(found)+" from "+filepath.Base(filepath.Dir(found)), 0, -1)
+		}
+		_, err := ImportISO(lib, e, found, progress)
+		return err
+	}
 	src := &manifest.Source{
 		ID: e.ID, Kind: manifest.KindOSImage, Format: e.sourceFormat(),
 		Provider: e.Provider, Fido: e.Fido, URL: e.URL, SHA256: e.SHA256, Filename: e.Filename,
@@ -521,6 +534,11 @@ func ensureSource(ctx context.Context, lib *library.Library, e Entry, progress f
 			progress("downloading "+e.Name, done, total)
 		}
 	})
+	if err != nil && e.Family == Windows && e.Fido != nil {
+		// Say where DSKY looked, so a download saved somewhere else, or under
+		// another name, is recognisably the reason.
+		return fmt.Errorf("%w. DSKY also looked for a Win%s_….iso in %s and found none", err, e.Fido.Win, strings.Join(downloadDirs(), " and "))
+	}
 	return err
 }
 

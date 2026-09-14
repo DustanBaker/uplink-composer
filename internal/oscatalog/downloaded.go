@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// FindDownloadedISO looks in the user's Downloads folder for the Windows ISO
+// FindDownloadedISO looks in the user's Downloads folder (and Desktop) for the Windows ISO
 // this entry would otherwise fetch, as Microsoft names it (Win11_25H2_English_x64.iso),
 // and returns the newest complete one.
 //
@@ -55,9 +55,15 @@ func downloadDirs() []string {
 		dirs = append(dirs, d)
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		d := filepath.Join(home, "Downloads")
-		if len(dirs) == 0 || !strings.EqualFold(dirs[0], d) {
-			dirs = append(dirs, d)
+		for _, name := range []string{"Downloads", "Desktop"} {
+			d := filepath.Join(home, name)
+			dup := false
+			for _, have := range dirs {
+				dup = dup || strings.EqualFold(have, d)
+			}
+			if !dup {
+				dirs = append(dirs, d)
+			}
 		}
 	}
 	return dirs
