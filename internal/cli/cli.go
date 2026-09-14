@@ -33,7 +33,8 @@ Quick install (no workspace needed)
                             (--edition, --account local|oobe, --debloat, --bypass-checks,
                              --drivers to detect this machine and stage its drivers,
                              --drivers-for "dell:OptiPlex 7010" for another model (repeatable),
-                             --apps chrome,7zip,... to install programs at first boot,
+                             --apps chrome,7zip,... to install programs at first boot
+                               (set:business for a starter set, winget:Publisher.Package for any winget package),
                              --domain-blob <file> to join a domain offline,
                              --iso <file> to use an ISO you downloaded yourself)
   detect                    what this computer is, and the drivers it needs
@@ -41,6 +42,7 @@ Quick install (no workspace needed)
 Programs
   apps                      programs --apps can install
   apps add <installer>      add your own .msi/.exe (--id, --name, --args)
+  apps winget <id>          check winget has a package (for --apps winget:<id>)
   apps set|remove|show <id>   edit, forget, or inspect one of yours
 
 Workspace

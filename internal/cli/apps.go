@@ -12,6 +12,7 @@ import (
 const appsUsage = `Manage the programs Quick Install can add.
 
   apps                            list every program
+  apps winget <Publisher.Package>  check winget has a package, for --apps winget:<id>
   apps add <installer> [flags]    add your own .msi or .exe
   apps set <id> [flags]           change a name, category or switches
   apps remove <id>                forget one (the file stays in the library)
@@ -42,6 +43,8 @@ func cmdApps(ctx context.Context, env *Env, args []string) error {
 		return appsRemove(env, args[1:])
 	case "show":
 		return appsShow(args[1:])
+	case "winget":
+		return appsWinget(ctx, args[1:])
 	case "help", "--help", "-h":
 		fmt.Printf(appsUsage, appcatalog.CustomCategory)
 		return nil
@@ -65,16 +68,44 @@ func listApps() error {
 			case a.Winget == "":
 				fmt.Printf("    %-18s %s  (no Windows package)\n", a.ID, a.Name)
 			default:
-				fmt.Printf("    %-18s %s\n", a.ID, a.Name)
+				line := fmt.Sprintf("    %-18s %s", a.ID, a.Name)
+				if l := a.Labels(); len(l) > 0 {
+					line += "  (" + strings.Join(l, "; ") + ")"
+				}
+				fmt.Println(line)
 			}
 		}
 	}
+	fmt.Println("\nStarter sets (use as set:<id>):")
+	for _, s := range appcatalog.Sets {
+		fmt.Printf("    set:%-14s %s: %s\n", s.ID, s.Name, strings.Join(s.Apps, ", "))
+	}
+	fmt.Println("\nAny other winget package works by its id, as winget:Publisher.Package.")
+	fmt.Println("Not in winget, so add their installers yourself (dsky apps add):")
+	for _, e := range appcatalog.NotInWinget {
+		if !strings.Contains(e.Note, "comes with Windows") {
+			fmt.Printf("    %s\n", e.Name)
+		}
+	}
 	fmt.Println("\nExample:")
-	fmt.Println("  dsky install windows-11 --drivers --apps chrome,7zip,vlc")
+	fmt.Println("  dsky install windows-11 --drivers --apps set:business,brave,winget:Mozilla.Firefox.ESR")
 	fmt.Println("\nBuilt-in programs install at first boot with winget, so the machine")
 	fmt.Println("needs to be online then — staging its network driver (--drivers) helps.")
 	fmt.Println("Your own installers ride on the stick and need no network.")
 	fmt.Println("\nAdd one:  dsky apps add <installer.msi> --id <name>")
+	return nil
+}
+
+// appsWinget looks a package up in winget's repository.
+func appsWinget(ctx context.Context, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: dsky apps winget <Publisher.Package>")
+	}
+	id, err := appcatalog.LookupWinget(ctx, args[0])
+	if err != nil {
+		return fmt.Errorf("%s: %w", args[0], err)
+	}
+	fmt.Printf("winget has %s. Use it as --apps winget:%s\n", id, id)
 	return nil
 }
 

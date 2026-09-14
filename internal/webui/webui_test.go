@@ -1,11 +1,14 @@
 package webui
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/uplinkresearch/dsky/internal/appcatalog"
 	"github.com/uplinkresearch/dsky/internal/jobs"
 	"github.com/uplinkresearch/dsky/internal/library"
 	"github.com/uplinkresearch/dsky/internal/workspace"
@@ -88,5 +91,56 @@ func TestFlashRefusesBadConfirm(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("empty flash: got %d, want 400", w.Code)
+	}
+}
+
+// The program picker needs the labels, starter sets and not-in-winget hints
+// from state, and a typed winget id checked by the server.
+func TestProgramPickerData(t *testing.T) {
+	h := testServer(t).handler()
+	w := do(t, h, "GET", "/api/state", "127.0.0.1:8931", "", "sekrit")
+	var st stateResp
+	if err := json.Unmarshal(w.Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]appEntry{}
+	for _, a := range st.Apps {
+		byID[a.ID] = a
+	}
+	if a := byID["spotify"]; a.Winget != "Spotify.Spotify" || len(a.Labels) != 1 {
+		t.Errorf("spotify = %+v, want its winget id and the per-user label", a)
+	}
+	if len(st.AppSets) != 3 || len(st.NotInWinget) == 0 {
+		t.Errorf("sets %d, hints %d", len(st.AppSets), len(st.NotInWinget))
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		trees := map[string]string{
+			"manifests/b":                 `{"tree":[{"path":"Brave","type":"tree"}]}`,
+			"manifests/b/Brave":           `{"tree":[{"path":"Brave","type":"tree"}]}`,
+			"manifests/b/Brave/Brave":     `{"tree":[{"path":"1.0","type":"tree"}]}`,
+			"manifests/b/Brave/Brave/1.0": `{"tree":[{"path":"Brave.Brave.yaml","type":"blob"}]}`,
+		}
+		body, ok := trees[strings.TrimPrefix(r.URL.Path, "/git/trees/master:")]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	old := appcatalog.WingetRepoAPI
+	appcatalog.WingetRepoAPI = srv.URL
+	defer func() { appcatalog.WingetRepoAPI = old }()
+
+	w = do(t, h, "GET", "/api/apps/winget?id=brave.brave", "127.0.0.1:8931", "", "sekrit")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"Brave.Brave"`) {
+		t.Errorf("brave.brave: %d %s", w.Code, w.Body.String())
+	}
+	if w = do(t, h, "GET", "/api/apps/winget?id=Nobody.Nothing", "127.0.0.1:8931", "", "sekrit"); w.Code != 404 {
+		t.Errorf("missing package: %d %s", w.Code, w.Body.String())
+	}
+	if w = do(t, h, "GET", "/api/apps/winget?id=no%20dots", "127.0.0.1:8931", "", "sekrit"); w.Code != 400 {
+		t.Errorf("malformed id: %d %s", w.Code, w.Body.String())
 	}
 }

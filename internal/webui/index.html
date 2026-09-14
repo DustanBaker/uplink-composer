@@ -128,17 +128,8 @@
   .wsexplain { color: var(--dim); font-size: 12px; padding: 4px 14px 8px; line-height: 1.5; }
   .wswhere { color: var(--dim); font-size: 12px; padding: 0 14px 2px; }
   .linkish { color: var(--accent); cursor: pointer; text-decoration: underline; }
-  details.apps { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
-  details.apps summary { cursor: pointer; color: var(--text); font-size: 13px; }
-  details.apps[open] summary { margin-bottom: 6px; }
   .appcat { color: var(--dim); font-size: 11px; text-transform: uppercase;
     letter-spacing: .04em; margin: 8px 0 2px; }
-  .appitem { display: flex; align-items: center; gap: 8px; padding: 2px 0;
-    font-size: 13px; cursor: pointer; }
-  /* Outranks `dialog .opt input { width: 100% }` above, which otherwise
-     stretches each checkbox across the row and pushes its name to the edge. */
-  .opt .appitem input { width: auto; flex: none; }
-  .appitem span { flex: 1; }
   .opt.check { display: flex; align-items: center; gap: 8px; }
   .opt.check input { width: auto; }
   .opt.check label { margin: 0; color: var(--text); }
@@ -300,6 +291,15 @@
   .modelresults .modelrow.on, .modelresults .modelrow:hover { background: var(--panel2); }
   .modelresults .badge { min-width: 52px; text-align: center; }
   .modelresults .empty { padding: 8px 10px; }
+  /* The program picker adds starter sets, labels and category names. */
+  .progpick .sets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .progpick .setbtn { font-size: 12px; padding: 2px 9px; border-radius: 12px; }
+  .progpick .chiplabel { color: var(--dim); font-size: 11.5px; }
+  .progpick .modelrow .grow { flex: 1; min-width: 0; }
+  .progpick .applabel { color: var(--warn); font-size: 11.5px; margin-left: 8px; white-space: nowrap; }
+  .progpick .appcatname { color: var(--dim); font-size: 11.5px; white-space: nowrap; }
+  .progpick .modelresults .appcat { margin: 0; padding: 7px 9px 2px; }
+  @media (max-width: 520px) { .progpick .appcatname { display: none; } }
   #err { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
     background: var(--danger); color: #fff; padding: 9px 16px; border-radius: 8px;
     max-width: 80%; display: none; font-size: 13px; }
@@ -571,7 +571,7 @@ async function addInstaller(replaceID) {
       await api("/api/apps/add", {
         path: picked.path, id: v.id, name: v.name, args: v.args, replace: !!replaceID,
       });
-      showOk(`${v.name} is ready — tick it under Install programs.`);
+      showOk(`${v.name} is ready — pick it under Install programs.`);
     },
   });
 }
@@ -1413,47 +1413,193 @@ function driverOpt() {
   return { wrap, get: inner.get };
 }
 
-// appsOpt is the program picker: checkboxes grouped by category, collapsed
-// behind a summary so the dialog stays short when nobody wants extras.
+// appsOpt is the program picker, built like the model picker: search, pick
+// from the results, picks shown as removable chips. Ninety checkboxes in a
+// collapsed section could not be scanned, and a checkbox list has nowhere to
+// type a package the list does not have.
+//
+// Empty, the box lists everything by category, for browsing. A winget package
+// id typed in full (Publisher.Package) can be used even when it is not in the
+// list: the server checks winget has it first. And a search for something
+// winget does not carry, such as RustDesk, says so and offers Add installer.
+const WINGET_ID = /^[A-Za-z0-9][A-Za-z0-9+_-]*(\.[A-Za-z0-9+_-]+)+$/;
 function appsOpt() {
-  const wrap = el("div", "opt");
-  const apps = state.apps || [];
-  const box = el("details", "apps");
-  const sum = el("summary", null, `Install programs (${apps.length} available)`);
-  box.append(sum);
-  const chosen = new Set();
-  let lastCat = "";
-  for (const a of apps) {
-    if (a.category !== lastCat) {
-      lastCat = a.category;
-      box.append(el("div", "appcat", a.category));
+  const wrap = el("div", "opt modelpick progpick");
+  wrap.append(el("label", null, "Install programs"));
+  const sets = el("div", "sets");
+  const chips = el("div", "chips");
+  const box = el("input"); box.type = "search"; box.autocomplete = "off";
+  box.placeholder = "Search programs, e.g. Brave, or type a winget id such as Brave.Brave";
+  box.setAttribute("role", "combobox"); box.setAttribute("aria-expanded", "false");
+  const results = el("div", "modelresults"); results.hidden = true;
+  results.setAttribute("role", "listbox");
+  const note = el("div", "sub"); note.style.color = "var(--dim)"; note.style.marginTop = "4px";
+  wrap.append(sets, chips, box, results, note);
+
+  const picked = new Map(); // spec -> {label, labels, pending}
+  let active = -1, shown = [];
+
+  // Read at every search rather than once, so an installer added from here
+  // (Add installer…) can be found without reopening the dialog.
+  const items = () => (state.apps || []).map(a => {
+    const name = a.name.toLowerCase();
+    const nameWords = name.split(/[^a-z0-9]+/).filter(Boolean);
+    const other = ((a.winget || "") + " " + a.category + (a.mine ? " on the stick" : "")).toLowerCase()
+      .split(/[^a-z0-9]+/).filter(Boolean);
+    return { spec: a.id, app: a, nameWords, words: nameWords.concat(other), flat: nameWords.join(" ") };
+  });
+  const byWinget = id => (state.apps || []).find(a => a.winget && a.winget.toLowerCase() === id.toLowerCase());
+
+  const setNote = extra => {
+    const anyMine = [...picked.keys()].some(k => (state.apps || []).some(a => a.id === k && a.mine));
+    note.textContent = extra || ("Programs from the list install at first boot with winget, so the machine needs to be online then." +
+      (anyMine ? " Your own installers are carried on the stick and need no network." : ""));
+  };
+
+  const drawChips = () => {
+    chips.replaceChildren();
+    for (const [spec, p] of picked) {
+      const c = el("span", "chip");
+      c.append(el("span", null, p.label));
+      if (p.labels && p.labels.length) {
+        const l = el("span", "chiplabel", p.labels.join(" · "));
+        c.append(l);
+      }
+      const x = el("button", "", "✕"); x.type = "button"; x.title = "Remove " + p.label;
+      x.onclick = () => { picked.delete(spec); drawChips(); };
+      c.append(x); chips.append(c);
     }
-    const row = el("label", "appitem");
-    const cb = el("input"); cb.type = "checkbox"; cb.value = a.id;
-    cb.onchange = () => {
-      cb.checked ? chosen.add(a.id) : chosen.delete(a.id);
-      sum.textContent = chosen.size
-        ? `Install programs (${chosen.size} selected)`
-        : `Install programs (${apps.length} available)`;
+    setNote();
+  };
+  const addApp = a => {
+    if (!picked.has(a.id)) picked.set(a.id, { label: a.name, labels: (a.mine ? ["on the stick"] : []).concat(a.labels || []) });
+  };
+  const addWinget = async typed => {
+    const known = byWinget(typed);
+    if (known) { addApp(known); drawChips(); return; }
+    const spec = "winget:" + typed;
+    picked.set(spec, { label: typed, labels: ["checking winget…"] });
+    drawChips();
+    try {
+      const r = await api("/api/apps/winget?id=" + encodeURIComponent(typed));
+      picked.delete(spec);
+      const again = byWinget(r.id);
+      if (again) addApp(again);
+      else picked.set("winget:" + r.id, { label: r.id, labels: [r.checked ? "winget package" : "not confirmed: " + (r.note || "could not check")] });
+      drawChips();
+    } catch (e) {
+      picked.delete(spec); drawChips();
+      setNote(e.message);
+    }
+  };
+  const finish = () => { box.value = ""; draw(); box.focus(); };
+
+  for (const set of state.app_sets || []) {
+    const b = el("button", "setbtn", "+ " + set.name);
+    b.type = "button";
+    const names = set.apps.map(id => ((state.apps || []).find(a => a.id === id) || { name: id }).name);
+    b.title = "Adds " + names.join(", ");
+    b.onclick = () => {
+      for (const id of set.apps) { const a = (state.apps || []).find(x => x.id === id); if (a) addApp(a); }
+      drawChips();
     };
-    row.append(cb, el("span", null, a.name));
-    // Your own installers behave differently enough to mark: they ride on the
-    // stick, so they land whether or not the machine has a network.
-    if (a.mine) {
-      const tag = el("span", "badge ok", "on the stick");
-      tag.style.marginLeft = "6px";
-      row.append(tag);
-    }
-    box.append(row);
+    sets.append(b);
   }
-  const anyMine = apps.some(a => a.mine);
-  const note = el("div", "sub",
-    "Built-in programs install at first boot with winget, so the machine needs to be online then." +
-    (anyMine ? " Your own installers are carried on the stick and need no network." : ""));
-  note.style.color = "var(--dim)";
-  note.style.marginTop = "4px";
-  wrap.append(box, note);
-  return { wrap, get: () => [...chosen] };
+  if (sets.childElementCount) sets.prepend(el("span", "sub", "Starter sets:"));
+
+  const draw = () => {
+    const raw = box.value.trim();
+    const q = raw.toLowerCase();
+    results.replaceChildren(); shown = []; active = -1;
+    const all = items();
+    // Same matching as the model picker: every word typed must start a word
+    // of the program's name, winget id or category; names that match on
+    // their own come first, then the shorter names.
+    const tokens = q.split(/[^a-z0-9]+/).filter(Boolean);
+    const phrase = tokens.join(" ");
+    let hits = all.filter(m => !picked.has(m.spec) &&
+      tokens.every(t => m.words.some(w => w.startsWith(t))));
+    // A search that only matched a category ("browsers") keeps the list's
+    // own order, which puts the common choices first.
+    if (tokens.length) {
+      const inName = m => tokens.every(t => m.nameWords.some(w => w.startsWith(t)));
+      const order = new Map(all.map((m, i) => [m, i]));
+      hits.sort((a, b) =>
+        (inName(b) - inName(a)) ||
+        (inName(a) && ((b.flat.includes(phrase) - a.flat.includes(phrase)) ||
+          (a.nameWords.length - b.nameWords.length))) ||
+        (order.get(a) - order.get(b)));
+    }
+    shown = hits.map(m => ({ kind: "app", m }));
+    // A full winget id not in the list: offer it, at the top.
+    if (WINGET_ID.test(raw) && !byWinget(raw) && !picked.has("winget:" + raw))
+      shown.unshift({ kind: "winget", id: raw });
+
+    let lastCat = "";
+    shown.forEach((s, i) => {
+      if (s.kind === "app" && !tokens.length && s.m.app.category !== lastCat) {
+        lastCat = s.m.app.category;
+        results.append(el("div", "appcat", lastCat));
+      }
+      const row = el("div", "modelrow");
+      row.setAttribute("role", "option");
+      if (s.kind === "winget") {
+        row.append(el("span", "badge", "winget"), el("span", "grow", "Use the winget package " + s.id));
+      } else {
+        const a = s.m.app;
+        const name = el("span", "grow", a.name);
+        if (a.mine) { const t = el("span", "badge ok", "on the stick"); t.style.marginLeft = "6px"; name.append(t); }
+        for (const l of a.labels || []) name.append(el("span", "applabel", l));
+        row.append(name);
+        // Browsing, the heading above already names the category.
+        if (tokens.length) row.append(el("span", "appcatname", a.category));
+      }
+      row.onmousedown = e => { e.preventDefault(); pick(s); };
+      row.onmouseenter = () => { active = i; mark(); };
+      results.append(row);
+    });
+
+    if (!shown.length) {
+      const hint = tokens.length && (state.not_in_winget || []).find(h => h.words.some(w => tokens.some(t => w.startsWith(t) && t.length >= 3)));
+      const empty = el("div", "empty");
+      if (hint) {
+        empty.append(el("div", null, hint.note));
+        if (!/comes with Windows/.test(hint.note)) {
+          const b = el("button", null, "Add installer…"); b.type = "button"; b.style.marginTop = "6px";
+          b.onmousedown = e => { e.preventDefault(); results.hidden = true; addInstaller(); };
+          empty.append(b);
+        }
+      } else if (tokens.length) {
+        empty.textContent = "No program matches. Any winget package can be used by its id, such as Brave.Brave; an installer winget doesn't have can be added under Your installers.";
+      } else {
+        empty.textContent = "Every program in the list is already picked.";
+      }
+      results.append(empty);
+    }
+    results.hidden = false; box.setAttribute("aria-expanded", "true");
+  };
+  const pick = s => { s.kind === "winget" ? addWinget(s.id) : (addApp(s.m.app), drawChips()); finish(); };
+  const mark = () => [...results.querySelectorAll(".modelrow")].forEach((r, i) => {
+    r.classList.toggle("on", i === active);
+    if (i === active) r.scrollIntoView({ block: "nearest" });
+  });
+
+  box.oninput = draw;
+  box.onfocus = draw;
+  box.onblur = () => setTimeout(() => { results.hidden = true; box.setAttribute("aria-expanded", "false"); }, 120);
+  box.onkeydown = e => {
+    if (e.key === "ArrowDown" && shown.length) { e.preventDefault(); active = (active + 1) % shown.length; mark(); }
+    else if (e.key === "ArrowUp" && shown.length) { e.preventDefault(); active = (active - 1 + shown.length) % shown.length; mark(); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      const typed = box.value.trim();
+      if (!typed && active < 0) return;
+      const s = shown[active >= 0 ? active : 0];
+      if (s) pick(s);
+    } else if (e.key === "Escape" && !results.hidden) { e.preventDefault(); e.stopPropagation(); results.hidden = true; }
+  };
+  setNote();
+  return { wrap, get: () => [...picked.keys()] };
 }
 
 // isoOpt asks for an ISO the operator downloaded. Required for the import-only

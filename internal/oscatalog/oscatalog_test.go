@@ -152,7 +152,8 @@ func TestAppsReachTheRecipe(t *testing.T) {
 	if !ok {
 		t.Fatal("windows-11 missing from the catalog")
 	}
-	opts := Options{Edition: "Pro", Apps: []string{"chrome", "7zip"}}
+	// A typed winget package rides the same path as a listed program.
+	opts := Options{Edition: "Pro", Apps: []string{"chrome", "7zip", "winget:Mozilla.Firefox.ESR"}}
 	dir, err := scaffoldQuickWorkspace(lib, e, opts, nil)
 	if err != nil {
 		t.Fatalf("scaffold: %v", err)
@@ -164,7 +165,7 @@ func TestAppsReachTheRecipe(t *testing.T) {
 	if !r.Windows.Apps.Enabled() {
 		t.Fatal("windows.apps is empty")
 	}
-	want := []string{"Google.Chrome", "7zip.7zip"}
+	want := []string{"Google.Chrome", "7zip.7zip", "Mozilla.Firefox.ESR"}
 	got := r.Windows.Apps.Winget
 	if len(got) != len(want) {
 		t.Fatalf("got %q, want %q", got, want)
@@ -182,6 +183,9 @@ func TestAppsReachTheRecipe(t *testing.T) {
 	}
 	if !hasApps {
 		t.Error("recipe has apps but no `apps` firstboot step — they would never install")
+	}
+	if ps := recipe.GenerateAppsPS(r); !strings.Contains(ps, "'Mozilla.Firefox.ESR',") {
+		t.Errorf("apps.ps1 does not install the typed package:\n%s", ps)
 	}
 	for _, f := range r.Lint() {
 		if f.Severity == "error" {

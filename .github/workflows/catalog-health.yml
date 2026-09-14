@@ -6,7 +6,8 @@ name: catalog-health
 # find out is a user whose download fails.
 #
 # This runs the network tests on a schedule so link rot reaches the maintainer
-# first. It checks reachability, not content — verifying the bytes would mean
+# first. It also checks that every winget package in the program list still
+# exists. It checks reachability, not content — verifying the bytes would mean
 # downloading well over a hundred gigabytes, and a changed file is already
 # caught by the pinned hash at pull time.
 
@@ -40,6 +41,22 @@ jobs:
           go test ./internal/oscatalog/ -count=1 -timeout 20m -v \
             -run 'TestCatalogURLsLive|TestResolveChecksumLive' 2>&1 | tee result.txt
 
+      # The program list names winget packages, and vendors rename them (a
+      # new Python version is a new id). Each is looked up in winget's own
+      # repository, spelled as listed. The job token lifts GitHub's
+      # unauthenticated limit of 60 requests an hour, which ninety lookups
+      # would exceed. Runs even when the OS check failed, so one issue says
+      # everything that broke that week.
+      - name: Check every winget package id in the program list
+        id: winget
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          go test ./internal/appcatalog/ -count=1 -timeout 20m -v \
+            -run 'TestWingetIDsLive' 2>&1 | tee winget.txt
+
       # Only the failing lines, so the issue says what rotted rather than
       # burying it in 27 successes.
       - name: Summarise what broke
@@ -50,6 +67,7 @@ jobs:
             echo
             echo '```'
             grep -E "oscatalog_test.go:[0-9]+: [a-z0-9.-]+:" result.txt | grep -v ": ok (" || true
+            grep -E "appcatalog_test.go:[0-9]+: " winget.txt | grep -v ": ok$" || true
             echo '```'
           } > summary.md
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
@@ -62,15 +80,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title="Catalog link rot: an OS download URL is failing"
+          title="Catalog link rot: an OS download or winget package is failing"
           existing=$(gh issue list --state open --search "$title in:title" \
             --json number --jq '.[0].number // empty')
           body="$(cat summary.md)
 
           Found by the scheduled catalog-health run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
 
-          Re-pin the entry in \`internal/oscatalog/builtin.go\`, then regenerate
-          and re-sign the index with \`go run ./test/catalogen\`."
+          For an OS, re-pin the entry in \`internal/oscatalog/builtin.go\`, then
+          regenerate and re-sign the index with \`go run ./test/catalogen\`.
+          For a program, correct its winget id in \`internal/appcatalog/appcatalog.go\`
+          (\`dsky apps winget <id>\` checks one), or remove it."
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else

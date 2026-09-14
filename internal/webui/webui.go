@@ -193,6 +193,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/browse/image", s.auth(s.handleBrowseImage))
 	mux.HandleFunc("POST /api/browse/installer", s.auth(s.handleBrowseInstaller))
 	mux.HandleFunc("GET /api/apps", s.auth(s.handleApps))
+	mux.HandleFunc("GET /api/apps/winget", s.auth(s.handleWingetLookup))
 	mux.HandleFunc("POST /api/apps/add", s.auth(s.handleAppAdd))
 	mux.HandleFunc("POST /api/apps/set", s.auth(s.handleAppSet))
 	mux.HandleFunc("POST /api/apps/remove", s.auth(s.handleAppRemove))
@@ -281,6 +282,8 @@ type stateResp struct {
 	Artifacts    []artifactInfo `json:"artifacts"`
 	Catalog      []catalogEntry `json:"catalog"`
 	Apps         []appEntry     `json:"apps"`
+	AppSets      []appSet       `json:"app_sets"`
+	NotInWinget  []elsewhere    `json:"not_in_winget"`
 	LibraryRoot  string         `json:"library_root"`
 	// GuidesSeen: the guides closed on this machine — "home" for the start
 	// screen's, and one per screen.
@@ -295,6 +298,25 @@ type appEntry struct {
 	// Mine marks an installer the operator added, which behaves differently
 	// enough to say so: it rides on the stick and needs no network.
 	Mine bool `json:"mine,omitempty"`
+	// Winget is the package id, searchable for someone who knows it.
+	Winget string `json:"winget,omitempty"`
+	// Labels say how the program differs from installed-for-everyone and
+	// ready to use: per-user only, needs a licence, a large download.
+	Labels []string `json:"labels,omitempty"`
+}
+
+// appSet is a starter group the picker adds in one click.
+type appSet struct {
+	ID   string   `json:"id"`
+	Name string   `json:"name"`
+	Apps []string `json:"apps"`
+}
+
+// elsewhere is a program people search for that winget does not have.
+type elsewhere struct {
+	Name  string   `json:"name"`
+	Words []string `json:"words"`
+	Note  string   `json:"note"`
 }
 
 type catalogEntry struct {
@@ -370,7 +392,8 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	resp := stateResp{
 		Recent: []recentWS{}, Recipes: []recipeInfo{}, Sources: []sourceInfo{},
 		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, Catalog: []catalogEntry{},
-		Apps: []appEntry{}, LibraryRoot: s.Lib.Root, GuidesSeen: s.seenGuides(),
+		Apps: []appEntry{}, AppSets: []appSet{}, NotInWinget: []elsewhere{},
+		LibraryRoot: s.Lib.Root, GuidesSeen: s.seenGuides(),
 	}
 	// Only programs with a Windows package: that is all Quick Install can do
 	// for now, and an option that cannot run is worse than no option.
@@ -378,9 +401,15 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		if a.InstallsOnWindows() {
 			resp.Apps = append(resp.Apps, appEntry{
 				ID: a.ID, Name: a.Name, Category: a.Category,
-				Mine: a.Custom != nil,
+				Mine: a.Custom != nil, Winget: a.Winget, Labels: a.Labels(),
 			})
 		}
+	}
+	for _, set := range appcatalog.Sets {
+		resp.AppSets = append(resp.AppSets, appSet{ID: set.ID, Name: set.Name, Apps: set.Apps})
+	}
+	for _, e := range appcatalog.NotInWinget {
+		resp.NotInWinget = append(resp.NotInWinget, elsewhere{Name: e.Name, Words: e.Words, Note: e.Note})
 	}
 	for _, e := range oscatalog.Catalog() {
 		resp.Catalog = append(resp.Catalog, catalogEntry{
@@ -1198,6 +1227,26 @@ func customAppOf(c appcatalog.Custom) customApp {
 		Args: strings.Join(c.Args, " "), SizeMB: c.Size >> 20,
 		SHA256: c.SHA256, Added: c.AddedAt.Format("2006-01-02"),
 		RunLine: c.RunLine(),
+	}
+}
+
+// handleWingetLookup confirms a typed winget package id exists before the
+// picker accepts it, and returns the spelling winget's own list uses. The
+// server asks GitHub, not the page: the page talks only to this server.
+func (s *Server) handleWingetLookup(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	canon, err := appcatalog.LookupWinget(r.Context(), id)
+	switch {
+	case err == nil:
+		writeJSON(w, 200, map[string]any{"id": canon, "checked": true})
+	case errors.Is(err, appcatalog.ErrWingetNotFound):
+		httpErr(w, 404, "winget has no package %s. Package ids look like Publisher.Package; winget search on a Windows PC shows them.", id)
+	case errors.Is(err, appcatalog.ErrWingetUnchecked):
+		// Offline or rate-limited: the id is well formed, so let the person
+		// decide, and say it was not confirmed.
+		writeJSON(w, 200, map[string]any{"id": id, "checked": false, "note": err.Error()})
+	default:
+		httpErr(w, 400, "%s", err.Error())
 	}
 }
 

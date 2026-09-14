@@ -6,7 +6,10 @@
 // because no package manager has them. See custom.go.
 package appcatalog
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // App is one installable program.
 type App struct {
@@ -20,6 +23,12 @@ type App struct {
 	// than a package from winget. It carries the library blob and the silent
 	// switches; see custom.go.
 	Custom *Custom
+
+	// What someone gets differs from "installed for everyone, ready to use"
+	// in these ways, and the picker says so beside the name.
+	PerUser bool // the package only ships a per-user installer
+	Licence bool // needs a paid licence, subscription or account to be useful
+	Large   bool // a download big enough that first boot visibly waits for it
 }
 
 // InstallsOnWindows reports whether this program can actually be put on a
@@ -28,44 +37,207 @@ type App struct {
 // cannot run is worse than not offering it at all.
 func (a App) InstallsOnWindows() bool { return a.Winget != "" || a.Custom != nil }
 
-// builtin is the shipped list, ordered by category then name — the order the
-// picker shows.
+// Labels are the short phrases the pickers show beside a program's name.
+func (a App) Labels() []string {
+	var out []string
+	if a.PerUser {
+		out = append(out, "installs for the first account only")
+	}
+	if a.Licence {
+		out = append(out, "needs a licence or account")
+	}
+	if a.Large {
+		out = append(out, "large download")
+	}
+	return out
+}
+
+// builtin is the shipped list, ordered by category then roughly by how often
+// it is wanted — the order the picker shows.
+//
+// Every winget id was checked against microsoft/winget-pkgs, spelled as the
+// package's own manifest spells it, and the weekly catalog-health run checks
+// them again (TestWingetIDsLive). PerUser comes from the same manifests: it is
+// set where every installer the package lists is Scope: user, which is what
+// makes apps.ps1's machine-wide attempt fall back to the first account.
+//
+// Microsoft Edge is left out because Windows already has it.
 var builtin = []App{
-	{ID: "chrome", Name: "Google Chrome", Category: "Browsers", Winget: "Google.Chrome", Notes: "Machine-wide install"},
+	{ID: "chrome", Name: "Google Chrome", Category: "Browsers", Winget: "Google.Chrome"},
 	{ID: "firefox", Name: "Mozilla Firefox", Category: "Browsers", Winget: "Mozilla.Firefox", Apt: "firefox"},
+	{ID: "brave", Name: "Brave", Category: "Browsers", Winget: "Brave.Brave"},
+	{ID: "opera", Name: "Opera", Category: "Browsers", Winget: "Opera.Opera"},
+	{ID: "vivaldi", Name: "Vivaldi", Category: "Browsers", Winget: "Vivaldi.Vivaldi"},
+	{ID: "librewolf", Name: "LibreWolf", Category: "Browsers", Winget: "LibreWolf.LibreWolf"},
+
+	{ID: "zoom", Name: "Zoom", Category: "Communication", Winget: "Zoom.Zoom"},
+	{ID: "teams", Name: "Microsoft Teams", Category: "Communication", Winget: "Microsoft.Teams"},
+	{ID: "slack", Name: "Slack", Category: "Communication", Winget: "SlackTechnologies.Slack", PerUser: true},
+	{ID: "thunderbird", Name: "Mozilla Thunderbird", Category: "Communication", Winget: "Mozilla.Thunderbird", Apt: "thunderbird"},
+	{ID: "discord", Name: "Discord", Category: "Communication", Winget: "Discord.Discord", PerUser: true},
+	{ID: "signal", Name: "Signal", Category: "Communication", Winget: "OpenWhisperSystems.Signal", PerUser: true},
+	{ID: "telegram", Name: "Telegram Desktop", Category: "Communication", Winget: "Telegram.TelegramDesktop", PerUser: true},
+	{ID: "webex", Name: "Webex", Category: "Communication", Winget: "Cisco.Webex"},
 
 	{ID: "adobereader", Name: "Adobe Acrobat Reader", Category: "Documents", Winget: "Adobe.Acrobat.Reader.64-bit"},
+	{ID: "office", Name: "Microsoft 365 Apps (Word, Excel, Outlook…)", Category: "Documents", Winget: "Microsoft.Office", Licence: true, Large: true},
 	{ID: "libreoffice", Name: "LibreOffice", Category: "Documents", Winget: "TheDocumentFoundation.LibreOffice", Apt: "libreoffice"},
 	{ID: "onlyoffice", Name: "ONLYOFFICE Desktop Editors", Category: "Documents", Winget: "ONLYOFFICE.DesktopEditors"},
+	{ID: "foxitreader", Name: "Foxit PDF Reader", Category: "Documents", Winget: "Foxit.FoxitReader"},
+	{ID: "pdf24", Name: "PDF24 Creator", Category: "Documents", Winget: "geeksoftwareGmbH.PDF24Creator"},
+	{ID: "obsidian", Name: "Obsidian", Category: "Documents", Winget: "Obsidian.Obsidian"},
+	{ID: "notion", Name: "Notion", Category: "Documents", Winget: "Notion.Notion", PerUser: true},
+	{ID: "zotero", Name: "Zotero", Category: "Documents", Winget: "DigitalScholar.Zotero"},
+	{ID: "calibre", Name: "calibre (e-books)", Category: "Documents", Winget: "calibre.calibre"},
+
+	{ID: "bitwarden", Name: "Bitwarden", Category: "Passwords & security", Winget: "Bitwarden.Bitwarden"},
+	{ID: "1password", Name: "1Password", Category: "Passwords & security", Winget: "AgileBits.1Password", Licence: true},
+	{ID: "keepassxc", Name: "KeePassXC", Category: "Passwords & security", Winget: "KeePassXCTeam.KeePassXC"},
+	{ID: "malwarebytes", Name: "Malwarebytes", Category: "Passwords & security", Winget: "Malwarebytes.Malwarebytes"},
+
+	{ID: "googledrive", Name: "Google Drive", Category: "Cloud storage", Winget: "Google.GoogleDrive"},
+	{ID: "dropbox", Name: "Dropbox", Category: "Cloud storage", Winget: "Dropbox.Dropbox"},
+	{ID: "onedrive", Name: "Microsoft OneDrive", Category: "Cloud storage", Winget: "Microsoft.OneDrive"},
+	{ID: "box", Name: "Box Drive", Category: "Cloud storage", Winget: "Box.Box"},
 
 	{ID: "vlc", Name: "VLC media player", Category: "Media", Winget: "VideoLAN.VLC", Apt: "vlc"},
+	{ID: "spotify", Name: "Spotify", Category: "Media", Winget: "Spotify.Spotify", PerUser: true},
 	{ID: "gimp", Name: "GIMP", Category: "Media", Winget: "GIMP.GIMP", Apt: "gimp"},
+	{ID: "paintdotnet", Name: "Paint.NET", Category: "Media", Winget: "dotPDN.PaintDotNet"},
+	{ID: "obs", Name: "OBS Studio", Category: "Media", Winget: "OBSProject.OBSStudio"},
+	{ID: "audacity", Name: "Audacity", Category: "Media", Winget: "Audacity.Audacity"},
+	{ID: "handbrake", Name: "HandBrake", Category: "Media", Winget: "HandBrake.HandBrake"},
+	{ID: "inkscape", Name: "Inkscape", Category: "Media", Winget: "Inkscape.Inkscape"},
+	{ID: "blender", Name: "Blender", Category: "Media", Winget: "BlenderFoundation.Blender", Large: true},
+	{ID: "klite", Name: "K-Lite Codec Pack Standard", Category: "Media", Winget: "CodecGuide.K-LiteCodecPack.Standard"},
+	{ID: "irfanview", Name: "IrfanView", Category: "Media", Winget: "IrfanSkiljan.IrfanView"},
+	{ID: "greenshot", Name: "Greenshot", Category: "Media", Winget: "Greenshot.Greenshot"},
+	{ID: "plex", Name: "Plex", Category: "Media", Winget: "Plex.Plex"},
+
+	{ID: "teamviewer", Name: "TeamViewer", Category: "Remote access & VPN", Winget: "TeamViewer.TeamViewer", Licence: true},
+	{ID: "anydesk", Name: "AnyDesk", Category: "Remote access & VPN", Winget: "AnyDesk.AnyDesk", Licence: true},
+	{ID: "tailscale", Name: "Tailscale", Category: "Remote access & VPN", Winget: "Tailscale.Tailscale"},
+	{ID: "wireguard", Name: "WireGuard", Category: "Remote access & VPN", Winget: "WireGuard.WireGuard"},
+	{ID: "openvpn", Name: "OpenVPN Connect", Category: "Remote access & VPN", Winget: "OpenVPNTechnologies.OpenVPN"},
+	{ID: "remotedesktop", Name: "Remote Desktop client", Category: "Remote access & VPN", Winget: "Microsoft.RemoteDesktopClient"},
+	{ID: "mremoteng", Name: "mRemoteNG", Category: "Remote access & VPN", Winget: "mRemoteNG.mRemoteNG"},
+
+	{ID: "sysinternals", Name: "Sysinternals Suite", Category: "IT tools", Winget: "Microsoft.Sysinternals.Suite"},
+	{ID: "wireshark", Name: "Wireshark", Category: "IT tools", Winget: "WiresharkFoundation.Wireshark"},
+	{ID: "nmap", Name: "Nmap", Category: "IT tools", Winget: "Insecure.Nmap", PerUser: true},
+	{ID: "wiztree", Name: "WizTree", Category: "IT tools", Winget: "AntibodySoftware.WizTree"},
+	{ID: "windirstat", Name: "WinDirStat", Category: "IT tools", Winget: "WinDirStat.WinDirStat"},
+	{ID: "rufus", Name: "Rufus", Category: "IT tools", Winget: "Rufus.Rufus"},
+	{ID: "cpuz", Name: "CPU-Z", Category: "IT tools", Winget: "CPUID.CPU-Z"},
+	{ID: "hwmonitor", Name: "HWMonitor", Category: "IT tools", Winget: "CPUID.HWMonitor"},
+	{ID: "hwinfo", Name: "HWiNFO", Category: "IT tools", Winget: "REALiX.HWiNFO"},
+	{ID: "crystaldiskinfo", Name: "CrystalDiskInfo", Category: "IT tools", Winget: "CrystalDewWorld.CrystalDiskInfo"},
+	{ID: "bleachbit", Name: "BleachBit", Category: "IT tools", Winget: "BleachBit.BleachBit"},
+	{ID: "winmerge", Name: "WinMerge", Category: "IT tools", Winget: "WinMerge.WinMerge"},
 
 	{ID: "7zip", Name: "7-Zip", Category: "Utilities", Winget: "7zip.7zip", Apt: "p7zip-full"},
 	{ID: "notepadplusplus", Name: "Notepad++", Category: "Utilities", Winget: "Notepad++.Notepad++"},
 	{ID: "powertoys", Name: "Microsoft PowerToys", Category: "Utilities", Winget: "Microsoft.PowerToys"},
 	{ID: "sharex", Name: "ShareX", Category: "Utilities", Winget: "ShareX.ShareX"},
 	{ID: "everything", Name: "Everything (instant file search)", Category: "Utilities", Winget: "voidtools.Everything"},
+	{ID: "flowlauncher", Name: "Flow Launcher", Category: "Utilities", Winget: "Flow-Launcher.Flow-Launcher", PerUser: true},
+	{ID: "qbittorrent", Name: "qBittorrent", Category: "Utilities", Winget: "qBittorrent.qBittorrent"},
 
-	{ID: "zoom", Name: "Zoom", Category: "Communication", Winget: "Zoom.Zoom"},
-	{ID: "teams", Name: "Microsoft Teams", Category: "Communication", Winget: "Microsoft.Teams"},
-	{ID: "slack", Name: "Slack", Category: "Communication", Winget: "SlackTechnologies.Slack"},
-	{ID: "thunderbird", Name: "Mozilla Thunderbird", Category: "Communication", Winget: "Mozilla.Thunderbird", Apt: "thunderbird"},
+	{ID: "vcredist", Name: "Visual C++ Redistributable (2015 and later, x64)", Category: "Runtimes", Winget: "Microsoft.VCRedist.2015+.x64"},
+	{ID: "dotnet8desktop", Name: ".NET 8 Desktop Runtime", Category: "Runtimes", Winget: "Microsoft.DotNet.DesktopRuntime.8"},
+	{ID: "java21", Name: "Java 21 (Eclipse Temurin JRE)", Category: "Runtimes", Winget: "EclipseAdoptium.Temurin.21.JRE"},
+	{ID: "oraclejava", Name: "Oracle Java 8", Category: "Runtimes", Winget: "Oracle.JavaRuntimeEnvironment"},
 
 	{ID: "vscode", Name: "Visual Studio Code", Category: "Development", Winget: "Microsoft.VisualStudioCode", Apt: "code"},
 	{ID: "git", Name: "Git", Category: "Development", Winget: "Git.Git", Apt: "git"},
 	{ID: "python", Name: "Python 3", Category: "Development", Winget: "Python.Python.3.13", Apt: "python3"},
 	{ID: "powershell", Name: "PowerShell 7", Category: "Development", Winget: "Microsoft.PowerShell"},
+	{ID: "windowsterminal", Name: "Windows Terminal", Category: "Development", Winget: "Microsoft.WindowsTerminal", PerUser: true},
+	{ID: "nodejs", Name: "Node.js LTS", Category: "Development", Winget: "OpenJS.NodeJS.LTS"},
+	{ID: "docker", Name: "Docker Desktop", Category: "Development", Winget: "Docker.DockerDesktop", Licence: true, Large: true},
+	{ID: "githubdesktop", Name: "GitHub Desktop", Category: "Development", Winget: "GitHub.GitHubDesktop"},
+	{ID: "jetbrainstoolbox", Name: "JetBrains Toolbox", Category: "Development", Winget: "JetBrains.Toolbox", PerUser: true},
+	{ID: "postman", Name: "Postman", Category: "Development", Winget: "Postman.Postman", PerUser: true},
 	{ID: "winscp", Name: "WinSCP", Category: "Development", Winget: "WinSCP.WinSCP"},
 	{ID: "putty", Name: "PuTTY", Category: "Development", Winget: "PuTTY.PuTTY", Apt: "putty"},
+
+	{ID: "steam", Name: "Steam", Category: "Games", Winget: "Valve.Steam"},
+	{ID: "epicgames", Name: "Epic Games Launcher", Category: "Games", Winget: "EpicGames.EpicGamesLauncher"},
+	{ID: "gog", Name: "GOG Galaxy", Category: "Games", Winget: "GOG.Galaxy"},
+	{ID: "eaapp", Name: "EA app", Category: "Games", Winget: "ElectronicArts.EADesktop"},
+	{ID: "ubisoftconnect", Name: "Ubisoft Connect", Category: "Games", Winget: "Ubisoft.Connect"},
+}
+
+// Set is a starter group of programs: one click adds them all, and they can
+// then be removed one by one like any other pick.
+type Set struct {
+	ID   string
+	Name string
+	Apps []string // picker ids
+}
+
+// Sets are the starter groups. Games and torrent clients are deliberately in
+// none of them: fine on a home reinstall, unwanted on most business PCs, and
+// easy to add by name.
+var Sets = []Set{
+	{ID: "business", Name: "Business PC", Apps: []string{"chrome", "adobereader", "7zip", "zoom", "teams", "vcredist"}},
+	{ID: "home", Name: "Home PC", Apps: []string{"chrome", "vlc", "7zip", "spotify", "discord"}},
+	{ID: "it", Name: "IT technician", Apps: []string{"sysinternals", "wireshark", "wiztree", "notepadplusplus", "powershell", "putty"}},
+}
+
+// SetByID returns the starter set with this id.
+func SetByID(id string) (Set, bool) {
+	for _, s := range Sets {
+		if strings.EqualFold(s.ID, id) {
+			return s, true
+		}
+	}
+	return Set{}, false
+}
+
+func setIDs() string {
+	var ids []string
+	for _, s := range Sets {
+		ids = append(ids, "set:"+s.ID)
+	}
+	return strings.Join(ids, ", ")
+}
+
+// Elsewhere names programs people look for that winget does not have, so a
+// search for one can say where to get it instead of finding nothing. Checked
+// against microsoft/winget-pkgs at the same time as the list above.
+type Elsewhere struct {
+	Name  string
+	Words []string // lowercase words that should find it
+	Note  string
+}
+
+// NotInWinget is what a search that finds no program checks before saying
+// nothing matched.
+var NotInWinget = []Elsewhere{
+	{Name: "RustDesk", Words: []string{"rustdesk"}, Note: "RustDesk isn't in winget. Download its installer from rustdesk.com and add it under Your installers."},
+	{Name: "FortiClient VPN", Words: []string{"forticlient", "fortinet"}, Note: "FortiClient VPN isn't in winget. Download its installer from fortinet.com and add it under Your installers."},
+	{Name: "NVIDIA app", Words: []string{"nvidia", "geforce"}, Note: "The NVIDIA app isn't in winget. Download its installer from nvidia.com and add it under Your installers."},
+	{Name: "Microsoft Edge", Words: []string{"edge"}, Note: "Microsoft Edge comes with Windows, so there is nothing to install."},
 }
 
 // Catalog returns the built-in program list followed by the operator's own
 // installers, so every picker shows both without knowing the difference.
+//
+// An installer the operator added under an id that later became a built-in one
+// wins: they chose it, and it is what their recipes already mean by that id.
 func Catalog() []App {
 	cs := CustomApps()
 	out := make([]App, 0, len(builtin)+len(cs))
-	out = append(out, builtin...)
+	mine := map[string]bool{}
+	for _, c := range cs {
+		mine[strings.ToLower(c.ID)] = true
+	}
+	for _, a := range builtin {
+		if !mine[strings.ToLower(a.ID)] {
+			out = append(out, a)
+		}
+	}
 	for i := range cs {
 		c := cs[i]
 		cat := c.Category
@@ -87,7 +259,8 @@ func Get(id string) (App, bool) {
 	return App{}, false
 }
 
-// Resolve splits picker ids into the two things that have to happen at first
+// Resolve splits picker ids — built-in and operator ids, a starter set as
+// "set:business", or any winget package as "winget:Publisher.Package" — into the two things that have to happen at first
 // boot: winget package ids to install from the network, and operator-supplied
 // installers that ride on the media and are run directly. Order is preserved
 // within each.
@@ -100,6 +273,25 @@ func Resolve(ids []string) (winget []string, custom []Custom, err error) {
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if id == "" {
+			continue
+		}
+		if setID, isSet := strings.CutPrefix(id, "set:"); isSet {
+			set, ok := SetByID(setID)
+			if !ok {
+				return nil, nil, fmt.Errorf("no starter set %q (there are %s)", setID, setIDs())
+			}
+			w, c, err := Resolve(set.Apps)
+			if err != nil {
+				return nil, nil, err
+			}
+			winget, custom = append(winget, w...), append(custom, c...)
+			continue
+		}
+		if pkg, typed := strings.CutPrefix(id, WingetPrefix); typed {
+			if !ValidWingetID(pkg) {
+				return nil, nil, fmt.Errorf("%q is not a winget package id (they look like Publisher.Package, such as Brave.Brave)", pkg)
+			}
+			winget = append(winget, pkg)
 			continue
 		}
 		a, ok := Get(id)
@@ -129,7 +321,7 @@ func WingetIDs(ids []string) ([]string, error) {
 type UnknownError struct{ ID string }
 
 func (e *UnknownError) Error() string {
-	return "unknown program " + e.ID + " — see `dsky apps` for the list"
+	return "unknown program " + e.ID + " — see `dsky apps` for the list, or name any winget package as winget:Publisher.Package"
 }
 
 // UnavailableError is a known program with no package for the target OS.

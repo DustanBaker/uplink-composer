@@ -1,6 +1,23 @@
 # Plan: more programs to install, like Brave
 
-Nothing here is built yet. Decisions marked **Decide** are Dusty's.
+**Built.** Dusty's answers: keep Games and qBittorrent (in no starter set),
+starter sets yes as listed, typed winget ids yes. What was built differs from
+the plan in three places:
+
+- Labels were taken from each package's winget manifest rather than guessed:
+  "installs for the first account only" is on the eleven packages whose every
+  installer is `Scope: user` (Slack, Discord, Signal, Telegram, Notion,
+  Spotify, Nmap, Windows Terminal, JetBrains Toolbox, Postman, Flow Launcher).
+  Microsoft Teams is not labelled; its MSIX has no scope. Licence labels are on
+  Microsoft 365 Apps, 1Password, TeamViewer, AnyDesk and Docker Desktop.
+- Lookups use GitHub's git trees API, one folder level at a time without
+  regard to case, rather than the contents API, which truncates at 1,000
+  entries. It is in `internal/appcatalog/winget.go`, shared by the picker,
+  `dsky apps winget <id>` and the weekly check.
+- Starter sets also work on the command line as `set:business`, `set:home`
+  and `set:it`.
+
+The rest of this file is the plan as written.
 
 ## Where it is today
 

@@ -173,7 +173,9 @@ func CheckCustomID(id, name, format string) error {
 		return fmt.Errorf("format %q must be msi or exe", format)
 	}
 	// A built-in id would be ambiguous in --apps and silently shadow the other.
-	if _, clash := builtinByID(id); clash {
+	// One added before the built-in list grew to include its id is already
+	// the operator's, and editing or replacing it stays allowed.
+	if _, clash := builtinByID(id); clash && !customExists(id) {
 		return fmt.Errorf("%q is already a built-in program — choose another id", id)
 	}
 	return nil
@@ -426,6 +428,15 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+func customExists(id string) bool {
+	for _, c := range CustomApps() {
+		if strings.EqualFold(c.ID, id) {
+			return true
+		}
+	}
+	return false
 }
 
 func builtinByID(id string) (App, bool) {

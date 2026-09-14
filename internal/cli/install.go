@@ -2,11 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
-	"strings"
-
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/uplinkresearch/dsky/internal/appcatalog"
 	"github.com/uplinkresearch/dsky/internal/driverresolve"
@@ -133,6 +134,19 @@ func cmdInstall(ctx context.Context, env *Env, args []string) error {
 		pkgs, custom, err := appcatalog.Resolve(appIDs)
 		if err != nil {
 			return err
+		}
+		// A typed package id is checked now: a misspelling found at first boot
+		// is a machine delivered without the program.
+		for _, id := range appIDs {
+			pkg, typed := strings.CutPrefix(strings.TrimSpace(id), appcatalog.WingetPrefix)
+			if !typed {
+				continue
+			}
+			if _, err := appcatalog.LookupWinget(ctx, pkg); errors.Is(err, appcatalog.ErrWingetUnchecked) {
+				fmt.Fprintf(os.Stderr, "warning: %s not confirmed in winget (%v)\n", pkg, err)
+			} else if err != nil {
+				return fmt.Errorf("%s: %w", pkg, err)
+			}
 		}
 		if len(pkgs) > 0 {
 			fmt.Printf("Will install %d program(s) with winget at first boot: %s\n",

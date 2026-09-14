@@ -193,17 +193,22 @@ has not yet been run on a real Framework.
 
 ### Programs
 
-`dsky apps` lists what can be installed alongside the OS; `--apps` picks
-them. They install at first boot through winget, so nothing large rides on
-the media and every installer comes from the vendor:
+`dsky apps` lists the ninety-odd programs that can be installed alongside
+the OS, from browsers to IT tools and game launchers; `--apps` picks them. They
+install at first boot through winget, so nothing large rides on the media and
+every installer comes from the vendor. A starter set (`set:business`,
+`set:home`, `set:it`) adds a common group, and any other winget package works
+by its id:
 
 ```
 dsky apps
-dsky install windows-11 --drivers --apps chrome,7zip,vlc
+dsky install windows-11 --drivers --apps set:business,brave,winget:Mozilla.Firefox.ESR
 ```
 
 The machine needs to be online at first boot for these — which is what the
-staged network drivers are for.
+staged network drivers are for. Some packages only install for the first
+account that signs in; the list says which. Programs winget doesn't have, such
+as RustDesk, go in with `dsky apps add` and ride on the stick.
 
 ### Three ways in, one pipeline
 
