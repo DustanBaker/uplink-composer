@@ -20,6 +20,7 @@ const (
 	ioctlDiskUpdateProperties = 0x00070140
 	ioctlVolumeGetExtents     = 0x00560000
 	ioctlStorageEjectMedia    = 0x002D4808
+	ioctlDiskDeleteLayout     = 0x0007C100 // IOCTL_DISK_DELETE_DRIVE_LAYOUT
 )
 
 type winTarget struct {
@@ -51,6 +52,32 @@ func OpenTarget(ctx context.Context, dev device.Device) (Target, error) {
 		return nil, err
 	}
 	return t, nil
+}
+
+// ClearLayout deletes the disk's partition table before an image is written
+// over it. Only the writers call it (see clearForWrite): OpenTarget also opens
+// the disk being read when copying a drive, whose table must survive.
+//
+// Windows refuses raw writes into any region its current partition table says
+// belongs to a partition unless that partition's volume is locked, and only
+// volumes Windows mounted can be locked. A stick last written with a Linux
+// installer carries partitions Windows lists but never mounts, so the first
+// write over them failed with "Incorrect function" (Omarchy onto a stick, on
+// the first write from the Windows app that actually ran). With no partition
+// table, there is nothing left to protect. Rufus clears the layout the same
+// way before writing.
+//
+// Best effort: a disk with no layout to delete is fine, and if this fails the
+// write reports the real problem.
+func (t *winTarget) ClearLayout() {
+	var ret uint32
+	if err := windows.DeviceIoControl(t.handle, ioctlDiskDeleteLayout, nil, 0, nil, 0, &ret, nil); err != nil {
+		return
+	}
+	_ = windows.DeviceIoControl(t.handle, ioctlDiskUpdateProperties, nil, 0, nil, 0, &ret, nil)
+	// Let the partition manager finish removing the old partitions' devices
+	// before the first write lands.
+	time.Sleep(time.Second)
 }
 
 // lockVolumes finds every volume with an extent on disk index and takes

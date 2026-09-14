@@ -23,7 +23,13 @@ type memTarget struct {
 	// drive that accepts every write and keeps none of it.
 	rot    bool
 	closed bool
+	// cleared counts ClearLayout calls: the partition-table wipe Windows
+	// needs before a disk is overwritten, and which must never reach a
+	// disk being read.
+	cleared int
 }
+
+func (m *memTarget) ClearLayout() { m.cleared++ }
 
 func (m *memTarget) Size() (int64, error) { return int64(len(m.buf)), nil }
 func (m *memTarget) ReadAt(p []byte, off int64) (int, error) {
@@ -297,5 +303,27 @@ func TestProgressNamesItsDisk(t *testing.T) {
 				t.Errorf("no %q progress reported for %s", stage, id)
 			}
 		}
+	}
+}
+
+// TestCloneClearsOnlyDestinations: before overwriting a disk on Windows its
+// partition table is deleted. The source of a copy is opened the same way,
+// and deleting its table would destroy the drive being copied.
+func TestCloneClearsOnlyDestinations(t *testing.T) {
+	disks := map[string]*memTarget{
+		"src": {buf: mbrDisk(32, 16)},
+		"a":   {buf: make([]byte, 32<<20)},
+		"b":   {buf: make([]byte, 32<<20)},
+	}
+	withDisks(t, disks)
+	if _, err := Clone(context.Background(), usbDev("src", 32),
+		[]device.Device{usbDev("a", 32), usbDev("b", 32)}, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if disks["src"].cleared != 0 {
+		t.Fatal("the source's partition table was cleared")
+	}
+	if disks["a"].cleared != 1 || disks["b"].cleared != 1 {
+		t.Fatalf("destinations cleared %d and %d times, want once each", disks["a"].cleared, disks["b"].cleared)
 	}
 }

@@ -82,6 +82,7 @@ func Clone(ctx context.Context, src device.Device, dsts []device.Device, allowFi
 		if err != nil {
 			return nil, fmt.Errorf("clone: opening %s: %w", d.ID, err)
 		}
+		clearForWrite(o) // destinations only; the source keeps its table
 		outs = append(outs, o)
 	}
 

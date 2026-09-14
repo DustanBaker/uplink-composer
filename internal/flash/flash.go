@@ -17,6 +17,15 @@ import (
 	"github.com/uplinkresearch/dsky/internal/stream"
 )
 
+// clearForWrite removes the partition table of a disk about to be overwritten,
+// where the platform needs that before raw writes are allowed (Windows; see
+// winTarget.ClearLayout). Never call it on a disk being read.
+func clearForWrite(t Target) {
+	if c, ok := t.(interface{ ClearLayout() }); ok {
+		c.ClearLayout()
+	}
+}
+
 // SectorSize is the only supported logical sector size; Target opens verify
 // this and refuse 4Kn devices with a clear error.
 const SectorSize = 512
@@ -119,6 +128,8 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 	if total > 0 && total > devSize {
 		return fmt.Errorf("flash: artifact is %d MiB but %s holds only %d MiB", total>>20, dev.ID, devSize>>20)
 	}
+
+	clearForWrite(t)
 
 	// ── Tail wipe (stale GPT backup headers) ─────────────────────────────
 	// Done BEFORE the image write: once the new partition table lands,
