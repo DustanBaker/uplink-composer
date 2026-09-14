@@ -657,7 +657,12 @@ function openPrepare(disk) {
     api("/api/disks/prepare", {
       device_id: disk.id, scheme: scheme.get(), fs: fs.get(),
       label: label.get() || "DSKY", confirm: input.value.trim(),
-    }).then(() => setTimeout(loadDisks, 4000)).catch(e => showErr(e.message));
+    }).then(() => {
+      // The dialog closes at once and the work happens in a job, so say where
+      // it went: with no word here, a failed erase looked like nothing at all.
+      showOk(`Erasing ${disk.model || disk.id} — approve the password prompt if one appears; progress and any error are in Activity.`);
+      setTimeout(loadDisks, 4000);
+    }).catch(e => showErr(e.message));
     $("prepDialog").close();
   };
   $("prepDialog").showModal(); input.focus();

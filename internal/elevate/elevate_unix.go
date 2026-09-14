@@ -44,5 +44,12 @@ func RunElevated(args []string) (int, error) {
 // process instead of a relaunched root worker.
 func OpensEachDisk() bool { return runtime.GOOS == "darwin" }
 
-// Hint tells the user how to elevate manually.
-func Hint() string { return "re-run with sudo" }
+// Hint tells the user how elevation happens here, or how to do it by hand.
+func Hint() string {
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("pkexec"); err == nil {
+			return "approve the password prompt, or re-run with sudo"
+		}
+	}
+	return "re-run with sudo"
+}
