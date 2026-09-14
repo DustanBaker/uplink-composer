@@ -3,6 +3,7 @@ package udf
 import (
 	"bytes"
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -31,8 +32,9 @@ func TestOpenRejectsNonUDF(t *testing.T) {
 }
 
 func TestSafeJoin(t *testing.T) {
-	got, err := safeJoin("/out", "../../etc/passwd")
-	if err != nil || got != "/out/etc/passwd" {
+	// A name climbing out of the folder stays inside it, on any OS's paths.
+	got, err := safeJoin("out", "../../etc/passwd")
+	if err != nil || got != filepath.Join("out", "etc", "passwd") {
 		t.Fatalf("%q %v", got, err)
 	}
 }
