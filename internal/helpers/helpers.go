@@ -189,14 +189,14 @@ func Check(helpersDir string) []Status {
 		st := Status{Name: "hdiutil", Purpose: "ISO (UDF) extraction", Builtin: true, Required: true}
 		st.Path = lookPathOr("hdiutil", "")
 		out = append(out, st)
-		w := Status{Name: "wimlib-imagex", Purpose: "WIM splitting for FAT32", Required: true, Hint: "brew install wimlib"}
+		w := Status{Name: "wimlib-imagex", Purpose: "WIM splitting for FAT32", Required: true, Hint: InstallCommand([]string{"wimlib"})}
 		w.Path, _ = pathOrEmpty(FindWimlib(helpersDir))
 		out = append(out, w)
 	default:
-		s := Status{Name: "7zz", Purpose: "ISO (UDF) extraction", Required: true, Hint: "apt/dnf install 7zip, or place 7zz under " + filepath.Join(helpersDir, "7zip")}
+		s := Status{Name: "7zz", Purpose: "ISO (UDF) extraction", Required: true, Hint: InstallCommand([]string{"7-Zip"})}
 		s.Path, _ = pathOrEmpty(Find7z(helpersDir))
 		out = append(out, s)
-		w := Status{Name: "wimlib-imagex", Purpose: "WIM splitting for FAT32", Required: true, Hint: "apt install wimtools"}
+		w := Status{Name: "wimlib-imagex", Purpose: "WIM splitting for FAT32", Required: true, Hint: InstallCommand([]string{"wimlib"})}
 		w.Path, _ = pathOrEmpty(FindWimlib(helpersDir))
 		out = append(out, w)
 	}

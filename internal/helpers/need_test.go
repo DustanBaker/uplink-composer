@@ -1,0 +1,49 @@
+package helpers
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+func TestInstallCommand(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("reads /etc/os-release")
+	}
+	dir := t.TempDir()
+	old := osReleasePath
+	defer func() { osReleasePath = old }()
+	for release, want := range map[string]string{
+		"ID=omarchy\nID_LIKE=arch\n":  "sudo pacman -S 7zip wimlib",
+		"ID=ubuntu\nID_LIKE=debian\n": "sudo apt install 7zip wimtools",
+		"ID=fedora\n":                 "sudo dnf install 7zip wimlib-utils",
+		"ID=\"opensuse-tumbleweed\"\nID_LIKE=\"opensuse suse\"\n": "sudo zypper install 7zip wimtools",
+		"ID=gentoo\n": "install 7-Zip and wimlib with your package manager",
+	} {
+		osReleasePath = filepath.Join(dir, "os-release")
+		os.WriteFile(osReleasePath, []byte(release), 0o644)
+		if got := InstallCommand([]string{"7-Zip", "wimlib"}); got != want {
+			t.Errorf("%q: got %q, want %q", release, got, want)
+		}
+	}
+	osReleasePath = filepath.Join(dir, "os-release")
+	os.WriteFile(osReleasePath, []byte("ID=arch\n"), 0o644)
+	if got := InstallCommand([]string{"wimlib"}); got != "sudo pacman -S wimlib" {
+		t.Errorf("only wimlib missing: %q", got)
+	}
+}
+
+func TestWindowsMediaToolsError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("nothing is needed on Windows")
+	}
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("DSKY_7Z", "")
+	t.Setenv("DSKY_WIMLIB", "")
+	err := WindowsMediaToolsError(t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "wimlib") || !strings.Contains(err.Error(), "run:") {
+		t.Fatalf("err = %v", err)
+	}
+}

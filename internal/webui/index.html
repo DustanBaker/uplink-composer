@@ -695,9 +695,13 @@ async function checkUpdate(explicit) {
   ver.textContent = u.current || "";
 
   if (u.unavailable) {
-    if (explicit) showErr("Could not reach GitHub: " + u.unavailable);
+    // Never leave an earlier "up to date" standing when this check failed.
+    ver.textContent = `${u.current} · couldn't check for updates`;
+    ver.title = u.unavailable;
+    if (explicit) showErr("Could not check for updates: " + u.unavailable);
     return;
   }
+  ver.title = "";
   if (!u.newer) {
     ver.textContent = `${u.current} · up to date`;
     if (explicit) showOk(`You are running the newest release (${u.current}).`);
@@ -1762,6 +1766,16 @@ function openInstall(os) {
   const opts = $("instOpts"); opts.replaceChildren();
   let getOpts = () => ({});
   if (os.family === "windows") {
+    // Said before anything is chosen, not after a download: this computer
+    // can't build Windows media until these are installed.
+    if ((state.windows_tools_missing || []).length) {
+      const warn = el("div", "lint");
+      warn.style.marginBottom = "10px";
+      warn.append(`To build Windows media on this computer, first install ${state.windows_tools_missing.join(" and ")}: `,
+        Object.assign(el("code"), { textContent: state.windows_tools_install }),
+        ". Download only works without them.");
+      opts.append(warn);
+    }
     const ed = selectOpt("Edition", (os.editions || ["Pro"]).map(e => [e, e]));
     const am = selectOpt("Account setup", [["local", "Local account, no setup screens"], ["oobe", "Normal Windows setup (OOBE)"]]);
     const db = selectOpt("Remove bloatware", [["standard", "Standard"], ["aggressive", "Aggressive"], ["off", "Keep everything"]]);
@@ -2471,6 +2485,10 @@ loadMyApps();
 loadWorkspaceDefaults();
 streamEvents();
 checkUpdate();
+// The app is often left open for days, and one check at load left it saying
+// "up to date" long after a release. The server caches for an hour, so this
+// costs nothing when nothing changed.
+setInterval(() => checkUpdate(false), 6 * 60 * 60 * 1000);
 </script>
 </body>
 </html>

@@ -374,6 +374,11 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 	if err := checkPrograms(e, opts.Apps); err != nil {
 		return nil, err
 	}
+	if e.Family == Windows {
+		if err := helpers.WindowsMediaToolsError(lib.HelpersDir()); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := ensureSource(ctx, lib, e, progress); err != nil {
 		return nil, err

@@ -67,7 +67,77 @@ func AssetName(prog, version, goos, goarch string) string {
 
 // Check asks the release feed what the newest version is. A release with
 // Newer false means the running build is already current (or ahead).
+//
+// The feed is GitHub's API, which answers 60 unauthenticated requests an hour
+// per address, shared with everything else on the network. When it refuses,
+// the latest version is read from the releases page's redirect instead, which
+// is not rate-limited that way, and the download URLs follow from the tag.
+// Without that, a busy office network — or a day of testing — made every copy
+// behind it think there was nothing to update to.
 func Check(ctx context.Context) (*Release, error) {
+	rel, err := checkAPI(ctx)
+	if err == nil {
+		return rel, nil
+	}
+	if fb, ferr := checkRedirect(ctx); ferr == nil {
+		return fb, nil
+	}
+	return nil, err
+}
+
+// releasesBase is the web root for releases; a variable for tests.
+var releasesBase = "https://github.com/" + Repo + "/releases"
+
+// checkRedirect finds the latest tag from the /releases/latest redirect and
+// confirms this platform's build and the checksums are published under it.
+func checkRedirect(ctx context.Context) (*Release, error) {
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, releasesBase+"/latest", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
+	resp, err := noFollow.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("checking for updates: %w", err)
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	i := strings.LastIndex(loc, "/tag/")
+	if resp.StatusCode/100 != 3 || i < 0 {
+		return nil, fmt.Errorf("checking for updates: the releases page did not name a version (HTTP %d)", resp.StatusCode)
+	}
+	tag := loc[i+len("/tag/"):]
+	if tag == "" || strings.ContainsAny(tag, "/?#") {
+		return nil, fmt.Errorf("checking for updates: unexpected release address %q", loc)
+	}
+	want := AssetName(programName(), tag, runtime.GOOS, runtime.GOARCH)
+	rel := &Release{
+		Version: tag,
+		Asset:   want,
+		URL:     releasesBase + "/download/" + tag + "/" + want,
+		SumsURL: releasesBase + "/download/" + tag + "/SHA256SUMS.txt",
+		Newer:   compareVersions(tag, buildinfo.Version) > 0,
+	}
+	for _, u := range []string{rel.URL, rel.SumsURL} {
+		h, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		h.Header.Set("User-Agent", buildinfo.UserAgent())
+		r, err := noFollow.Do(h)
+		if err != nil {
+			return nil, fmt.Errorf("checking for updates: %w", err)
+		}
+		r.Body.Close()
+		if r.StatusCode != 200 && r.StatusCode/100 != 3 {
+			return nil, fmt.Errorf("release %s has no %s (HTTP %d)", tag, filepath.Base(u), r.StatusCode)
+		}
+	}
+	return rel, nil
+}
+
+func checkAPI(ctx context.Context) (*Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://api.github.com/repos/"+Repo+"/releases/latest", nil)
 	if err != nil {
@@ -205,6 +275,9 @@ func download(ctx context.Context, url string, w io.Writer, total int64, progres
 		return "", fmt.Errorf("downloading %s: HTTP %d", filepath.Base(url), resp.StatusCode)
 	}
 	h := sha256.New()
+	if total <= 0 {
+		total = resp.ContentLength // the release page fallback doesn't know the size
+	}
 	pw := &progressWriter{w: io.MultiWriter(w, h), total: total, report: progress}
 	if _, err := io.Copy(pw, resp.Body); err != nil {
 		return "", err

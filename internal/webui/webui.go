@@ -294,6 +294,10 @@ type stateResp struct {
 	// the page asks for the ISO file instead.
 	HostOS       string `json:"host_os"`
 	WindowsFetch bool   `json:"windows_fetch"`
+	// WindowsTools names what this computer lacks to build Windows media, with
+	// the command that installs it; empty when nothing is missing.
+	WindowsToolsMissing []string `json:"windows_tools_missing,omitempty"`
+	WindowsToolsInstall string   `json:"windows_tools_install,omitempty"`
 	// GuidesSeen: the guides closed on this machine — "home" for the start
 	// screen's, and one per screen.
 	GuidesSeen []string `json:"guides_seen"`
@@ -414,7 +418,8 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		Devices: []deviceInfo{}, Artifacts: []artifactInfo{}, Catalog: []catalogEntry{},
 		Apps: []appEntry{}, AppSets: []appSet{}, NotInWinget: []elsewhere{},
 		LibraryRoot: s.Lib.Root, GuidesSeen: s.seenGuides(), HostOS: runtime.GOOS,
-		WindowsFetch: helpers.CanFetchWindows(r.Context()),
+		WindowsFetch:        helpers.CanFetchWindows(r.Context()),
+		WindowsToolsMissing: helpers.MissingForWindowsMedia(s.Lib.HelpersDir()),
 	}
 	// Only programs with a Windows package: that is all Quick Install can do
 	// for now, and an option that cannot run is worse than no option.
@@ -438,6 +443,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	for _, e := range appcatalog.NotInWinget {
 		resp.NotInWinget = append(resp.NotInWinget, elsewhere{Name: e.Name, Words: e.Words, Note: e.Note})
 	}
+	resp.WindowsToolsInstall = helpers.InstallCommand(resp.WindowsToolsMissing)
 	for _, e := range oscatalog.Catalog() {
 		downloaded := oscatalog.InLibrary(s.Lib, e)
 		found := ""
@@ -543,6 +549,13 @@ func (s *Server) build(ctx context.Context, recipeID string, progress func(strin
 	for _, f := range rc.Lint() {
 		if f.Severity == "error" {
 			return nil, fmt.Errorf("lint: %s", f.Message)
+		}
+	}
+	// A Windows recipe that will have to read its ISO needs the tools before
+	// the download, not after it.
+	if rc.Windows != nil && rc.OS.SourceMode != recipe.SourceTree {
+		if err := helpers.WindowsMediaToolsError(s.Lib.HelpersDir()); err != nil {
+			return nil, err
 		}
 	}
 	if err := s.ensureSources(ctx, ws, rc, progress); err != nil {

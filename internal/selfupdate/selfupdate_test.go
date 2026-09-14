@@ -2,6 +2,10 @@ package selfupdate
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -63,4 +67,37 @@ func TestCheckLive(t *testing.T) {
 	}
 	t.Logf("latest %s, asset %s (%d bytes), newer than this build: %v",
 		rel.Version, rel.Asset, rel.Size, rel.Newer)
+}
+
+// When the API refuses (its 60-an-hour anonymous limit), the latest version
+// comes from the releases page's redirect and the URLs follow from the tag.
+func TestCheckRedirectFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/releases/latest":
+			http.Redirect(w, r, "https://github.com/uplinkresearch/dsky/releases/tag/v99.1.0", http.StatusFound)
+		case strings.HasPrefix(r.URL.Path, "/releases/download/v99.1.0/"):
+			w.WriteHeader(http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	old := releasesBase
+	releasesBase = srv.URL + "/releases"
+	defer func() { releasesBase = old }()
+
+	rel, err := checkRedirect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Version != "v99.1.0" || !rel.Newer || !strings.HasSuffix(rel.SumsURL, "/download/v99.1.0/SHA256SUMS.txt") ||
+		!strings.Contains(rel.URL, "/download/v99.1.0/"+AssetName(programName(), "v99.1.0", runtime.GOOS, runtime.GOARCH)) {
+		t.Fatalf("release = %+v", rel)
+	}
+
+	releasesBase = srv.URL + "/nowhere"
+	if _, err := checkRedirect(context.Background()); err == nil {
+		t.Fatal("no redirect, yet a version was found")
+	}
 }

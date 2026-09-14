@@ -551,6 +551,11 @@ func extractISOCached(ctx context.Context, req Request, isoPath, sha string) (st
 	if err := os.RemoveAll(dir); err != nil {
 		return "", err
 	}
+	// Both tools are needed from here (7-Zip to read the ISO, wimlib to split
+	// install.wim for FAT32), so say what to install before starting either.
+	if err := helpers.WindowsMediaToolsError(req.Library.HelpersDir()); err != nil {
+		return "", err
+	}
 	req.progress("extract iso", 0, -1)
 	if err := helpers.ExtractISO(ctx, req.Library.HelpersDir(), isoPath, dir); err != nil {
 		return "", err

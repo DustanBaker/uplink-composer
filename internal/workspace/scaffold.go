@@ -320,10 +320,11 @@ id: example-win11
 name: "Example Win11 Pro unattended stick"
 
 os:
-  # A manifest id (dsky sources import example-win11-iso <path-to.iso>)
-  # or switch to source_mode: tree with tree_path pointing at a captured
-  # master stick directory.
-  source: example-win11-iso
+  # windows-11 is the catalog's official Windows 11 ISO: building fetches it
+  # from Microsoft, uses a Win11_*.iso already in Downloads, or reuses the one
+  # DSKY already downloaded. Or name your own manifest here, or switch to
+  # source_mode: tree with tree_path pointing at a captured master stick.
+  source: windows-11
   type: windows
   source_mode: auto
 
