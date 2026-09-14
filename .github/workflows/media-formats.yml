@@ -174,7 +174,7 @@ jobs:
               $got = Get-ChildItem -Recurse -File "${letter}:\" | ForEach-Object { "{0} {1}" -f $_.FullName.Substring(2), (Get-FileHash $_.FullName).Hash }
               $diff = Compare-Object ($want | Sort-Object) ($got | Sort-Object)
               if ($diff) { $diff | Format-Table; throw "files on the $scheme image differ" }
-              "FAT32 $scheme: Windows mounted it, chkdsk clean, every file identical ($($want.Count) files)"
+              "FAT32 ${scheme}: Windows mounted it, chkdsk clean, every file identical ($($want.Count) files)"
             } finally {
               Dismount-DiskImage -ImagePath $vhd | Out-Null
             }
