@@ -137,6 +137,22 @@ func odjBlob(wsDir string, d *recipe.DomainSpec, resolve func(ref string) (strin
 	return text, nil
 }
 
+// CheckODJBlob reads an offline-join file the way a build will, so a wrong
+// file is refused when it is chosen rather than several minutes into a build.
+func CheckODJBlob(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if len(raw) > 1<<20 {
+		return fmt.Errorf("%s is %d KiB, far larger than a djoin provisioning file", filepath.Base(path), len(raw)>>10)
+	}
+	if _, err := decodeODJ(raw); err != nil {
+		return fmt.Errorf("%s: %w", filepath.Base(path), err)
+	}
+	return nil
+}
+
 // decodeODJ turns a provisioning file into the base64 string the unattend
 // needs, accepting UTF-16 (with or without a BOM) as well as plain text.
 func decodeODJ(raw []byte) (string, error) {

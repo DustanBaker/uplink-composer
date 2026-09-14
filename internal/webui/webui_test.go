@@ -1,9 +1,11 @@
 package webui
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -142,5 +144,40 @@ func TestProgramPickerData(t *testing.T) {
 	}
 	if w = do(t, h, "GET", "/api/apps/winget?id=no%20dots", "127.0.0.1:8931", "", "sekrit"); w.Code != 400 {
 		t.Errorf("malformed id: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// A domain join file is checked when the install is asked for, and never
+// saved into a recipe: it is one computer's account.
+func TestDomainJoinOption(t *testing.T) {
+	s := testServer(t)
+	good := filepath.Join(t.TempDir(), "PC-042.txt")
+	if err := os.WriteFile(good, []byte("QUJDREVGR0g="), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(t.TempDir(), "notes.txt")
+	os.WriteFile(bad, []byte("this is not a join file"), 0o600)
+
+	_, opts, err := s.installOptions(context.Background(), installRequest{OSID: "windows-11", DomainBlob: good})
+	if err != nil || opts.DomainBlob != good {
+		t.Fatalf("good file: %v, %+v", err, opts.DomainBlob)
+	}
+	if _, _, err := s.installOptions(context.Background(), installRequest{OSID: "windows-11", DomainBlob: bad}); err == nil {
+		t.Fatal("a file that is not base64 was accepted")
+	}
+	if _, _, err := s.installOptions(context.Background(), installRequest{OSID: "ubuntu-26.04-server", DomainBlob: good}); err == nil {
+		t.Fatal("domain join accepted for Linux")
+	}
+
+	h := s.handler()
+	body := strings.NewReader(`{"os_id":"windows-11","name":"Front desk","domain_blob":"` + strings.ReplaceAll(good, `\`, `\\`) + `"}`)
+	req := httptest.NewRequest("POST", "/api/recipes/save", body)
+	req.Host = "127.0.0.1:8931"
+	req.Header.Set("X-DSKY-Token", "sekrit")
+	req.Header.Set("Origin", "http://127.0.0.1:8931")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "one computer") {
+		t.Fatalf("saving a recipe with a join file: %d %s", w.Code, w.Body.String())
 	}
 }

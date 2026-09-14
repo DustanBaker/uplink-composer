@@ -1646,6 +1646,39 @@ function isoOpt(os) {
   return opt;
 }
 
+// domainOpt joins the computer to a domain during setup, offline, from a file
+// made with `djoin /provision`. That is the only kind of join offered here:
+// the other kind puts a domain account's password in plain text on the stick.
+// The file is one computer's account, so it names the computer and is used
+// once, and it is itself a credential; the note says both.
+function domainOpt() {
+  const wrap = el("div", "opt");
+  const on = checkOpt("Join a domain");
+  on.wrap.style.margin = "0";
+  const body = el("div"); body.hidden = true; body.style.marginTop = "6px";
+  const row = el("div"); row.style.cssText = "display:flex;gap:6px;align-items:center";
+  const inp = el("input"); inp.type = "text"; inp.style.flex = "1";
+  inp.placeholder = state.host_os === "windows" ? "C:\\Users\\you\\PC-042.txt" : "/path/to/PC-042.txt";
+  const choose = el("button", null, "Choose…"); choose.type = "button";
+  choose.onclick = async () => {
+    try { const r = await api("/api/browse/djoin", {}); if (r.path) inp.value = r.path; }
+    catch (e) { showErr(e.message); }
+  };
+  row.append(inp, choose);
+  const note = el("div", "sub");
+  note.style.cssText = "color:var(--dim);margin-top:4px;line-height:1.5";
+  note.append(
+    "Make the file on a computer already in the domain, signed in as someone allowed to add computers: ",
+    Object.assign(el("code"), { textContent: "djoin /provision /domain corp.example.com /machine PC-042 /savefile PC-042.txt" }),
+    ". Setup joins with no network needed. Each file is for one computer, which gets that name — make one per stick. " +
+    "The file holds that computer's domain password, so treat the stick as carrying a credential.");
+  body.append(row, note);
+  const cb = on.wrap.querySelector("input");
+  cb.onchange = () => { body.hidden = !cb.checked; if (cb.checked) inp.focus(); };
+  wrap.append(on.wrap, body);
+  return { wrap, get: () => (cb.checked ? inp.value.trim() : "") };
+}
+
 function openInstall(os) {
   // A stick is only needed to write. Downloading, setting up the image and
   // saving a recipe all happen without one.
@@ -1660,13 +1693,14 @@ function openInstall(os) {
     const dv = driverOpt();
     const df = modelPickerOpt(os);
     const ap = appsOpt();
+    const dj = domainOpt();
     const bp = checkOpt("Skip TPM / Secure Boot / RAM checks (older or virtual hardware)");
     const iso = isoOpt(os);
-    opts.append(ed.wrap, am.wrap, db.wrap, dv.wrap, df.wrap, ap.wrap, bp.wrap);
+    opts.append(ed.wrap, am.wrap, db.wrap, dv.wrap, df.wrap, ap.wrap, dj.wrap, bp.wrap);
     if (iso) opts.append(iso.wrap);
     getOpts = () => ({
       edition: ed.get(), account_mode: am.get(), debloat: db.get(),
-      drivers: dv.get(), drivers_for: df.get(), apps: ap.get(),
+      drivers: dv.get(), drivers_for: df.get(), apps: ap.get(), domain_blob: dj.get(),
       bypass_requirement: bp.get(), iso: iso ? iso.get() : "",
     });
   } else {

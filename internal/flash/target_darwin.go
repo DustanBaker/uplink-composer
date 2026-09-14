@@ -83,5 +83,5 @@ func (t *darwinTarget) Sync() error {
 	}
 	return nil
 }
-func (t *darwinTarget) Finalize() error                          { return nil }
-func (t *darwinTarget) Close() error                             { return t.f.Close() }
+func (t *darwinTarget) Finalize() error { return nil }
+func (t *darwinTarget) Close() error    { return t.f.Close() }
