@@ -8,31 +8,15 @@ import (
 	"strings"
 )
 
-// Building Windows install media off Windows needs two tools this program
-// doesn't carry: something that reads the ISO's UDF filesystem (7-Zip on
-// Linux; macOS has hdiutil built in) and wimlib, which splits install.wim
-// across the 4 GiB FAT32 file limit. Missing either used to surface only when
-// the build reached it — after the Windows download — as a message naming a
-// helpers folder rather than the one command that fixes it.
+// Building Windows install media off Windows used to need two tools this
+// program didn't carry: 7-Zip to read the ISO's UDF filesystem (Linux) and
+// wimlib to split install.wim across FAT32's 4 GiB limit. DSKY now does both
+// itself (internal/udf, internal/wim); the tools are only a fallback for
+// images those refuse, and their errors name the install command.
 
-// MissingForWindowsMedia names the tools this computer lacks to build Windows
-// install media. Empty on Windows, which has what it needs built in.
-func MissingForWindowsMedia(helpersDir string) []string {
-	var missing []string
-	switch runtime.GOOS {
-	case "windows":
-		return nil
-	case "darwin":
-	default:
-		if _, err := Find7z(helpersDir); err != nil {
-			missing = append(missing, "7-Zip")
-		}
-	}
-	if _, err := FindWimlib(helpersDir); err != nil {
-		missing = append(missing, "wimlib")
-	}
-	return missing
-}
+// MissingForWindowsMedia names tools this computer must install before it can
+// build Windows media. Nothing, now: DSKY reads ISOs and splits WIMs itself.
+func MissingForWindowsMedia(helpersDir string) []string { return nil }
 
 // InstallCommand is the command that installs the named tools on this
 // computer, as far as it can tell which package manager that is.

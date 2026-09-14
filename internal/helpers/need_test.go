@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -35,15 +34,13 @@ func TestInstallCommand(t *testing.T) {
 	}
 }
 
-func TestWindowsMediaToolsError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("nothing is needed on Windows")
-	}
+// With neither 7-Zip nor wimlib on the machine, a Windows build is not
+// blocked: DSKY reads the ISO and splits the WIM itself.
+func TestWindowsMediaNeedsNoTools(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("DSKY_7Z", "")
 	t.Setenv("DSKY_WIMLIB", "")
-	err := WindowsMediaToolsError(t.TempDir())
-	if err == nil || !strings.Contains(err.Error(), "wimlib") || !strings.Contains(err.Error(), "run:") {
+	if err := WindowsMediaToolsError(t.TempDir()); err != nil {
 		t.Fatalf("err = %v", err)
 	}
 }

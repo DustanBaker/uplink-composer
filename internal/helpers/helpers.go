@@ -18,8 +18,9 @@ import (
 	"strings"
 
 	"github.com/uplinkresearch/dsky/internal/cab"
-
 	"github.com/uplinkresearch/dsky/internal/hidewin"
+	"github.com/uplinkresearch/dsky/internal/udf"
+	"github.com/uplinkresearch/dsky/internal/wim"
 )
 
 // Status describes one tool requirement for `dsky doctor`.
@@ -89,6 +90,15 @@ func ExtractISO(ctx context.Context, helpersDir, isoPath, destDir string) error 
 	if err != nil {
 		return err
 	}
+	// Off Windows, DSKY reads the ISO itself (internal/udf), so building
+	// Windows media needs no 7-Zip. The platform tools stay as a fallback for
+	// an image the reader refuses, such as a UDF 2.50 disc.
+	var ownErr error
+	if runtime.GOOS != "windows" {
+		if ownErr = udf.ExtractFile(abs, destDir, nil); ownErr == nil {
+			return nil
+		}
+	}
 	switch runtime.GOOS {
 	case "windows":
 		// Mount-DiskImage reads UDF natively; robocopy exit codes 0-7 mean
@@ -124,7 +134,7 @@ try {
 	default:
 		sevenZip, err := Find7z(helpersDir)
 		if err != nil {
-			return err
+			return fmt.Errorf("reading %s: %w (7-Zip would be the fallback: %s)", filepath.Base(abs), ownErr, InstallCommand([]string{"7-Zip"}))
 		}
 		return run(ctx, sevenZip, "x", "-y", "-o"+destDir, abs)
 	}
@@ -144,9 +154,16 @@ func SplitWIM(ctx context.Context, helpersDir, wimPath, swmPath string, chunkMB 
 			"/SWMFile:"+swmPath,
 			fmt.Sprintf("/FileSize:%d", chunkMB))
 	}
+	// Off Windows, DSKY splits it itself (internal/wim), so no wimlib is
+	// needed. wimlib stays the fallback for a WIM the splitter refuses, such
+	// as a solid one.
+	_, ownErr := wim.Split(wimPath, swmPath, int64(chunkMB)<<20, nil)
+	if ownErr == nil {
+		return nil
+	}
 	wimlib, err := FindWimlib(helpersDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("splitting %s: %w (wimlib would be the fallback: %s)", filepath.Base(wimPath), ownErr, InstallCommand([]string{"wimlib"}))
 	}
 	if filepath.Base(wimlib) == "wimsplit" {
 		return run(ctx, wimlib, wimPath, swmPath, fmt.Sprintf("%d", chunkMB))
@@ -189,14 +206,14 @@ func Check(helpersDir string) []Status {
 		st := Status{Name: "hdiutil", Purpose: "ISO (UDF) extraction", Builtin: true, Required: true}
 		st.Path = lookPathOr("hdiutil", "")
 		out = append(out, st)
-		w := Status{Name: "wimlib-imagex", Purpose: "WIM splitting for FAT32", Required: true, Hint: InstallCommand([]string{"wimlib"})}
+		w := Status{Name: "wimlib-imagex", Purpose: "fallback WIM splitting (DSKY splits WIMs itself)", Hint: InstallCommand([]string{"wimlib"})}
 		w.Path, _ = pathOrEmpty(FindWimlib(helpersDir))
 		out = append(out, w)
 	default:
-		s := Status{Name: "7zz", Purpose: "ISO (UDF) extraction", Required: true, Hint: InstallCommand([]string{"7-Zip"})}
+		s := Status{Name: "7zz", Purpose: "fallback ISO extraction (DSKY reads ISOs itself)", Hint: InstallCommand([]string{"7-Zip"})}
 		s.Path, _ = pathOrEmpty(Find7z(helpersDir))
 		out = append(out, s)
-		w := Status{Name: "wimlib-imagex", Purpose: "WIM splitting for FAT32", Required: true, Hint: InstallCommand([]string{"wimlib"})}
+		w := Status{Name: "wimlib-imagex", Purpose: "fallback WIM splitting (DSKY splits WIMs itself)", Hint: InstallCommand([]string{"wimlib"})}
 		w.Path, _ = pathOrEmpty(FindWimlib(helpersDir))
 		out = append(out, w)
 	}
