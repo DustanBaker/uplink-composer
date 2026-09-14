@@ -139,6 +139,9 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		if err := checkDomainRendered(rendered, w.Domain, w.Unattend.Template); err != nil {
 			return nil, err
 		}
+		if rendered, err = withOEMCopy(rendered); err != nil {
+			return nil, err
+		}
 		p := filepath.Join(buildTmp, "autounattend.xml")
 		if err := os.WriteFile(p, []byte(rendered), 0o644); err != nil {
 			return nil, err
