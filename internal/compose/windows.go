@@ -168,7 +168,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 			stage.AddFile(p, path.Join(scriptsImg, recipe.DomainSerialDir, b.Serial+".txt"))
 		}
 		sp := filepath.Join(buildTmp, recipe.DomainSerialScriptName)
-		if err := os.WriteFile(sp, []byte(recipe.DomainSerialScriptFile()), 0o644); err != nil {
+		if err := writePS(sp, recipe.DomainSerialScriptFile()); err != nil {
 			return nil, err
 		}
 		stage.AddFile(sp, path.Join(scriptsImg, recipe.DomainSerialScriptName))
@@ -249,7 +249,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 			}{File: file.name, Args: pack.Args, Log: pack.Log, OnlyVendor: pack.OnlyVendor, OnlyModel: pack.OnlyModel})
 			if pack.OnlyModel != "" && !gateStaged {
 				gatePath := filepath.Join(buildTmp, recipe.ModelInstallerScriptName)
-				if err := os.WriteFile(gatePath, []byte(recipe.ModelInstallerScriptFile()), 0o644); err != nil {
+				if err := writePS(gatePath, recipe.ModelInstallerScriptFile()); err != nil {
 					return nil, err
 				}
 				stage.AddFile(gatePath, path.Join(scriptsImg, recipe.ModelInstallerScriptName))
@@ -323,7 +323,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 	// scripts that call it themselves).
 	if w.Debloat.Enabled() {
 		dbPath := filepath.Join(buildTmp, "debloat.ps1")
-		if err := os.WriteFile(dbPath, []byte(recipe.GenerateDebloatPS(r)), 0o644); err != nil {
+		if err := writePS(dbPath, recipe.GenerateDebloatPS(r)); err != nil {
 			return nil, err
 		}
 		stage.AddFile(dbPath, path.Join(scriptsImg, "debloat.ps1"))
@@ -332,7 +332,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 	// Program installs (winget at first boot; nothing large staged here).
 	if w.Apps.Enabled() {
 		apPath := filepath.Join(buildTmp, "apps.ps1")
-		if err := os.WriteFile(apPath, []byte(recipe.GenerateAppsPS(r)), 0o644); err != nil {
+		if err := writePS(apPath, recipe.GenerateAppsPS(r)); err != nil {
 			return nil, err
 		}
 		stage.AddFile(apPath, path.Join(scriptsImg, "apps.ps1"))
@@ -369,7 +369,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 	// promised, and staged beside the scripts that deliver it so the imaged
 	// machine can be checked without installing anything on it.
 	vfPath := filepath.Join(buildTmp, "verify.ps1")
-	if err := os.WriteFile(vfPath, []byte(recipe.GenerateVerifyPS(r, drivers, resolveRef)), 0o644); err != nil {
+	if err := writePS(vfPath, recipe.GenerateVerifyPS(r, drivers, resolveRef)); err != nil {
 		return nil, err
 	}
 	stage.AddFile(vfPath, path.Join(scriptsImg, "verify.ps1"))

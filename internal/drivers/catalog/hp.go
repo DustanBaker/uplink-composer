@@ -15,8 +15,12 @@ import (
 // Packs are SoftPaq self-extracting exes.
 const hpCatalogURL = "https://hpia.hpcloud.hp.com/downloads/driverpackcatalog/HPClientDriverPackCatalog.cab"
 
-// HPExtract are the silent-extract switches for HP SoftPaqs.
-var HPExtract = []string{"-pdf", "-e", "-s", `-f"{dir}"`}
+// HPExtract are the silent-extract switches for HP SoftPaqs. Current packs
+// take /s /e /f <dir> (their usage text says so; the sp142792 EliteBook pack
+// rejected the older -pdf -e -s -f"dir" style, printed usage and exited 0).
+// The first-boot script retries with the other generation's style when no
+// .inf files appear, so manifests written with either set keep working.
+var HPExtract = []string{"/s", "/e", "/f", `"{dir}"`}
 
 type hpFeed struct{ cache *Cache }
 

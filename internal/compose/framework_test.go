@@ -128,7 +128,9 @@ windows:
 	}
 	// Reads from the image come back padded to a whole cluster, so the size
 	// comes from the directory entry and the bytes are compared up to it.
-	want := recipe.ModelInstallerScriptFile()
+	// Generated .ps1 files ship with a UTF-8 BOM: Windows PowerShell 5.1
+	// reads BOM-less scripts in the ANSI code page.
+	want := "\xef\xbb\xbf" + recipe.ModelInstallerScriptFile()
 	gatePath := scripts + "/" + recipe.ModelInstallerScriptName
 	if sizes[gatePath] != int64(len(want)) {
 		t.Errorf("gate script on the stick is %d bytes, want %d", sizes[gatePath], len(want))
