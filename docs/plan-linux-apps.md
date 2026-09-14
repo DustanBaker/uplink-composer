@@ -2,12 +2,22 @@
 
 Decisions marked **Decide** are Dusty's.
 
-**Step 1, first results (2026-09-14):** DSKY's autoinstall media built from the
-real Ubuntu Server 26.04 ISO installed in a VM with no input in 5 minutes: its
-answers, an apt package, the account and a late-command all landed, and the
-system booted. The other three cases (Server 24.04, both Desktop 26.04 runs)
-never reached the VM; releases.ubuntu.com served GitHub's runners too slowly,
-so the test now downloads from the kernel.org mirror, still hash-pinned.
+**Step 1 done (2026-09-14):** DSKY's autoinstall media, built from the real
+ISOs, installed Ubuntu in a KVM virtual machine (`ubuntu-autoinstall` workflow,
+run 34855847949):
+
+| Case | Result |
+|---|---|
+| Server 24.04, zero-touch | Installed with no input in 4 min; answers, apt package, account, late-command and snap all present; booted |
+| Server 26.04, zero-touch | Same, 5 min |
+| Desktop 26.04, zero-touch | Same, 14 min; booted to the desktop |
+| Desktop 26.04, prompt kept, no account | The installer read DSKY's answers and stopped on "Ready to install — Review your choices", listing them, with an Install button: the one confirmation before erasing |
+
+Two things learned for step 2: snaps listed in the answers are installed on
+first boot, not during install; and releases.ubuntu.com can be too slow to rely
+on, which is why DSKY now downloads Ubuntu from the fastest mirror (v0.7.15).
+Still to see: what the Desktop installer asks after Install when the answers
+carry no account.
 
 **Decided (2026-09-14):** keep Ubuntu's "Continue with autoinstall?" prompt on
 Desktop (skip it on Server); leave unofficial clients out; keep passwords out
