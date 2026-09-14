@@ -3,6 +3,7 @@ package fsimg
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -290,19 +291,31 @@ func TestStagedReproducibleAndDotDot(t *testing.T) {
 	if err := m.AddTree(src, "/"); err != nil {
 		t.Fatal(err)
 	}
-	opts := Options{Scheme: SchemeMBR, Label: "ESD-USB", SizeBytes: 256 << 20, Reproducible: true}
-	var hashes [2]string
-	for i := range hashes {
-		img := filepath.Join(dir, fmt.Sprintf("r%d.img", i))
-		if err := BuildStaged(img, opts, m, nil); err != nil {
-			t.Fatal(err)
+	for _, scheme := range []Scheme{SchemeMBR, SchemeGPT} {
+		opts := Options{Scheme: scheme, Label: "ESD-USB", SizeBytes: 256 << 20, Reproducible: true}
+		var hashes [2]string
+		for i := range hashes {
+			img := filepath.Join(dir, fmt.Sprintf("r%d.img", i))
+			if err := BuildStaged(img, opts, m, nil); err != nil {
+				t.Fatal(err)
+			}
+			f, _ := os.Open(img)
+			hashes[i] = hashFile(t, f)
+			f.Close()
 		}
-		f, _ := os.Open(img)
-		hashes[i] = hashFile(t, f)
-		f.Close()
+		if hashes[0] != hashes[1] {
+			t.Errorf("%s: identical builds differ", scheme)
+		}
 	}
-	if hashes[0] != hashes[1] {
-		t.Error("identical builds differ")
+	opts := Options{Scheme: SchemeMBR, Label: "ESD-USB", SizeBytes: 256 << 20, Reproducible: true}
+	if err := BuildStaged(filepath.Join(dir, "r0.img"), opts, m, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Windows shows no partitions on a read-only attached MBR disk whose
+	// signature is zero.
+	raw, _ := os.ReadFile(filepath.Join(dir, "r0.img"))
+	if sig := binary.LittleEndian.Uint32(raw[440:444]); sig == 0 {
+		t.Error("MBR disk signature is zero")
 	}
 	img := filepath.Join(dir, "r0.img")
 	got, err := rootDotDotClusters(img, partStartSector*SectorSize)

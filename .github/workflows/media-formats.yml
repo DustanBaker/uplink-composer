@@ -93,9 +93,12 @@ jobs:
             ./mf fat32-image fattree fat.img $scheme
             dd if=fat.img of=part.img bs=1M skip=1 status=none
             fsck.fat -n -V part.img
-            sudo mkdir -p /mnt/f && sudo mount -t vfat -o loop,ro,offset=1048576,iocharset=utf8 fat.img /mnt/f
+            # Through the partition table, not a byte offset, so a table
+            # other tools can't read fails here too.
+            dev=$(sudo losetup -P -r -f --show fat.img)
+            sudo mkdir -p /mnt/f && sudo mount -t vfat -o ro,iocharset=utf8 ${dev}p1 /mnt/f
             sudo diff -r fattree /mnt/f
-            sudo umount /mnt/f
+            sudo umount /mnt/f && sudo losetup -d $dev
             echo "FAT32 $scheme: fsck clean, every file identical"
           done
 
@@ -180,10 +183,6 @@ jobs:
               } catch { "Storage module: " + ($_ | Out-String) }
               Get-CimInstance Win32_Volume | Format-Table DriveLetter, FileSystem, Label, Capacity, DeviceID
               "list disk", "list volume" | diskpart
-              if (-not $letter) {
-                $v = Get-CimInstance Win32_Volume | Where-Object { $_.FileSystem -eq 'FAT32' -and $_.DriveLetter }
-                if ($v) { $letter = $v[0].DriveLetter.TrimEnd(':') }
-              }
               if (-not $letter) { throw "Windows mounted the $scheme image but gave its volume no drive letter" }
               chkdsk "${letter}:" | Out-String | Write-Output
               if ($LASTEXITCODE -ne 0) { throw "chkdsk reported problems on the $scheme image (exit $LASTEXITCODE)" }

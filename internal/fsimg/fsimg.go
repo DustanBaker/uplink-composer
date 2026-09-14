@@ -7,6 +7,9 @@
 package fsimg
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -132,7 +135,10 @@ func BuildImage(imgPath string, opts Options, populate func(fsys FS) error) (err
 		err = fmt.Errorf("fsimg: finalizing image: %w", closeErr)
 		return err
 	}
-	err = fixRootDotDot(imgPath, partStartSector*SectorSize)
+	if err = fixRootDotDot(imgPath, partStartSector*SectorSize); err != nil {
+		return err
+	}
+	err = stampDiskSignature(imgPath, opts)
 	return err
 }
 
@@ -143,8 +149,14 @@ func partitionTable(opts Options) (partition.Table, int64) {
 	switch opts.Scheme {
 	case SchemeGPT:
 		end := totalSectors - gptReserveSectors
+		// Blank GUIDs are random, which made identical GPT builds differ.
+		var diskGUID, partGUID string
+		if opts.Reproducible {
+			diskGUID, partGUID = stableGUID(opts, "disk"), stableGUID(opts, "part1")
+		}
 		return &gpt.Table{
 			ProtectiveMBR: true,
+			GUID:          diskGUID,
 			Partitions: []*gpt.Partition{{
 				Index: 1,
 				Start: partStartSector,
@@ -152,6 +164,7 @@ func partitionTable(opts Options) (partition.Table, int64) {
 				Size:  (end - partStartSector + 1) * SectorSize,
 				Type:  gpt.EFISystemPartition,
 				Name:  "EFI system partition",
+				GUID:  partGUID,
 			}},
 		}, int64(end - partStartSector + 1)
 	default:
@@ -163,6 +176,43 @@ func partitionTable(opts Options) (partition.Table, int64) {
 			Size:     uint32(totalSectors - partStartSector),
 		}}}, int64(totalSectors - partStartSector)
 	}
+}
+
+func stableGUID(opts Options, what string) string {
+	h := sha256.Sum256([]byte(fmt.Sprintf("dsky|%s|%s|%d", what, opts.Label, opts.SizeBytes)))
+	h[6] = h[6]&0x0f | 0x40 // version 4 layout
+	h[8] = h[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
+}
+
+// stampDiskSignature writes the MBR disk signature, which go-diskfs leaves
+// at zero. Windows treats a zero signature as a disk it has yet to stamp: a
+// read-only attach of such an image showed no partitions at all, and a
+// writable one gets sector 0 rewritten. GPT disks are identified by their
+// GUID instead, so only MBR images get one.
+func stampDiskSignature(imgPath string, opts Options) error {
+	if opts.Scheme == SchemeGPT {
+		return nil
+	}
+	var sig [4]byte
+	if opts.Reproducible {
+		h := sha256.Sum256([]byte(fmt.Sprintf("dsky|mbr|%s|%d", opts.Label, opts.SizeBytes)))
+		copy(sig[:], h[:4])
+	} else if _, err := rand.Read(sig[:]); err != nil {
+		return err
+	}
+	if binary.LittleEndian.Uint32(sig[:]) == 0 {
+		sig[0] = 1
+	}
+	f, err := os.OpenFile(imgPath, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteAt(sig[:], 440); err != nil {
+		f.Close()
+		return fmt.Errorf("fsimg: writing disk signature: %w", err)
+	}
+	return f.Close()
 }
 
 // StageMap maps image paths (forward-slash, leading "/") to host source file

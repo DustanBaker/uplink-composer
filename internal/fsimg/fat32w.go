@@ -75,6 +75,10 @@ func BuildStaged(imgPath string, opts Options, stage StageMap, progress func(don
 		os.Remove(imgPath)
 		return err
 	}
+	if err := stampDiskSignature(imgPath, opts); err != nil {
+		os.Remove(imgPath)
+		return err
+	}
 	f, err := os.OpenFile(imgPath, os.O_RDWR, 0)
 	if err != nil {
 		return err
