@@ -45,7 +45,7 @@ type Manifest struct {
 	// Recipe is the recipe id, for the log and the report.
 	Recipe string `json:"recipe"`
 
-	Drivers Drivers `json:"drivers"`
+	Drivers Drivers  `json:"drivers"`
 	Debloat *Debloat `json:"debloat,omitempty"`
 	Apps    *Apps    `json:"apps,omitempty"`
 

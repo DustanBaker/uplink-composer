@@ -92,7 +92,7 @@ func Apply(dir string) error {
 // and the behaviour is testable.
 func Main(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: dsky-agent apply [dir] | dsky-agent user-install <job> <result>")
+		return fmt.Errorf("usage: dsky-agent apply [dir] | dsky-agent verify [dir] | dsky-agent user-install <job> <result>")
 	}
 	switch args[0] {
 	case "apply":
@@ -108,6 +108,30 @@ func Main(args []string) error {
 			dir = filepath.Dir(exe)
 		}
 		return Apply(dir)
+	case "verify":
+		dir := ""
+		if len(args) > 1 {
+			dir = args[1]
+		}
+		if dir == "" {
+			exe, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			dir = filepath.Dir(exe)
+		}
+		checks, err := Verify(dir)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("DSKY post-install check\n\n")
+		if Report(checks, os.Stdout) {
+			fmt.Println("\nThis machine matches the build.")
+			return nil
+		}
+		fmt.Println("\nThis machine does not match the build; see the lines marked FAIL.")
+		os.Exit(1)
+		return nil
 	case "user-install":
 		// The unelevated half of an install that refuses an administrator.
 		if len(args) != 3 {

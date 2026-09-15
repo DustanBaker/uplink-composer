@@ -210,3 +210,45 @@ func TestJournalRecordsFailuresForTheSummary(t *testing.T) {
 		t.Errorf("machine log reads:\n%s", events)
 	}
 }
+
+// The checker reads the machine against the manifest that built it. Every
+// failure in the first watched install would have shown here in seconds.
+func TestVerifyReportsWhatTheMachineActuallyHas(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manifest{Recipe: "hp", Steps: []string{"drivers", "apps"},
+		Drivers: Drivers{Sweep: true, Extracts: []Extract{{File: "sp1.exe", Dir: "hp"}}},
+		Apps:    &Apps{Winget: []string{"Google.Chrome", "Spotify.Spotify"}}}
+	if err := m.Save(filepath.Join(dir, ManifestName)); err != nil {
+		t.Fatal(err)
+	}
+	// A machine where the pack unpacked nothing, Chrome landed and Spotify
+	// did not, and first boot stopped early: exactly the HP.
+	os.WriteFile(filepath.Join(dir, LogName), []byte(
+		"[x] drivers: sp1.exe unpacked no driver files\n"+
+			"[x] apps: installed Google.Chrome\n"), 0o644)
+	LoadState(dir).Finish("drivers")
+
+	checks, err := Verify(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, c := range checks {
+		got[c.What] = c.OK
+	}
+	for what, want := range map[string]bool{
+		"first boot ran":          false,
+		"step drivers":            true,
+		"step apps":               false,
+		"driver pack sp1.exe":     false,
+		"drivers installed":       false,
+		"program Google.Chrome":   true,
+		"program Spotify.Spotify": false,
+	} {
+		if v, ok := got[what]; !ok {
+			t.Errorf("the check %q was not reported at all", what)
+		} else if v != want {
+			t.Errorf("%q reported %v, want %v", what, v, want)
+		}
+	}
+}
