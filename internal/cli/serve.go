@@ -15,9 +15,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/uplinkresearch/dsky/internal/appcatalog"
 	"github.com/uplinkresearch/dsky/internal/appconfig"
 	"github.com/uplinkresearch/dsky/internal/jobs"
 	"github.com/uplinkresearch/dsky/internal/library"
+	"github.com/uplinkresearch/dsky/internal/oscatalog"
 	"github.com/uplinkresearch/dsky/internal/selfupdate"
 	"github.com/uplinkresearch/dsky/internal/webui"
 )
@@ -255,6 +257,15 @@ func startServer(ctx context.Context, lib *library.Library, vars map[string]stri
 		return "", nil, err
 	}
 	cfg := appconfig.Load()
+	// The operator's own installers, and the OS list last verified. Loaded
+	// here rather than in the command path because the app people click
+	// (AppMain) never goes through it: installers added in the window were
+	// saved to disk and then invisible the next time it opened, and every
+	// recipe that used one built without it.
+	oscatalog.LoadCached(lib.Root)
+	if err := appcatalog.LoadCustom(lib.Root); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: your added programs could not be read:", err)
+	}
 	s := &webui.Server{
 		Lib: lib, CLIVars: vars, Token: hex.EncodeToString(tok[:]),
 		Reg: jobs.NewRegistry(), Cfg: cfg, IdleTimeout: idle,

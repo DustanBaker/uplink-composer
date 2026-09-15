@@ -44,9 +44,6 @@
     background: var(--bg); }
   header h1 { margin: 0; line-height: 0; }
   header h1 img { height: 32px; width: auto; display: block; }
-  header .org { color: var(--dim); }
-  header .ws { margin-left: auto; color: var(--dim); font-size: 12px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
   header .ver { color: var(--dim); font-size: 12px; margin-left: 14px; white-space: nowrap; }
   #updBtn { margin-left: 10px; }
   #quitBtn { margin-left: 8px; }
@@ -319,8 +316,6 @@
   <button id="backBtn" title="Back to the start" onclick="setDoor('home')" hidden>‹ Back</button>
   <h1><img src="logo.webp" alt="DSKY" width="97" height="32"></h1>
   <span class="doorname" id="doorName"></span>
-  <span class="org" id="org"></span>
-  <span class="ws" id="ws"></span>
   <span class="ver" id="ver" title="Check for a newer release"></span>
   <button id="guideBtn" onclick="startGuide(door)" title="How this screen works" aria-label="How this screen works">?</button>
   <button id="updBtn" onclick="checkUpdate(true)" title="Ask GitHub for the newest release now">Check for updates</button>
@@ -1067,8 +1062,6 @@ function renderCatalogNote() {
 }
 
 function render() {
-  $("org").textContent = state.org || "";
-  $("ws").textContent = state.workspace || "";
 
   // ── OS catalog (Quick Install) ──────────────────────────────────────────
   renderCatalog();
