@@ -81,7 +81,11 @@ func (a *Agent) runAsSignedInUser(exe string, args []string) (int, error) {
 		return 0, fmt.Errorf("could not start the task: %s", trimOut(r.Out))
 	}
 
-	deadline := time.Now().Add(25 * time.Minute)
+	// Long enough for a big installer on a slow line -- the longest install
+	// watched in the VM took four and a half minutes -- and short enough
+	// that a machine somebody is standing over does not sit silent while a
+	// task that will never report is waited out.
+	deadline := time.Now().Add(userInstallDeadline)
 	for {
 		if b, err := os.ReadFile(resPath); err == nil {
 			var res userResult
@@ -96,7 +100,7 @@ func (a *Agent) runAsSignedInUser(exe string, args []string) (int, error) {
 			return res.Code, nil
 		}
 		if time.Now().After(deadline) {
-			return 0, fmt.Errorf("the standard-user install did not finish within 25 minutes")
+			return 0, fmt.Errorf("the standard-user install did not report a result within %s", userInstallDeadline)
 		}
 		time.Sleep(5 * time.Second)
 	}

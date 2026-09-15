@@ -10,6 +10,9 @@ import (
 
 const stepApps = "apps"
 
+// userInstallDeadline bounds one install run as the signed-in user.
+const userInstallDeadline = 12 * time.Minute
+
 // winget exit codes the agent reasons about. They arrive as signed 32-bit
 // values; the rest are recorded as they come.
 const (
