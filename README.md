@@ -5,6 +5,51 @@ OS images, keep per-hardware driver packs, compose unattended install media
 per machine/org (drivers + unattend + first-boot agents), and write verified
 USB sticks. Runs on Windows, macOS, and Linux from a single static binary.
 
+## Install
+
+**Windows** — in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/uplinkresearch/dsky/main/install.ps1 | iex
+```
+
+Or download **dsky-setup-amd64.exe** from the
+[latest release](https://github.com/uplinkresearch/dsky/releases/latest) and
+double-click it.
+
+**macOS and Linux** — in a terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/uplinkresearch/dsky/main/install.sh | sh
+```
+
+Then start it:
+
+```sh
+dsky app
+```
+
+That opens the portal in its own window, where you can pick an operating
+system and write a stick without setting anything up first.
+
+No administrator or root rights are needed, and nothing touches system
+directories. Each installer fetches the release build for your machine,
+checks it against the release's SHA-256 list, and installs it under your own
+profile — `%LOCALAPPDATA%\Programs\dsky` on Windows, where it is added to
+your user PATH, or `~/.local/bin` on macOS and Linux, which is already on
+PATH on most systems; if it is not, the installer prints the one line to add.
+You also get a Start-menu, Launchpad or app-drawer entry. `dsky update` keeps
+it current; `dsky uninstall` removes it.
+
+Prefer to do it by hand, or on a machine that cannot reach GitHub? Every
+platform's binary is on the
+[releases page](https://github.com/uplinkresearch/dsky/releases/latest) —
+one static file, no dependencies. Installing from a private fork? Set
+`GITHUB_TOKEN` first. (If you download the macOS or Linux binary
+with a browser rather than the command above, make it executable with
+`chmod +x`, and on macOS clear the quarantine flag the browser set:
+`xattr -d com.apple.quarantine dsky`.)
+
 Org-agnostic by design: everything specific to an organization — recipes,
 unattend templates, pinned download manifests, driver packs — lives in that
 org's own **workspace** (a small git repo). `dsky init` scaffolds one in
@@ -97,27 +142,7 @@ for its exact size to be typed. Stale GPT backup headers are wiped, and every
 write is verified by readback (which also catches counterfeit flash). Reading
 is never restricted: the system disk can be the source of a copy.
 
-## Install (no admin rights needed)
-
-Windows (PowerShell):
-
-```
-irm https://raw.githubusercontent.com/uplinkresearch/dsky/main/install.ps1 | iex
-```
-
-macOS / Linux:
-
-```
-curl -fsSL https://raw.githubusercontent.com/uplinkresearch/dsky/main/install.sh | sh
-```
-
-Both fetch the latest release binary for your machine, verify its SHA-256
-against the release's checksum list, install it under your user profile
-(`%LOCALAPPDATA%\Programs\dsky` or `~/.local/bin`), and put `dsky`
-plus the `compose` alias on your user PATH. Nothing touches system
-directories. (Private fork? Set `GITHUB_TOKEN` first.)
-
-## Quick Install — pick an OS, no setup
+## Installing an operating system — pick one, no setup
 
 Launch the app (Start-menu or app-launcher icon, or `dsky app`) and the home screen
 has an **Install an OS** list, grouped into desktop, server, and single-board.
