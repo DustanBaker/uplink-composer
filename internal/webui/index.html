@@ -185,7 +185,10 @@
     margin-top: 14px; color: var(--dim); font-size: 12px; }
   .homefoot .linkish { margin-left: auto; background: none; border: none;
     padding: 0; font-size: 12px; }
-  header .doorname { color: var(--dim); }
+  /* Everything after the logo sits at the far end: the logo anchors the
+     left, the controls gather on the right, and the space between them is
+     empty rather than a row of things crowded together. */
+  header .doorname { color: var(--dim); margin-left: auto; }
   #backBtn { margin-right: 2px; }
   /* A panel is shown when the current door is in its data-door list. The
      attribute is a space-separated set, so ~= matches one whole word and
