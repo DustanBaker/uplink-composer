@@ -2297,6 +2297,49 @@ function clearFinishedJobs() {
   renderActivity();
 }
 
+// ── Quindar tone ──────────────────────────────────────────────────────────
+// When a job lands, the beep Apollo's ground stations put on the air at the end
+// of a transmission: a pure 2525 Hz tone for a quarter of a second. It is made
+// here rather than played from a file, so there is nothing to fetch -- the page
+// makes no network requests -- and nothing to wait for: a recording of it
+// carried 200 ms of silence before the tone, long enough to hear the tick mark
+// and the sound as two separate events.
+//
+// A browser only lets a page make sound after somebody has interacted with it,
+// and a job finishes minutes after the click that started it. So the audio
+// context is opened on the first click or keypress, and the tone uses it later.
+let quindarCtx = null;
+function unlockQuindar() {
+  try {
+    quindarCtx = quindarCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (quindarCtx.state === "suspended") quindarCtx.resume();
+  } catch (e) { /* no audio on this machine: the tick mark still says it */ }
+}
+addEventListener("pointerdown", unlockQuindar, { capture: true });
+addEventListener("keydown", unlockQuindar, { capture: true });
+
+function quindar() {
+  try {
+    unlockQuindar();
+    if (!quindarCtx) return;
+    const t = quindarCtx.currentTime;
+    const osc = quindarCtx.createOscillator();
+    const gain = quindarCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 2525;
+    // A few milliseconds of ramp at each end: a sine that starts and stops at
+    // full level clicks.
+    gain.gain.setValueAtTime(0, t);
+    // 0.28 matches the level of the recording it was measured against.
+    gain.gain.linearRampToValueAtTime(0.28, t + 0.008);
+    gain.gain.setValueAtTime(0.28, t + 0.242);
+    gain.gain.linearRampToValueAtTime(0, t + 0.25);
+    osc.connect(gain).connect(quindarCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.26);
+  } catch (e) { /* as above */ }
+}
+
 function upsertJob(ev) {
   const jobs = $("jobs");
   let j = jobEls.get(ev.job_id);
@@ -2318,6 +2361,7 @@ function upsertJob(ev) {
     j = { row, stage, pct, bar, stats, flair, t0: Date.now(), mark: null };
     jobEls.set(ev.job_id, j);
   }
+  if (!ev.final) j.running = true;
   j.stage.textContent = ev.error ? ev.error : ev.stage;
   setPatter(j, ev);
   j.stage.classList.toggle("error", !!ev.error);
@@ -2328,6 +2372,11 @@ function upsertJob(ev) {
   j.bar.classList.toggle("verify", /verif/i.test(ev.stage || ""));
 
   if (ev.final && !ev.error) {
+    // Only for a job this page watched run, and only the first time it is
+    // told the job finished: the event stream repeats itself after a
+    // reconnect, and a page opened on a finished job has nothing to announce.
+    // A failure gets no tone -- it is read, not celebrated.
+    if (j.running && !j.final) quindar();
     j.bar.querySelector("i").style.background = "var(--ok)";
     j.bar.classList.remove("indet");
     j.bar.querySelector("i").style.width = "100%";
