@@ -252,3 +252,73 @@ func TestVerifyReportsWhatTheMachineActuallyHas(t *testing.T) {
 		}
 	}
 }
+
+// The whole run: every step the manifest asks for happens, in order, is
+// recorded as finished, and the closing line says what went wrong. A second
+// run does the work again only where it did not finish.
+func TestApplyRunsEveryStepInOrder(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manifest{Recipe: "flow", Steps: []string{"drivers", "debloat", "apps"},
+		Drivers: Drivers{Extracts: []Extract{{File: "pack.exe", Dir: "d", Args: []string{"-x"}}}},
+		Debloat: &Debloat{Preset: "standard", Apps: []string{"Microsoft.BingNews"}},
+		Apps:    &Apps{Installers: []Installer{{File: "agent.msi", MSI: true}}}}
+	if err := m.Save(filepath.Join(dir, ManifestName)); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "pack.exe"), []byte("x"), 0o755)
+	os.WriteFile(filepath.Join(dir, "agent.msi"), []byte("x"), 0o644)
+
+	f := &fakeRun{do: func(name string, args []string) (result, error) {
+		if strings.HasSuffix(name, "pack.exe") {
+			dest := filepath.Join(dir, "Drivers", "d")
+			os.MkdirAll(dest, 0o755)
+			os.WriteFile(filepath.Join(dest, "x.inf"), []byte("inf"), 0o644)
+		}
+		return result{Code: 0}, nil
+	}}
+	f.install(t)
+
+	if err := Apply(dir); err != nil {
+		t.Fatal(err)
+	}
+	log := logText(t, dir)
+	for _, want := range []string{
+		"first-boot agent starting for recipe flow",
+		"1 driver file(s) present",
+		"installed agent.msi",
+		"first-boot agent done",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("the log is missing %q:\n%s", want, log)
+		}
+	}
+	// msiexec, not the file itself: an .msi is not an executable.
+	var sawMSI bool
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "msiexec ") && strings.Contains(c, "/qn") {
+			sawMSI = true
+		}
+	}
+	if !sawMSI {
+		t.Errorf("the installer was not run through msiexec: %v", f.calls)
+	}
+
+	st := LoadState(dir)
+	for _, step := range m.Steps {
+		if !st.Finished(step) {
+			t.Errorf("step %q was not recorded as finished", step)
+		}
+	}
+
+	// A second run repeats nothing.
+	before := len(f.calls)
+	if err := Apply(dir); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.calls) != before {
+		t.Errorf("a second run did %d more things; it should have skipped every finished step", len(f.calls)-before)
+	}
+	if !strings.Contains(logText(t, dir), "already done on an earlier boot") {
+		t.Error("the log does not say the steps were skipped")
+	}
+}
