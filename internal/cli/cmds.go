@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/uplinkresearch/dsky/internal/agentbin"
 	"github.com/uplinkresearch/dsky/internal/compose"
 	"github.com/uplinkresearch/dsky/internal/device"
 	"github.com/uplinkresearch/dsky/internal/helpers"
@@ -62,6 +63,15 @@ func cmdDoctor(ctx context.Context, env *Env) error {
 	}
 	if metas, err := filepath.Glob(filepath.Join(lib.ArtifactsDir(), "*.img.json")); err == nil {
 		fmt.Printf("artifacts:     %d built image(s)\n", len(metas))
+	}
+	fmt.Println()
+	// Which first-boot path this build will put on Windows media. A DSKY
+	// built without the agent still makes working media, with the older
+	// generated scripts, and this is the only way to tell from outside.
+	if agentbin.Available(agentbin.AMD64) {
+		fmt.Println("windows media:  carries the first-boot agent")
+	} else {
+		fmt.Println("windows media:  generated scripts (this build has no first-boot agent)")
 	}
 	fmt.Println()
 	fmt.Println("tools on this host:")

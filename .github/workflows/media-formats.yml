@@ -147,6 +147,9 @@ jobs:
           & "$d\dsky-agent.exe" verify $d
           if ($LASTEXITCODE -eq 0) { throw "the check passed a machine with no drivers" }
           "agent: reported the empty pack as a failure, skipped pnputil, and the check agreed"
+          # The check is meant to exit non-zero here; pwsh would otherwise
+          # carry that into the step's own result and fail a passing test.
+          exit 0
 
       - name: The answer file's script copy runs under cmd.exe
         shell: pwsh
