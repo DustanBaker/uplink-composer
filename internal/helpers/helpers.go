@@ -199,18 +199,31 @@ func SplitWIM(ctx context.Context, helpersDir, wimPath, swmPath string, chunkMB 
 	if chunkMB <= 0 {
 		chunkMB = 3800
 	}
+	// DSKY splits it itself (internal/wim) on every platform, so nothing has
+	// to be installed and nothing has to be elevated. The platform tools stay
+	// as a fallback for a WIM the splitter refuses, such as a solid one.
+	//
+	// Windows used to hand this to DISM, which refuses to run without
+	// administrator rights: a Windows build stopped at "Error: 740 Elevated
+	// permissions are required to run DISM". DSKY's own splitter reads and
+	// writes ordinary files in the user's own directory, so the portal does
+	// not have to ask for rights it otherwise never needs. DISM has read the
+	// parts it produces in CI since they were written.
+	_, ownErr := wim.Split(wimPath, swmPath, int64(chunkMB)<<20, nil)
+	if ownErr == nil {
+		return nil
+	}
 	if runtime.GOOS == "windows" {
-		return run(ctx, "dism",
+		// DISM needs elevation; say so rather than leaving its error code to
+		// be looked up.
+		if derr := run(ctx, "dism",
 			"/Split-Image",
 			"/ImageFile:"+wimPath,
 			"/SWMFile:"+swmPath,
-			fmt.Sprintf("/FileSize:%d", chunkMB))
-	}
-	// Off Windows, DSKY splits it itself (internal/wim), so no wimlib is
-	// needed. wimlib stays the fallback for a WIM the splitter refuses, such
-	// as a solid one.
-	_, ownErr := wim.Split(wimPath, swmPath, int64(chunkMB)<<20, nil)
-	if ownErr == nil {
+			fmt.Sprintf("/FileSize:%d", chunkMB)); derr != nil {
+			return fmt.Errorf("splitting %s: %w (DISM was the fallback and needs an elevated prompt: %v)",
+				filepath.Base(wimPath), ownErr, derr)
+		}
 		return nil
 	}
 	wimlib, err := FindWimlib(helpersDir)
@@ -252,7 +265,7 @@ func Check(helpersDir string) []Status {
 	case "windows":
 		out = append(out,
 			Status{Name: "Mount-DiskImage", Purpose: "fallback ISO extraction (DSKY reads ISOs itself)", Path: "powershell (built in)", Builtin: true},
-			Status{Name: "DISM", Purpose: "WIM splitting for FAT32", Path: lookPathOr("dism", ""), Builtin: true, Required: true, Hint: "part of Windows"},
+			Status{Name: "DISM", Purpose: "fallback WIM splitting (DSKY splits WIMs itself)", Path: lookPathOr("dism", ""), Builtin: true, Hint: "part of Windows; needs an elevated prompt"},
 		)
 	case "darwin":
 		st := Status{Name: "hdiutil", Purpose: "fallback ISO extraction (DSKY reads ISOs itself)", Builtin: true}
