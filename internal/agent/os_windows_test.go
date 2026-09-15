@@ -73,3 +73,23 @@ func TestSetPolicyWritesTheRegistry(t *testing.T) {
 		t.Error("an unknown hive was accepted")
 	}
 }
+
+// The files the two copies pass between them must live where a standard user
+// can write. C:\Windows\Setup\Scripts, where the agent itself lives, is
+// read-only for one, which would fail the install for the one reason this
+// path exists to avoid.
+func TestUserJobFilesAreWritableByAStandardUser(t *testing.T) {
+	a := &Agent{Dir: `C:\Windows\Setup\Scripts`}
+	// runAsSignedInUser fails early here (no task scheduler in a test), but
+	// it writes the job file first, and where it writes is the point.
+	a.J, _ = OpenJournal(t.TempDir())
+	_, _ = a.runAsSignedInUser("cmd.exe", []string{"/c", "exit 0"})
+	job := filepath.Join(os.TempDir(), "dsky-user-job.json")
+	if _, err := os.Stat(job); err != nil {
+		t.Errorf("the job was not written to the user's temp directory: %v", err)
+	}
+	os.Remove(job)
+	if _, err := os.Stat(filepath.Join(`C:\Windows\Setup\Scripts`, "dsky-user-job.json")); err == nil {
+		t.Error("the job was written beside the agent, where a standard user cannot write")
+	}
+}

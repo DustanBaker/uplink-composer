@@ -54,8 +54,13 @@ func (a *Agent) runAsSignedInUser(exe string, args []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	jobPath := filepath.Join(a.Dir, "dsky-user-job.json")
-	resPath := filepath.Join(a.Dir, "dsky-user-result.json")
+	// Not beside the agent: C:\Windows\Setup\Scripts is read-only for a
+	// standard user, and the whole point of this path is that the second
+	// copy has a standard-user token. The user's own temp directory is the
+	// same directory for both copies, because elevation does not change it.
+	jobDir := os.TempDir()
+	jobPath := filepath.Join(jobDir, "dsky-user-job.json")
+	resPath := filepath.Join(jobDir, "dsky-user-result.json")
 	os.Remove(resPath)
 	b, err := json.Marshal(userJob{Exe: exe, Args: args})
 	if err != nil {
@@ -67,7 +72,7 @@ func (a *Agent) runAsSignedInUser(exe string, args []string) (int, error) {
 	defer os.Remove(jobPath)
 
 	user := os.Getenv("USERDOMAIN") + `\` + os.Getenv("USERNAME")
-	xmlPath := filepath.Join(a.Dir, "dsky-user-task.xml")
+	xmlPath := filepath.Join(jobDir, "dsky-user-task.xml")
 	if err := os.WriteFile(xmlPath, utf16LE(taskXML(user, self, jobPath, resPath)), 0o644); err != nil {
 		return 0, err
 	}
