@@ -28,6 +28,7 @@ func TestMain(m *testing.M) {
 	clearResumeFn = func(*Agent) {}
 	disarmAutoLogonFn = func(*Agent) {}
 	restartFn = func(*Agent, string) error { return nil }
+	keepAwakeFn = func() func() { return func() {} }
 	os.Exit(m.Run())
 }
 

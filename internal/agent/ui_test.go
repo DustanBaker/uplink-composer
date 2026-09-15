@@ -118,6 +118,7 @@ func TestAClosedWindowReleasesIt(t *testing.T) {
 func TestTheChecklistFollowsTheWork(t *testing.T) {
 	s := testScreen()
 	s.Doing("drivers", "unpacking")
+	s.Detail("installing 264 driver files (this is the long part)")
 	s.Finished("drivers", 0)
 	s.Doing("apps", "")
 	s.Finished("apps", 2)
@@ -132,6 +133,10 @@ func TestTheChecklistFollowsTheWork(t *testing.T) {
 	}
 	if s.steps[1].State != stepProblem {
 		t.Errorf("a step with two failures is in state %v, want the one that says so", s.steps[1].State)
+	}
+	// A finished step must not still say what it was in the middle of.
+	if strings.Contains(s.steps[0].Detail, "installing") {
+		t.Errorf("a finished step still reads as in progress: %q", s.steps[0].Detail)
 	}
 }
 

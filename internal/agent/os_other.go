@@ -34,3 +34,6 @@ func (a *Agent) removeAppx(prefixes []string) {
 
 // desktopDirs finds nothing to tidy anywhere but Windows.
 func desktopDirs() []string { return nil }
+
+// keepAwake has nothing to hold off anywhere but Windows.
+func keepAwake() (release func()) { return func() {} }

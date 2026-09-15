@@ -65,6 +65,12 @@ func Apply(dir string) error {
 	}
 	defer a.UI.Close()
 
+	// The display stays on and the machine stays awake while there is work
+	// to do. It is let go before the finish screen: a finished machine left
+	// on a bench for a week should sleep like any other.
+	release := keepAwakeFn()
+	defer release()
+
 	// Before anything else, arrange to be started again. Everything below
 	// can be interrupted -- a restart Windows asks for, a machine that
 	// crashes under a driver, somebody closing the lid -- and the state
@@ -135,6 +141,8 @@ func Apply(dir string) error {
 	// machine over without the automatic sign-in provisioning needed.
 	a.finishUp()
 	a.J.Info("", "first-boot agent done")
+
+	release()
 
 	// The last thing on the screen is what this machine got, and it stays
 	// there until somebody says they have seen it. Nothing is waiting on

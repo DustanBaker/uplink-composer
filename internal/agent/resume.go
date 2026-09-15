@@ -103,6 +103,7 @@ var (
 	restartFn         = (*Agent).restart
 	clearResumeFn     = (*Agent).clearResume
 	disarmAutoLogonFn = (*Agent).disarmAutoLogon
+	keepAwakeFn       = keepAwake
 )
 
 // finishUp is what the agent does once there is nothing left to carry on

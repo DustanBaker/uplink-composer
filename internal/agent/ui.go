@@ -141,8 +141,14 @@ func (s *screen) Finished(step string, problems int) {
 	s.mu.Lock()
 	for i := range s.steps {
 		if s.steps[i].Name == step && s.steps[i].State == stepDoing {
+			// The detail described the work in progress. Left on a finished
+			// line it reads as still happening: watched in the VM, a done
+			// step said "OK Drivers - installing 264 driver files (this is
+			// the long part)".
+			s.steps[i].Detail = ""
 			if problems > 0 {
 				s.steps[i].State = stepProblem
+				s.steps[i].Detail = "see the list at the end"
 			} else {
 				s.steps[i].State = stepDone
 			}

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf16"
@@ -416,4 +418,39 @@ func desktopDirs() []string {
 		}
 	}
 	return dirs
+}
+
+// keepAwake stops Windows switching the display off or sleeping while the
+// machine is being provisioned, and returns the function that lets it again.
+//
+// Watched in the VM: the status window was up and correct, and the screen was
+// black, because Windows' idle timer had turned the display off during the
+// program installs. Somebody walking up to that machine sees exactly what the
+// window was built to spare them -- a machine that looks dead -- and a laptop
+// that sleeps part way through a driver sweep is worse than one that looks
+// dead.
+//
+// The request belongs to the thread that makes it and ends when that thread
+// does. Go moves goroutines between threads, so it is made from a thread
+// locked for the purpose and held until release.
+func keepAwake() (release func()) {
+	const (
+		esContinuous      = 0x80000000
+		esSystemRequired  = 0x00000001
+		esDisplayRequired = 0x00000002
+	)
+	set := kernel32.NewProc("SetThreadExecutionState")
+	done := make(chan struct{})
+	held := make(chan struct{})
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		set.Call(esContinuous | esSystemRequired | esDisplayRequired)
+		close(held)
+		<-done
+		set.Call(esContinuous)
+	}()
+	<-held
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
 }
