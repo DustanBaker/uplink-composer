@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unsafe"
 
 	"github.com/uplinkresearch/dsky/internal/compose"
 	"github.com/uplinkresearch/dsky/internal/device"
@@ -37,6 +38,17 @@ const chunkSize = 4 << 20
 // headers from the stick's previous life confuse firmware).
 const tailWipe = 2 << 20
 
+// alignedBuffer returns a buffer whose first byte sits on a 4096-byte
+// boundary. Windows opens a raw disk unbuffered, and an unbuffered write has
+// to come from memory aligned to the sector size; Go's heap promises nothing
+// of the sort. Over-allocating and slicing forward costs one page and makes
+// every write legal wherever it lands.
+func alignedBuffer(n int) []byte {
+	raw := make([]byte, n+4096)
+	skip := (4096 - int(uintptr(unsafe.Pointer(&raw[0]))%4096)) % 4096
+	return raw[skip : skip+n]
+}
+
 // wipeTail zeroes the end of the device in aligned pieces.
 //
 // In pieces because a raw device handle is not a file: Windows opens it
@@ -60,7 +72,7 @@ func wipeTail(t Target, devSize int64) error {
 }
 
 func wipeRange(t Target, from, to, piece int64) error {
-	zeros := make([]byte, piece)
+	zeros := alignedBuffer(int(piece))
 	for off := from; off < to; off += piece {
 		n := piece
 		if rest := to - off; rest < n {
@@ -71,6 +83,24 @@ func wipeRange(t Target, from, to, piece int64) error {
 		}
 	}
 	return nil
+}
+
+// writeRefusedHint explains a device that took no data at all.
+//
+// A write that reports success having moved nothing is what Windows returns
+// for a device that is not ready, and Go turns it into an unexpected end of
+// file -- which reads like a problem with the image rather than the stick.
+// One was traced to a counterfeit drive claiming 58 GB while holding a
+// fraction of that: a plain PowerShell write to it failed the same way, with
+// DSKY nowhere near it.
+func writeRefusedHint(err error) string {
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		return ""
+	}
+	return " — the device accepted no data. That is usually a stick that is" +
+		" failing, counterfeit (claiming more space than it has), or was" +
+		" pulled out. Try another stick, and a port on the machine itself" +
+		" rather than a hub."
 }
 
 // Progress receives stage updates; total is -1 while unknown (compressed
@@ -194,7 +224,7 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 
 	// ── Write ────────────────────────────────────────────────────────────
 	hash := sha256.New()
-	buf := make([]byte, chunkSize)
+	buf := alignedBuffer(chunkSize)
 	var written int64
 	for {
 		if err := ctx.Err(); err != nil {
@@ -213,7 +243,7 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 				return fmt.Errorf("flash: image is larger than %s (%d MiB) — wrong device or truncated stick", dev.ID, devSize>>20)
 			}
 			if _, werr := t.WriteAt(chunk, written); werr != nil {
-				return fmt.Errorf("flash: write failed at %d MiB (device unplugged?): %w", written>>20, werr)
+				return fmt.Errorf("flash: write failed at %d MiB: %w%s", written>>20, werr, writeRefusedHint(werr))
 			}
 			hash.Write(chunk)
 			written += int64(len(chunk))

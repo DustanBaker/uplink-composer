@@ -1,8 +1,11 @@
 package flash
 
 import (
+	"fmt"
 	"io"
+	"strings"
 	"testing"
+	"unsafe"
 )
 
 // fakeTarget records writes so the tail wipe can be checked without a disk.
@@ -80,5 +83,36 @@ func TestWipeTailWritesAlignedPiecesInsideTheDevice(t *testing.T) {
 	none := &tailTarget{size: size, failLargerThan: 1}
 	if err := wipeTail(none, size); err == nil {
 		t.Error("a device that refused every write reported success")
+	}
+}
+
+// Unbuffered writes on Windows must come from sector-aligned memory, and Go's
+// heap gives no such guarantee.
+func TestWriteBuffersAreSectorAligned(t *testing.T) {
+	for _, n := range []int{chunkSize, 1 << 20, 64 << 10, SectorSize} {
+		b := alignedBuffer(n)
+		if len(b) != n {
+			t.Errorf("asked for %d bytes, got %d", n, len(b))
+		}
+		if addr := uintptr(unsafe.Pointer(&b[0])); addr%4096 != 0 {
+			t.Errorf("buffer of %d starts at %#x, not on a 4096-byte boundary", n, addr)
+		}
+	}
+}
+
+// A device that takes no data at all is explained, because "unexpected EOF"
+// reads like a problem with the image rather than with the stick.
+func TestZeroByteWriteIsExplained(t *testing.T) {
+	hint := writeRefusedHint(io.ErrUnexpectedEOF)
+	for _, want := range []string{"accepted no data", "counterfeit", "Try another stick"} {
+		if !strings.Contains(hint, want) {
+			t.Errorf("the explanation does not mention %q: %s", want, hint)
+		}
+	}
+	if writeRefusedHint(io.EOF) != "" {
+		t.Error("an ordinary error was given the counterfeit-stick explanation")
+	}
+	if writeRefusedHint(fmt.Errorf("wrapped: %w", io.ErrUnexpectedEOF)) == "" {
+		t.Error("a wrapped zero-byte write was not recognised")
 	}
 }

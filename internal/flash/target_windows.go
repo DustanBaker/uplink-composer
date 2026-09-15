@@ -39,18 +39,17 @@ func OpenTarget(ctx context.Context, dev device.Device) (Target, error) {
 		windows.GENERIC_READ|windows.GENERIC_WRITE,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		nil, windows.OPEN_EXISTING,
-		// Write-through, but NOT unbuffered. FILE_FLAG_NO_BUFFERING requires
-		// the memory a write comes from to be sector-aligned, and Go's heap
-		// promises no such thing -- a buffer that happens to land unaligned
-		// is refused, and Windows reports it as a write that succeeded
-		// having moved no bytes at all. Go turns that into "unexpected EOF",
-		// which is what writing a stick on Windows did at every offset,
-		// starting with the first.
+		// Unbuffered and write-through. Unbuffered matters most for the
+		// readback: verification reads through this same handle, and a
+		// cached read would confirm what Windows remembered writing rather
+		// than what reached the stick -- a corrupt stick would pass.
 		//
-		// Write-through still reaches the device on every write, and Sync
-		// flushes the handle at the end, so nothing is left sitting in a
-		// cache when the stick is pulled.
-		windows.FILE_FLAG_WRITE_THROUGH, 0)
+		// Unbuffered writes must come from sector-aligned memory, which
+		// alignedBuffer provides. This flag was briefly dropped on the
+		// theory that alignment explained a stick refusing every write; it
+		// did not. That stick was counterfeit, and refused a plain
+		// PowerShell write just as readily.
+		windows.FILE_FLAG_NO_BUFFERING|windows.FILE_FLAG_WRITE_THROUGH, 0)
 	if err != nil {
 		if err == windows.ERROR_ACCESS_DENIED {
 			return nil, ErrNeedsElevation
