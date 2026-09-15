@@ -1545,7 +1545,7 @@ function appsOpt(target = "windows") {
   const items = () => available().map(a => {
     const name = a.name.toLowerCase();
     const nameWords = name.split(/[^a-z0-9]+/).filter(Boolean);
-    const other = ((a.winget || "") + " " + a.category + (a.mine ? " on the stick" : "")).toLowerCase()
+    const other = ((a.winget || "") + " " + a.category + (a.mine ? " your installer" : "")).toLowerCase()
       .split(/[^a-z0-9]+/).filter(Boolean);
     return { spec: a.id, app: a, nameWords, words: nameWords.concat(other), flat: nameWords.join(" ") };
   });
@@ -1555,7 +1555,7 @@ function appsOpt(target = "windows") {
   // winget packages; on Ubuntu the only thing worth saying is when what
   // installs is not obviously the program asked for.
   const appLabels = a => ubuntu ? (a.ubuntu_note ? [a.ubuntu_note] : [])
-                                : (a.mine ? ["on the stick"] : []).concat(a.labels || []);
+                                : (a.mine ? ["your installer"] : []).concat(a.labels || []);
   const setNote = extra => {
     const anyMine = [...picked.keys()].some(k => (state.apps || []).some(a => a.id === k && a.mine));
     note.textContent = extra || (ubuntu
@@ -1658,8 +1658,8 @@ function appsOpt(target = "windows") {
       } else {
         const a = s.m.app;
         const name = el("span", "grow", a.name);
-        if (a.mine) { const t = el("span", "badge ok", "on the stick"); t.style.marginLeft = "6px"; name.append(t); }
-        for (const l of appLabels(a).filter(l => l !== "on the stick")) name.append(el("span", "applabel", l));
+        if (a.mine) { const t = el("span", "badge ok", "your installer"); t.style.marginLeft = "6px"; name.append(t); }
+        for (const l of appLabels(a).filter(l => l !== "your installer")) name.append(el("span", "applabel", l));
         row.append(name);
         // Browsing, the heading above already names the category.
         if (tokens.length) row.append(el("span", "appcatname", a.category));
@@ -2021,7 +2021,11 @@ async function openRecipe(id) {
   const wrap = $("rcFileWrap"), ta = $("rcFile");
   edit.hidden = !os;
   edit.onclick = () => { recipeDialog.close(); openInstall(os, { recipe: d }); };
-  wrap.hidden = true; saveFile.hidden = true; fileBtn.hidden = false;
+  // Editing the file is a last resort -- for a recipe this dialog cannot
+  // represent, or for somebody already in Advanced who wants the YAML. It is
+  // not the way to change a recipe that has an Edit button.
+  wrap.hidden = true; saveFile.hidden = true;
+  fileBtn.hidden = !!os && door !== "advanced";
   ta.value = d.yaml;
   fileBtn.onclick = () => { wrap.hidden = false; fileBtn.hidden = true; edit.hidden = true; saveFile.hidden = false; ta.focus(); };
   saveFile.onclick = async () => {
