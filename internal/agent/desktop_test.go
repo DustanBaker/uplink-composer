@@ -107,3 +107,15 @@ func TestEdgeIsToldNotToPutItsIconBack(t *testing.T) {
 		t.Error("nothing stops Edge recreating its desktop shortcut at its next update")
 	}
 }
+
+// A setting Windows always refuses is not a problem worth reporting to the
+// person at the machine; it is a line that should not be in the list.
+func TestNoSettingWindowsAlwaysRefuses(t *testing.T) {
+	for _, preset := range []string{"standard", "aggressive"} {
+		for _, p := range policiesFor(preset) {
+			if p.Name == "TaskbarDa" {
+				t.Errorf("%s still sets TaskbarDa, which 24H2 refuses to everybody", preset)
+			}
+		}
+	}
+}

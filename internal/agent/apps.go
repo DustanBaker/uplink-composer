@@ -149,6 +149,16 @@ func (a *Agent) installPackage(wg, id, scope string) {
 				a.J.Fail(stepApps, "%s as the signed-in user exited %d", id, code)
 			}
 			return
+		case wingetHashMismatch:
+			// The vendor has shipped since winget's catalog was updated. The
+			// same file comes back on every attempt, so retrying is four
+			// minutes of certain failure; check the vendor's own signature
+			// instead, and stop either way.
+			a.J.Info(stepApps, "%s: winget's catalog is behind the vendor's download (installer hash does not match)", id)
+			if !a.installFromVendor(id, r.Out) {
+				a.J.Fail(stepApps, "could not install %s", id)
+			}
+			return
 		case wingetNoInstaller:
 			a.J.Info(stepApps, "%s has no installer for that scope, trying the next", id)
 		default:

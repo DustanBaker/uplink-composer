@@ -37,3 +37,8 @@ func desktopDirs() []string { return nil }
 
 // keepAwake has nothing to hold off anywhere but Windows.
 func keepAwake() (release func()) { return func() {} }
+
+// verifySignature is Windows' to answer.
+func verifySignature(file string) (status, subject string, err error) {
+	return "", "", errors.New("Authenticode signatures are a Windows feature")
+}

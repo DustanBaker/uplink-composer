@@ -32,9 +32,12 @@ func policiesFor(preset string) []policy {
 		// would undo the sweep on a machine that has been running a while.
 		{Path: `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate`, Name: "CreateDesktopShortcut", DWord: 0},
 		{Path: `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate`, Name: "RemoveDesktopShortcutDefault", DWord: 1},
-		// Widgets and news.
+		// Widgets and news, by policy. Not also by the taskbar's own
+		// TaskbarDa setting: 24H2 and later refuse that write to anybody,
+		// administrator included, so it only ever put "Access is denied" on
+		// the finish screen as a problem for somebody to worry about. The
+		// policy turns widgets off on its own.
 		{Path: `HKLM\SOFTWARE\Policies\Microsoft\Dsh`, Name: "AllowNewsAndInterests", DWord: 0},
-		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarDa", DWord: 0},
 		// Advertising ID and tailored experiences.
 		{Path: `HKLM\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo`, Name: "DisabledByGroupPolicy", DWord: 1},
 		// Telemetry to the Pro floor; 0 is Enterprise-only and is ignored

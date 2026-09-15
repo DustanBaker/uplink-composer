@@ -454,3 +454,36 @@ func keepAwake() (release func()) {
 	var once sync.Once
 	return func() { once.Do(func() { close(done) }) }
 }
+
+// verifySignature asks Windows whether a file's Authenticode signature holds,
+// and who signed it. A fixed script handed the path as an argument, so nothing
+// is quoted into a command line.
+func verifySignature(file string) (status, subject string, err error) {
+	script := filepath.Join(os.TempDir(), "dsky-signature.ps1")
+	body := "param([Parameter(Mandatory=$true)][string]$Path)\r\n" +
+		"$s = Get-AuthenticodeSignature -LiteralPath $Path\r\n" +
+		"Write-Output ('STATUS ' + $s.Status)\r\n" +
+		"if ($s.SignerCertificate) { Write-Output ('SIGNER ' + $s.SignerCertificate.Subject) }\r\n"
+	if err := os.WriteFile(script, append([]byte("\xef\xbb\xbf"), body...), 0o644); err != nil {
+		return "", "", err
+	}
+	defer os.Remove(script)
+	r := run(5*time.Minute, "powershell", "-NoProfile", "-NonInteractive",
+		"-ExecutionPolicy", "Bypass", "-File", script, "-Path", file)
+	if r.Err != nil {
+		return "", "", r.Err
+	}
+	for _, ln := range strings.Split(r.Out, "\n") {
+		ln = strings.TrimSpace(ln)
+		switch {
+		case strings.HasPrefix(ln, "STATUS "):
+			status = strings.TrimPrefix(ln, "STATUS ")
+		case strings.HasPrefix(ln, "SIGNER "):
+			subject = strings.TrimPrefix(ln, "SIGNER ")
+		}
+	}
+	if status == "" {
+		return "", "", fmt.Errorf("no answer from Get-AuthenticodeSignature: %s", trimOut(r.Out))
+	}
+	return status, subject, nil
+}

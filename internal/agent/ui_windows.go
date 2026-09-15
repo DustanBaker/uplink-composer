@@ -82,6 +82,7 @@ const (
 	dtLeft        = 0x0000
 	dtWordBreak   = 0x0010
 	dtNoPrefix    = 0x0800
+	dtCalcRect    = 0x0400
 	transparent   = 1
 	idcArrow      = 32512
 	firstButtonID = 1000
@@ -363,6 +364,10 @@ func (w *win32Window) paint() {
 	const left = 80
 	y := int32(90)
 
+	// Each line is measured before it is drawn, and the next starts below
+	// however many lines it wrapped to. Advancing by a fixed height drew a
+	// long failure -- a registry path and "Access is denied." -- over the
+	// line after it, on the one screen that most needs to be readable.
 	draw := func(text string, font windows.Handle, colour uintptr, height int32) {
 		if text == "" {
 			y += height
@@ -370,10 +375,20 @@ func (w *win32Window) paint() {
 		}
 		pSelectObject.Call(hdc, uintptr(font))
 		pSetTextColor.Call(hdc, colour)
-		r := rect{left, y, rc.right - left, y + height*3}
-		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(text))), ^uintptr(0),
+		txt := windows.StringToUTF16Ptr(text)
+		measure := rect{left, y, rc.right - left, y}
+		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(txt)), ^uintptr(0),
+			uintptr(unsafe.Pointer(&measure)), dtLeft|dtWordBreak|dtNoPrefix|dtCalcRect)
+		r := rect{left, y, rc.right - left, measure.bottom}
+		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(txt)), ^uintptr(0),
 			uintptr(unsafe.Pointer(&r)), dtLeft|dtWordBreak|dtNoPrefix)
-		y += height
+		used := measure.bottom - measure.top
+		gap := height - lineHeight(height)
+		if used+gap > height {
+			y += used + gap
+		} else {
+			y += height
+		}
 	}
 
 	draw(heading, w.big, colHeading, 70)
@@ -433,3 +448,7 @@ func stepTitle(step string) string {
 		return step
 	}
 }
+
+// lineHeight is roughly one line of text for a row of the given spacing, so
+// the gap under a wrapped line matches the gap under an unwrapped one.
+func lineHeight(rowSpacing int32) int32 { return rowSpacing * 3 / 4 }
