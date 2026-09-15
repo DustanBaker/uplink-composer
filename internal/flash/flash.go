@@ -37,6 +37,26 @@ const chunkSize = 4 << 20
 // headers from the stick's previous life confuse firmware).
 const tailWipe = 2 << 20
 
+// wipeTail zeroes the end of the device in aligned pieces.
+//
+// In pieces because a raw device handle is not a file: Windows opens it
+// unbuffered, where every request has to be a whole number of sectors, and
+// drivers differ in how large a single request they will take. A megabyte at
+// a time is comfortable for all of them and still only two writes.
+func wipeTail(t Target, devSize int64) error {
+	zeros := make([]byte, 1<<20)
+	for off := devSize - tailWipe; off < devSize; off += int64(len(zeros)) {
+		n := int64(len(zeros))
+		if rest := devSize - off; rest < n {
+			n = rest
+		}
+		if _, err := t.WriteAt(zeros[:n], off); err != nil {
+			return fmt.Errorf("%d bytes at offset %d of %d: %w", n, off, devSize, err)
+		}
+	}
+	return nil
+}
+
 // Progress receives stage updates; total is -1 while unknown (compressed
 // sources).
 type Progress func(stage string, done, total int64)
@@ -129,8 +149,6 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 		return fmt.Errorf("flash: artifact is %d MiB but %s holds only %d MiB", total>>20, dev.ID, devSize>>20)
 	}
 
-	clearForWrite(t)
-
 	// ── Tail wipe (stale GPT backup headers) ─────────────────────────────
 	// Done BEFORE the image write: once the new partition table lands,
 	// Windows re-enumerates the disk and blocks late raw writes near the
@@ -138,10 +156,18 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 	// this point the old table is still in place and every old volume is
 	// locked, so end-of-disk writes are permitted. The image write may
 	// later overlap this region harmlessly.
-	zeros := make([]byte, tailWipe)
-	if _, err := t.WriteAt(zeros, devSize-tailWipe); err != nil {
+	//
+	// Also before deleting the partition table, not after: on Windows a
+	// build stopped here with "unexpected EOF" writing the last two
+	// megabytes, straight after IOCTL_DISK_DELETE_DRIVE_LAYOUT. Deleting
+	// the layout makes Windows re-read the disk, and a write issued into
+	// that moment is refused. Nothing needs the table gone first: the wipe
+	// only zeroes bytes.
+	if err := wipeTail(t, devSize); err != nil {
 		return fmt.Errorf("flash: wiping stale partition data at end of device: %w", err)
 	}
+
+	clearForWrite(t)
 
 	// ── Write ────────────────────────────────────────────────────────────
 	hash := sha256.New()
