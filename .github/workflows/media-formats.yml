@@ -117,21 +117,22 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          ./build-agent.sh ci
+          bash ./build-agent.sh ci
           go build -o dsky-agent.exe ./cmd/dsky-agent
           $d = "C:\agenttest"
           New-Item -ItemType Directory -Force $d | Out-Null
           Copy-Item dsky-agent.exe $d
           # A pack that unpacks nothing, the failure that started all of this:
-          # cmd.exe standing in for a vendor extractor that prints usage and
-          # exits 0. The agent must call that a failure, not a success.
-          @'
-          {"version":1,"recipe":"ci","steps":["drivers","debloat","apps"],
-           "drivers":{"sweep":true,"extracts":[
-             {"file":"pack.cmd","dir":"p","args":["/c","echo Usage: /s /e /f"],"alt_args":["/c","echo Usage: /s /e /f"]}]},
-           "debloat":{"preset":"standard","apps":["DSKY.NoSuchApp"]},
-           "apps":{"winget":[],"installers":[]}}
-'@ | Set-Content -Encoding UTF8 "$d\dsky-agent.json"
+          # cmd.exe standing in for a vendor extractor that prints its usage
+          # and exits 0. The agent must call that a failure, not a success.
+          $manifest = @{
+            version = 1; recipe = "ci"; steps = @("drivers")
+            drivers = @{
+              sweep = $true
+              extracts = @(@{ file = "pack.cmd"; dir = "p"; args = @("/c", "echo Usage"); alt_args = @("/c", "echo Usage") })
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 "$d\dsky-agent.json"
           Copy-Item C:\Windows\System32\cmd.exe "$d\pack.cmd"
           & "$d\dsky-agent.exe" apply $d
           $log = Get-Content "$d\firstboot.log" -Raw
@@ -140,11 +141,9 @@ jobs:
             if ($log -notmatch [regex]::Escape($want)) { throw "the agent did not report: $want" }
           }
           if ($log -match 'pnputil added') { throw "the agent ran pnputil with nothing to install" }
-          # The machine-readable log must carry the same failure.
           if ((Get-Content "$d\dsky-agent.jsonl" -Raw) -notmatch '"level":"FAILED"') {
             throw "the failure is missing from the event log"
           }
-          # And the check must report the machine as not matching the build.
           & "$d\dsky-agent.exe" verify $d
           if ($LASTEXITCODE -eq 0) { throw "the check passed a machine with no drivers" }
           "agent: reported the empty pack as a failure, skipped pnputil, and the check agreed"
