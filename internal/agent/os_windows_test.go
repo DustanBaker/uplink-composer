@@ -19,7 +19,8 @@ func TestTaskXMLAsksForAStandardUserToken(t *testing.T) {
 		"<RunLevel>LeastPrivilege</RunLevel>",
 		"<LogonType>InteractiveToken</LogonType>",
 		"<UserId>CORP\\user</UserId>",
-		`user-install "C:\job.json" "C:\res.json"`,
+		// The arguments are XML-escaped; schtasks reads this as a document.
+		`user-install &quot;C:\job.json&quot; &quot;C:\res.json&quot;`,
 	} {
 		if !strings.Contains(x, want) {
 			t.Errorf("the task description is missing %q", want)
@@ -76,20 +77,19 @@ func TestSetPolicyWritesTheRegistry(t *testing.T) {
 
 // The files the two copies pass between them must live where a standard user
 // can write. C:\Windows\Setup\Scripts, where the agent itself lives, is
-// read-only for one, which would fail the install for the one reason this
-// path exists to avoid.
-func TestUserJobFilesAreWritableByAStandardUser(t *testing.T) {
-	a := &Agent{Dir: `C:\Windows\Setup\Scripts`}
-	// runAsSignedInUser fails early here (no task scheduler in a test), but
-	// it writes the job file first, and where it writes is the point.
-	a.J, _ = OpenJournal(t.TempDir())
-	_, _ = a.runAsSignedInUser("cmd.exe", []string{"/c", "exit 0"})
-	job := filepath.Join(os.TempDir(), "dsky-user-job.json")
-	if _, err := os.Stat(job); err != nil {
-		t.Errorf("the job was not written to the user's temp directory: %v", err)
+// read-only for one of them, which would fail the install for the one reason
+// this path exists to avoid.
+func TestUserHandoffFilesAreWritableByAStandardUser(t *testing.T) {
+	job, res, task := userHandoffPaths()
+	for _, p := range []string{job, res, task} {
+		if strings.Contains(strings.ToLower(p), `\windows\setup\scripts`) {
+			t.Errorf("%s is beside the agent, where a standard user cannot write", p)
+		}
+	}
+	// The directory must actually take a file: this is the check that would
+	// have caught the first version.
+	if err := os.WriteFile(job, []byte("{}"), 0o644); err != nil {
+		t.Errorf("writing the job: %v", err)
 	}
 	os.Remove(job)
-	if _, err := os.Stat(filepath.Join(`C:\Windows\Setup\Scripts`, "dsky-user-job.json")); err == nil {
-		t.Error("the job was written beside the agent, where a standard user cannot write")
-	}
 }
