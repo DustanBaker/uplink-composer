@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -209,5 +210,43 @@ func waitForButtons(s *screen) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// After a restart the checklist still shows what was done before it, marked
+// done, rather than starting from the step it resumed on.
+func TestAResumedRunStillListsWhatWasDoneBefore(t *testing.T) {
+	s := testScreen()
+	prev := openScreenFn
+	openScreenFn = func(string) *screen { return s }
+	t.Cleanup(func() { openScreenFn = prev })
+
+	dir := t.TempDir()
+	m := &Manifest{Version: ManifestVersion, Recipe: "windows-11", Steps: []string{"drivers", "debloat"},
+		Debloat: &Debloat{Preset: "standard"}}
+	if err := m.Save(filepath.Join(dir, ManifestName)); err != nil {
+		t.Fatal(err)
+	}
+	st := LoadState(dir)
+	st.Finish("drivers") // done before the machine went down
+
+	f := &fakeRun{}
+	f.install(t)
+	go func() { waitForButtons(s); s.clicked <- 0 }() // press Finish when it appears
+	if err := Apply(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var names []string
+	for _, st := range s.steps {
+		names = append(names, st.Name)
+		if st.Name == "drivers" && st.State != stepDone {
+			t.Errorf("drivers, finished before the restart, is shown in state %v", st.State)
+		}
+	}
+	if len(names) < 2 || names[0] != "drivers" {
+		t.Errorf("the checklist after a restart is %v; the drivers done before it are missing", names)
 	}
 }

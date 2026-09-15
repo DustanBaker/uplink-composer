@@ -83,6 +83,12 @@ func Apply(dir string) error {
 	for _, step := range m.Steps {
 		if a.State.Finished(step) {
 			a.J.Info(step, "already done on an earlier boot, skipping")
+			// Still on the checklist. Watched in the VM after a crash, the
+			// window came back listing only the step it resumed, and the
+			// drivers and removal done before the restart had vanished --
+			// which reads as never having happened.
+			a.UI.Doing(step, "")
+			a.UI.Finished(step, 0)
 			continue
 		}
 		before := len(a.J.Failures())
