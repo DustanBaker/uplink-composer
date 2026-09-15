@@ -16,6 +16,8 @@ func (a *Agent) ensureResume() error { return nil }
 
 func (a *Agent) clearResume() {}
 
+func (a *Agent) disarmAutoLogon() {}
+
 func (a *Agent) restart(reason string) error { return nil }
 
 func (a *Agent) runAsSignedInUser(exe string, args []string) (int, error) {

@@ -104,6 +104,7 @@ func (a *Agent) extractPack(ex Extract, driversDir string) {
 	}
 	dest := filepath.Join(driversDir, ex.Dir)
 	os.MkdirAll(dest, 0o755)
+	a.UI.Detail("unpacking " + ex.File)
 
 	attempts := [][]string{ex.Args}
 	if len(ex.AltArgs) > 0 {
@@ -136,6 +137,7 @@ func (a *Agent) sweep(driversDir string) {
 		return
 	}
 	a.J.Info(stepDrivers, "installing %d driver file(s) with pnputil", n)
+	a.UI.Detail("installing " + itoa(n) + " driver files (this is the long part)")
 	r := run(60*time.Minute, "pnputil", "/add-driver", filepath.Join(driversDir, "*.inf"), "/subdirs", "/install")
 	a.J.Raw(r.Out)
 	added := strings.Count(r.Out, "Driver package added successfully")

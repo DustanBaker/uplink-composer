@@ -4,10 +4,12 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf16"
 
@@ -51,6 +53,42 @@ func (a *Agent) clearResume() {
 	if r := run(2*time.Minute, "schtasks", "/delete", "/tn", resumeTask, "/f"); !r.ok() {
 		a.J.Info("", "could not remove the %s task: %s", resumeTask, trimOut(r.Out))
 	}
+}
+
+// disarmAutoLogon takes away the automatic sign-in the answer file set up for
+// provisioning, and the password it stored to do it.
+//
+// The answer file asks for enough automatic sign-ins to cover the first boot
+// and the restarts the agent may need. Windows spends them by counting down,
+// so a machine that finishes in one boot would keep the rest -- signing itself
+// in, with the password still in the registry, on the next machine's owner's
+// first two boots. Provisioning arms this; provisioning puts it away.
+func (a *Agent) disarmAutoLogon() {
+	const path = `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.SET_VALUE)
+	if err != nil {
+		a.J.Info("", "could not open Winlogon to turn off the automatic sign-in: %v", err)
+		return
+	}
+	defer k.Close()
+	cleared := 0
+	for _, name := range []string{"AutoAdminLogon", "AutoLogonCount", "DefaultPassword"} {
+		switch err := k.DeleteValue(name); {
+		case err == nil:
+			cleared++
+		case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_FILE_NOT_FOUND):
+			// Never set, or Windows has already spent it.
+		default:
+			a.J.Info("", "could not clear %s: %v", name, err)
+		}
+	}
+	// AutoAdminLogon is the switch; without it Windows asks for a password
+	// whatever else is left behind.
+	if err := k.SetStringValue("AutoAdminLogon", "0"); err != nil {
+		a.J.Info("", "could not turn the automatic sign-in off: %v", err)
+		return
+	}
+	a.J.Info("", "automatic sign-in turned off (%d value(s) cleared); this machine asks for a password from now on", cleared)
 }
 
 // restart asks Windows to go down, with enough warning that somebody standing

@@ -1,0 +1,435 @@
+//go:build windows
+
+package agent
+
+import (
+	"errors"
+	"runtime"
+	"sync"
+	"syscall"
+	"time"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+// The window, in plain Win32 calls.
+//
+// No toolkit: the agent is one static binary that Windows Setup copies onto a
+// machine with nothing installed on it, and it stays that way. This is the
+// only user interface DSKY puts on an imaged machine, and it is worth about
+// three hundred lines to have the machine say what it is doing rather than
+// look broken.
+
+var (
+	user32   = windows.NewLazySystemDLL("user32.dll")
+	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
+	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+
+	pRegisterClassExW = user32.NewProc("RegisterClassExW")
+	pCreateWindowExW  = user32.NewProc("CreateWindowExW")
+	pDefWindowProcW   = user32.NewProc("DefWindowProcW")
+	pShowWindow       = user32.NewProc("ShowWindow")
+	pUpdateWindow     = user32.NewProc("UpdateWindow")
+	pGetMessageW      = user32.NewProc("GetMessageW")
+	pTranslateMessage = user32.NewProc("TranslateMessage")
+	pDispatchMessageW = user32.NewProc("DispatchMessageW")
+	pPostQuitMessage  = user32.NewProc("PostQuitMessage")
+	pDestroyWindow    = user32.NewProc("DestroyWindow")
+	pInvalidateRect   = user32.NewProc("InvalidateRect")
+	pBeginPaint       = user32.NewProc("BeginPaint")
+	pEndPaint         = user32.NewProc("EndPaint")
+	pFillRect         = user32.NewProc("FillRect")
+	pDrawTextW        = user32.NewProc("DrawTextW")
+	pGetSystemMetrics = user32.NewProc("GetSystemMetrics")
+	pPostMessageW     = user32.NewProc("PostMessageW")
+	pSendMessageW     = user32.NewProc("SendMessageW")
+	pLoadCursorW      = user32.NewProc("LoadCursorW")
+	pSetForegroundWin = user32.NewProc("SetForegroundWindow")
+	pGetClientRect    = user32.NewProc("GetClientRect")
+	pMoveWindow       = user32.NewProc("MoveWindow")
+
+	pCreateFontW      = gdi32.NewProc("CreateFontW")
+	pCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
+	pSelectObject     = gdi32.NewProc("SelectObject")
+	pSetBkMode        = gdi32.NewProc("SetBkMode")
+	pSetTextColor     = gdi32.NewProc("SetTextColor")
+	pDeleteObject     = gdi32.NewProc("DeleteObject")
+
+	pGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
+)
+
+const (
+	wsPopup       = 0x80000000
+	wsVisible     = 0x10000000
+	wsChild       = 0x40000000
+	wsExTopmost   = 0x00000008
+	wsExNoActive  = 0x08000000
+	bsPushButton  = 0x00000000
+	swShow        = 5
+	swHide        = 0
+	wmDestroy     = 0x0002
+	wmPaint       = 0x000F
+	wmClose       = 0x0010
+	wmCommand     = 0x0111
+	wmTimer       = 0x0113
+	wmKeyDown     = 0x0100
+	wmSetFont     = 0x0030
+	wmApp         = 0x8000
+	vkEscape      = 0x1B
+	smCXScreen    = 0
+	smCYScreen    = 1
+	dtLeft        = 0x0000
+	dtWordBreak   = 0x0010
+	dtNoPrefix    = 0x0800
+	transparent   = 1
+	idcArrow      = 32512
+	firstButtonID = 1000
+)
+
+type rect struct{ left, top, right, bottom int32 }
+
+type wndclassexw struct {
+	size       uint32
+	style      uint32
+	wndProc    uintptr
+	clsExtra   int32
+	wndExtra   int32
+	instance   windows.Handle
+	icon       windows.Handle
+	cursor     windows.Handle
+	background windows.Handle
+	menuName   *uint16
+	className  *uint16
+	iconSm     windows.Handle
+}
+
+type msgw struct {
+	hwnd    windows.HWND
+	message uint32
+	wParam  uintptr
+	lParam  uintptr
+	time    uint32
+	pt      struct{ x, y int32 }
+}
+
+type paintstruct struct {
+	hdc         windows.Handle
+	erase       int32
+	paint       rect
+	restore     int32
+	incUpdate   int32
+	rgbReserved [32]byte
+}
+
+// win32Window is the window itself. There is only ever one, so the window
+// procedure reaches it through a package variable.
+type win32Window struct {
+	hwnd    windows.HWND
+	screen  *screen
+	buttons []windows.HWND
+
+	big, mid, small windows.Handle // fonts
+	bg              windows.Handle // background brush
+
+	ready chan error
+	once  sync.Once
+}
+
+var theWindow *win32Window
+
+// colours, as 0x00BBGGRR.
+const (
+	colBG      = 0x00140F0C // near-black, faintly blue
+	colHeading = 0x00FFFFFF
+	colBody    = 0x00D8D8D8
+	colDim     = 0x00909090
+	colOK      = 0x0060C060
+	colProblem = 0x004060E0
+)
+
+// newWindow starts the window on a thread of its own and waits to hear
+// whether it came up. A machine with no desktop -- which is not how the agent
+// runs, but may be how somebody runs it by hand -- gets no window and no
+// error that stops the work.
+func newWindow(s *screen) (window, error) {
+	w := &win32Window{screen: s, ready: make(chan error, 1)}
+	go w.loop()
+	select {
+	case err := <-w.ready:
+		if err != nil {
+			return nil, err
+		}
+		return w, nil
+	case <-time.After(20 * time.Second):
+		return nil, errors.New("the status window did not open")
+	}
+}
+
+// loop owns the window: it is created, drawn and destroyed on this one thread,
+// which is what Windows requires of a message loop.
+func (w *win32Window) loop() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	if err := w.create(); err != nil {
+		w.ready <- err
+		return
+	}
+	theWindow = w
+	w.ready <- nil
+
+	var m msgw
+	for {
+		r, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+		if int32(r) <= 0 {
+			break
+		}
+		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
+		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
+	}
+	w.screen.dismissed()
+}
+
+func (w *win32Window) create() error {
+	inst, _, _ := pGetModuleHandleW.Call(0)
+	class := windows.StringToUTF16Ptr("DSKYStatus")
+	cursor, _, _ := pLoadCursorW.Call(0, uintptr(idcArrow))
+	brush, _, _ := pCreateSolidBrush.Call(colBG)
+	w.bg = windows.Handle(brush)
+
+	wc := wndclassexw{
+		size:       uint32(unsafe.Sizeof(wndclassexw{})),
+		wndProc:    syscall.NewCallback(wndProc),
+		instance:   windows.Handle(inst),
+		cursor:     windows.Handle(cursor),
+		background: w.bg,
+		className:  class,
+	}
+	if r, _, err := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
+		return err
+	}
+	cx, _, _ := pGetSystemMetrics.Call(smCXScreen)
+	cy, _, _ := pGetSystemMetrics.Call(smCYScreen)
+	if cx == 0 || cy == 0 {
+		return errors.New("no screen to draw on")
+	}
+	hwnd, _, err := pCreateWindowExW.Call(
+		wsExTopmost,
+		uintptr(unsafe.Pointer(class)),
+		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("DSKY"))),
+		wsPopup|wsVisible,
+		0, 0, cx, cy,
+		0, 0, uintptr(inst), 0)
+	if hwnd == 0 {
+		return err
+	}
+	w.hwnd = windows.HWND(hwnd)
+	w.big = w.font(-44, 600)
+	w.mid = w.font(-22, 400)
+	w.small = w.font(-17, 400)
+
+	pShowWindow.Call(hwnd, swShow)
+	pUpdateWindow.Call(hwnd)
+	pSetForegroundWin.Call(hwnd)
+	// A second hand, so "installing drivers" shows how long it has been
+	// installing drivers rather than looking stuck.
+	user32.NewProc("SetTimer").Call(hwnd, 1, 1000, 0)
+	return nil
+}
+
+func (w *win32Window) font(height int32, weight int32) windows.Handle {
+	h, _, _ := pCreateFontW.Call(
+		uintptr(height), 0, 0, 0, uintptr(weight), 0, 0, 0,
+		1 /*DEFAULT_CHARSET*/, 0, 0, 4 /*CLEARTYPE_QUALITY*/, 0,
+		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("Segoe UI"))))
+	return windows.Handle(h)
+}
+
+// refresh is called from the agent's own goroutines: it only asks the window
+// thread to repaint, and never touches the window itself.
+func (w *win32Window) refresh() {
+	if w == nil || w.hwnd == 0 {
+		return
+	}
+	pPostMessageW.Call(uintptr(w.hwnd), wmApp, 0, 0)
+}
+
+func (w *win32Window) close() {
+	if w == nil || w.hwnd == 0 {
+		return
+	}
+	w.once.Do(func() { pPostMessageW.Call(uintptr(w.hwnd), wmClose, 0, 0) })
+}
+
+func wndProc(hwnd windows.HWND, message uint32, wParam, lParam uintptr) uintptr {
+	w := theWindow
+	switch message {
+	case wmApp, wmTimer:
+		if w != nil {
+			w.syncButtons()
+		}
+		pInvalidateRect.Call(uintptr(hwnd), 0, 1)
+		return 0
+	case wmPaint:
+		if w != nil {
+			w.paint()
+		}
+		return 0
+	case wmCommand:
+		id := int(wParam & 0xFFFF)
+		if w != nil && id >= firstButtonID {
+			select {
+			case w.screen.clicked <- id - firstButtonID:
+			default:
+			}
+		}
+		return 0
+	case wmKeyDown:
+		// Esc puts the window out of the way. It never stops the work --
+		// there is nothing here that should be cancellable by a keypress on
+		// a machine being built.
+		if wParam == vkEscape {
+			pShowWindow.Call(uintptr(hwnd), swHide)
+		}
+		return 0
+	case wmClose:
+		pDestroyWindow.Call(uintptr(hwnd))
+		return 0
+	case wmDestroy:
+		pPostQuitMessage.Call(0)
+		return 0
+	}
+	r, _, _ := pDefWindowProcW.Call(uintptr(hwnd), uintptr(message), wParam, lParam)
+	return r
+}
+
+// syncButtons makes the real buttons match what the screen is asking for.
+func (w *win32Window) syncButtons() {
+	w.screen.mu.Lock()
+	want := append([]string(nil), w.screen.buttons...)
+	w.screen.mu.Unlock()
+
+	if len(want) == len(w.buttons) {
+		return
+	}
+	for _, b := range w.buttons {
+		pDestroyWindow.Call(uintptr(b))
+	}
+	w.buttons = nil
+
+	var rc rect
+	pGetClientRect.Call(uintptr(w.hwnd), uintptr(unsafe.Pointer(&rc)))
+	const bw, bh, gap = 260, 56, 24
+	x := int32(80)
+	y := rc.bottom - bh - 80
+	inst, _, _ := pGetModuleHandleW.Call(0)
+	for i, label := range want {
+		h, _, _ := pCreateWindowExW.Call(0,
+			uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("BUTTON"))),
+			uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))),
+			wsChild|wsVisible|bsPushButton,
+			uintptr(x+int32(i)*(bw+gap)), uintptr(y), bw, bh,
+			uintptr(w.hwnd), uintptr(firstButtonID+i), uintptr(inst), 0)
+		if h == 0 {
+			continue
+		}
+		pSendMessageW.Call(h, wmSetFont, uintptr(w.mid), 1)
+		w.buttons = append(w.buttons, windows.HWND(h))
+	}
+}
+
+// paint draws the whole screen every time. There is nothing here worth the
+// complication of drawing only what changed.
+func (w *win32Window) paint() {
+	var ps paintstruct
+	hdc, _, _ := pBeginPaint.Call(uintptr(w.hwnd), uintptr(unsafe.Pointer(&ps)))
+	defer pEndPaint.Call(uintptr(w.hwnd), uintptr(unsafe.Pointer(&ps)))
+
+	var rc rect
+	pGetClientRect.Call(uintptr(w.hwnd), uintptr(unsafe.Pointer(&rc)))
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), uintptr(w.bg))
+	pSetBkMode.Call(hdc, transparent)
+
+	s := w.screen
+	s.mu.Lock()
+	heading, sub, machine := s.heading, s.sub, s.machine
+	steps := append([]stepLine(nil), s.steps...)
+	note := s.note
+	summary := append([]string(nil), s.summary...)
+	finished := s.finished
+	s.mu.Unlock()
+
+	const left = 80
+	y := int32(90)
+
+	draw := func(text string, font windows.Handle, colour uintptr, height int32) {
+		if text == "" {
+			y += height
+			return
+		}
+		pSelectObject.Call(hdc, uintptr(font))
+		pSetTextColor.Call(hdc, colour)
+		r := rect{left, y, rc.right - left, y + height*3}
+		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(text))), ^uintptr(0),
+			uintptr(unsafe.Pointer(&r)), dtLeft|dtWordBreak|dtNoPrefix)
+		y += height
+	}
+
+	draw(heading, w.big, colHeading, 70)
+	draw(sub, w.mid, colDim, 56)
+
+	if !finished && machine != "" {
+		draw(machine, w.small, colDim, 44)
+	}
+
+	for _, st := range steps {
+		mark, colour := "  ", uintptr(colBody)
+		switch st.State {
+		case stepDone:
+			mark, colour = "OK  ", colOK
+		case stepProblem:
+			mark, colour = "!   ", colProblem
+		case stepDoing:
+			mark = "... "
+		}
+		line := mark + stepTitle(st.Name)
+		if st.State == stepDoing {
+			line += "  (" + shortDur(time.Since(st.Started)) + ")"
+		}
+		if st.Detail != "" {
+			line += " - " + st.Detail
+		}
+		draw(line, w.mid, colour, 40)
+	}
+
+	for _, l := range summary {
+		draw(l, w.mid, colBody, 40)
+	}
+
+	if note != "" {
+		y += 20
+		draw(note, w.mid, colHeading, 46)
+	}
+
+	// The way out, said quietly, at the bottom.
+	pSelectObject.Call(hdc, uintptr(w.small))
+	pSetTextColor.Call(hdc, colDim)
+	hint := rect{left, rc.bottom - 40, rc.right - left, rc.bottom - 10}
+	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("Press Esc to hide this window. The work carries on either way."))),
+		^uintptr(0), uintptr(unsafe.Pointer(&hint)), dtLeft|dtNoPrefix)
+}
+
+// stepTitle is the step's name in the words somebody at the machine would use.
+func stepTitle(step string) string {
+	switch step {
+	case stepDrivers:
+		return "Drivers"
+	case stepDebloat:
+		return "Removing preinstalled extras"
+	case stepApps:
+		return "Installing programs"
+	default:
+		return step
+	}
+}

@@ -348,3 +348,69 @@ func parseTask(x string, into any) error {
 	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 	return d.Decode(into)
 }
+
+// The automatic sign-in is arranged for provisioning and put away by it. A
+// machine that finishes must not keep signing itself in, with the password
+// the answer file stored still in the registry, on its owner's next boots.
+func TestAFinishedMachineStopsSigningItselfIn(t *testing.T) {
+	dir := t.TempDir()
+	stageINF(t, dir)
+	res := &fakeResume{}
+	res.install(t)
+	var cleared, disarmed int
+	pc, pd := clearResumeFn, disarmAutoLogonFn
+	clearResumeFn = func(a *Agent) { cleared++ }
+	disarmAutoLogonFn = func(a *Agent) { disarmed++ }
+	t.Cleanup(func() { clearResumeFn, disarmAutoLogonFn = pc, pd })
+
+	f := &fakeRun{}
+	f.install(t)
+	m := driversThenDebloat()
+	if err := m.Save(filepath.Join(dir, ManifestName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(dir); err != nil {
+		t.Fatal(err)
+	}
+	if cleared != 1 || disarmed != 1 {
+		t.Fatalf("at the end of the work: resume task cleared %d time(s), automatic sign-in put away %d time(s); want 1 and 1",
+			cleared, disarmed)
+	}
+}
+
+// On the way into a restart it must do neither: the machine needs the
+// automatic sign-in to come back, and the task to carry on when it does.
+func TestARestartKeepsWhatItNeedsToComeBack(t *testing.T) {
+	dir := t.TempDir()
+	stageINF(t, dir)
+	res := &fakeResume{}
+	res.install(t)
+	var cleared, disarmed int
+	pc, pd := clearResumeFn, disarmAutoLogonFn
+	clearResumeFn = func(a *Agent) { cleared++ }
+	disarmAutoLogonFn = func(a *Agent) { disarmed++ }
+	t.Cleanup(func() { clearResumeFn, disarmAutoLogonFn = pc, pd })
+
+	f := &fakeRun{}
+	f.do = func(name string, args []string) (result, error) {
+		if name == "pnputil" {
+			return result{Code: pnputilRebootNeeded, Out: "Driver package added successfully."}, nil
+		}
+		return result{}, nil
+	}
+	f.install(t)
+	m := driversThenDebloat()
+	if err := m.Save(filepath.Join(dir, ManifestName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(dir); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.restarts) != 1 {
+		t.Fatalf("expected a restart, got %d", len(res.restarts))
+	}
+	if cleared != 0 || disarmed != 0 {
+		t.Errorf("on the way into a restart the machine lost what it needs to come back: cleared %d, disarmed %d",
+			cleared, disarmed)
+	}
+}

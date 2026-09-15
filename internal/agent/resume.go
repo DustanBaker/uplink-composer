@@ -1,6 +1,9 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Provisioning outlives a single sign-in. Windows asks for a restart after a
 // driver sweep, machines crash part way through -- an HP EliteBook bugchecked
@@ -19,15 +22,24 @@ import "strings"
 // machine that is behaving oddly.
 const resumeTask = "DSKY-resume"
 
-// restartDelaySeconds is how long Windows warns before going down, and how
-// long somebody standing at the machine has to run `shutdown /a`.
-const restartDelaySeconds = 30
+// restartDelaySeconds is how long Windows warns before going down, once the
+// decision is made, and how long somebody has to run `shutdown /a`.
+const restartDelaySeconds = 10
+
+// restartCountdown is how long the screen counts down in front of whoever is
+// standing there before restarting on its own.
+const restartCountdown = 60 * time.Second
 
 // maxReboots bounds the restarts one build may ask for. Two covers the driver
 // sweep asking and something later asking again; a third would mean a step
 // that always asks, and looping a machine is worse than finishing without the
 // restart.
 const maxReboots = 2
+
+// MaxRestarts is maxReboots for the answer file's sake: the number of
+// automatic sign-ins it must ask for, beyond the first boot, so a machine the
+// agent restarts comes back and carries on.
+const MaxRestarts = maxReboots
 
 // resumeTaskXML describes the task: at sign-in, elevated, once, with no time
 // limit, and not held back by running on battery -- a laptop part way through
@@ -87,9 +99,21 @@ func resumeTaskXML(user, exe, dir string) string {
 // reached through variables so a test can watch them: arranging to be started
 // again, and taking the machine down.
 var (
-	ensureResumeFn = (*Agent).ensureResume
-	restartFn      = (*Agent).restart
+	ensureResumeFn    = (*Agent).ensureResume
+	restartFn         = (*Agent).restart
+	clearResumeFn     = (*Agent).clearResume
+	disarmAutoLogonFn = (*Agent).disarmAutoLogon
 )
+
+// finishUp is what the agent does once there is nothing left to carry on
+// with: stop asking to be started again, and put away the automatic sign-in
+// that was arranged so provisioning could get this far. Both only happen at
+// the real end of the work -- never on the way into a restart, where the
+// machine still needs both of them to come back.
+func (a *Agent) finishUp() {
+	clearResumeFn(a)
+	disarmAutoLogonFn(a)
+}
 
 // restartAndResume restarts the machine and reports whether this run is over.
 //
@@ -111,9 +135,17 @@ func (a *Agent) restartAndResume() bool {
 		a.J.FailDetail("", "not restarting: the machine would not carry on by itself afterwards", err.Error())
 		return false
 	}
+	// In front of whoever is there. Nobody there means the countdown runs
+	// out and the machine restarts, which is what a bench of machines being
+	// built unattended needs.
+	switch a.UI.AskRestart(reason, restartCountdown) {
+	case choiceNow:
+		a.J.Info("", "%s; restarting now, at the operator's say-so", reason)
+	default:
+		a.J.Info("", "%s; restarting and carrying on at the next sign-in", reason)
+	}
+	a.UI.Restarting(reason)
 	a.State.CountReboot()
-	a.J.Info("", "%s; restarting in %d seconds and carrying on at the next sign-in (run `shutdown /a` to stop it)",
-		reason, restartDelaySeconds)
 	if err := restartFn(a, reason); err != nil {
 		a.J.FailDetail("", "could not restart the machine, carrying on without the restart", err.Error())
 		return false

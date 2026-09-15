@@ -1,0 +1,208 @@
+package agent
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+// Everything the screen does must be safe on a machine that has no window --
+// another operating system, a session with no desktop, a window that would not
+// create. The agent calls these from the middle of provisioning, and a machine
+// must never be left half built because a window failed to open.
+func TestNoWindowIsNotAFailure(t *testing.T) {
+	var s *screen // what openScreen returns when there can be no window
+	s.Doing("drivers", "unpacking")
+	s.Detail("264 driver files")
+	s.Finished("drivers", 0)
+	s.Restarting("finish installing the drivers")
+	s.Summary("This machine is ready", []string{"all done"})
+	s.Close()
+	s.WaitDismiss() // must not block
+
+	if got := s.AskRestart("finish installing the drivers", time.Minute); got != choiceNone {
+		t.Errorf("with no window the restart must go ahead by itself, got %q", got)
+	}
+}
+
+// With nobody standing there the countdown runs out and the machine restarts
+// itself, which is what an unattended bench needs.
+func TestTheCountdownRunsOutWhenNobodyIsThere(t *testing.T) {
+	s := testScreen()
+	start := time.Now()
+	if got := s.AskRestart("finish installing the drivers", 200*time.Millisecond); got != choiceNone {
+		t.Fatalf("got %q, want the countdown to run out", got)
+	}
+	if time.Since(start) < 150*time.Millisecond {
+		t.Error("it did not wait for the countdown")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.buttons) != 0 {
+		t.Errorf("the buttons are still up: %v", s.buttons)
+	}
+}
+
+// Somebody standing there can take the restart immediately.
+func TestRestartNowIsTakenAtOnce(t *testing.T) {
+	s := testScreen()
+	go func() {
+		waitForButtons(s)
+		s.clicked <- 0 // "Restart now"
+	}()
+	start := time.Now()
+	if got := s.AskRestart("finish installing the drivers", 10*time.Second); got != choiceNow {
+		t.Fatalf("got %q, want an immediate restart", got)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Error("clicking Restart now waited for the countdown anyway")
+	}
+}
+
+// While the countdown runs, the screen says what is about to happen and why.
+func TestTheCountdownSaysWhatIsHappening(t *testing.T) {
+	s := testScreen()
+	go func() {
+		waitForButtons(s)
+		s.mu.Lock()
+		note := s.note
+		s.mu.Unlock()
+		if !strings.Contains(note, "Restarting in") || !strings.Contains(note, "finish installing the drivers") {
+			t.Errorf("the screen says %q", note)
+		}
+		if !strings.Contains(note, "carries on by itself") {
+			t.Errorf("it does not say the machine carries on afterwards: %q", note)
+		}
+		s.clicked <- 0
+	}()
+	s.AskRestart("finish installing the drivers", 5*time.Second)
+}
+
+// The finish screen waits for somebody to say they have seen it -- the work is
+// over by then, so nothing is held up.
+func TestTheFinishScreenWaitsToBeDismissed(t *testing.T) {
+	s := testScreen()
+	s.Summary("This machine is ready", []string{"Everything the build asked for is installed."})
+	done := make(chan struct{})
+	go func() { s.WaitDismiss(); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("it did not wait")
+	case <-time.After(100 * time.Millisecond):
+	}
+	s.clicked <- 0
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("clicking Finish did not dismiss it")
+	}
+}
+
+// A window closed from the keyboard must also release a finished machine,
+// rather than leaving the agent waiting on a button nobody can press.
+func TestAClosedWindowReleasesIt(t *testing.T) {
+	s := testScreen()
+	done := make(chan struct{})
+	go func() { s.WaitDismiss(); close(done) }()
+	s.dismissed()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("closing the window left the agent waiting")
+	}
+	s.dismissed() // twice must not panic
+}
+
+// The checklist follows the work: one step in progress at a time, and what
+// happened to the others still readable.
+func TestTheChecklistFollowsTheWork(t *testing.T) {
+	s := testScreen()
+	s.Doing("drivers", "unpacking")
+	s.Finished("drivers", 0)
+	s.Doing("apps", "")
+	s.Finished("apps", 2)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.steps) != 2 {
+		t.Fatalf("%d steps on the screen, want 2", len(s.steps))
+	}
+	if s.steps[0].State != stepDone {
+		t.Errorf("drivers is in state %v, want done", s.steps[0].State)
+	}
+	if s.steps[1].State != stepProblem {
+		t.Errorf("a step with two failures is in state %v, want the one that says so", s.steps[1].State)
+	}
+}
+
+// What it says at the end.
+func TestTheSummaryIsReadableFromAcrossTheRoom(t *testing.T) {
+	if h := summaryHeading(nil); h != "This machine is ready" {
+		t.Errorf("a clean run says %q", h)
+	}
+	if h := summaryHeading([]string{"a", "b"}); !strings.Contains(h, "2 problem") {
+		t.Errorf("a run with problems says %q", h)
+	}
+	// Every failure named, up to a point, then a pointer to the log -- a
+	// screen with forty lines on it is no better than a blank one.
+	many := make([]string, 20)
+	for i := range many {
+		many[i] = "apps could not install something"
+	}
+	lines := summaryLines(many, time.Minute)
+	if len(lines) > 11 {
+		t.Errorf("%d lines on the finish screen", len(lines))
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), "firstboot.log") {
+		t.Error("it does not say where the full record is")
+	}
+}
+
+func TestDurationsReadLikeSpeech(t *testing.T) {
+	for _, c := range []struct {
+		d    time.Duration
+		want string
+	}{
+		{45 * time.Second, "45 seconds"},
+		{60 * time.Second, "1 minute"},
+		{90 * time.Second, "1 minute"},
+		{5 * time.Minute, "5 minutes"},
+		{18 * time.Minute, "18 minutes"},
+	} {
+		if got := shortDur(c.d); got != c.want {
+			t.Errorf("shortDur(%s) = %q, want %q", c.d, got, c.want)
+		}
+	}
+}
+
+// testScreen is a screen with no window behind it: the state and the decisions
+// are what these tests are about, and the drawing is only checkable on a real
+// machine.
+func testScreen() *screen {
+	return &screen{
+		machine: "HP EliteBook x360 1040 G8",
+		heading: "Setting up this machine",
+		clicked: make(chan int, 4),
+		dismiss: make(chan struct{}),
+		w:       nowindow{},
+	}
+}
+
+// nowindow accepts everything the screen tells it and draws nothing.
+type nowindow struct{}
+
+func (nowindow) refresh() {}
+func (nowindow) close()   {}
+
+// waitForButtons waits until the screen is offering a decision.
+func waitForButtons(s *screen) {
+	for i := 0; i < 200; i++ {
+		s.mu.Lock()
+		n := len(s.buttons)
+		s.mu.Unlock()
+		if n > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

@@ -5,9 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/uplinkresearch/dsky/internal/agent"
 	"github.com/uplinkresearch/dsky/internal/library"
 	"github.com/uplinkresearch/dsky/internal/recipe"
 )
@@ -94,5 +96,24 @@ func TestBatchDomainJoinReachesTheRecipe(t *testing.T) {
 	r := assertLoads(t, ws, e.ID)
 	if r.Windows.Domain == nil || r.Windows.Domain.BlobsBySerial != dir || !r.Windows.Domain.BySerial() {
 		t.Fatalf("domain = %+v", r.Windows.Domain)
+	}
+}
+
+// The answer file's automatic sign-ins and the agent's restart cap are two
+// numbers in two files that have to agree. One automatic sign-in was spent on
+// the first boot, so the restart the agent takes after a driver sweep brought
+// the machine back to a login prompt, half provisioned, with nothing to say
+// so. Raise the cap without raising this and it happens again.
+func TestTheAnswerFileCoversEveryRestartTheAgentMayTake(t *testing.T) {
+	tmpl, err := templatesFS.ReadFile("templates/autounattend.xml.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agent.MaxRestarts + 1 // the first boot, plus one sign-in per restart
+	need := "<LogonCount>" + strconv.Itoa(want) + "</LogonCount>"
+	if !strings.Contains(string(tmpl), need) {
+		t.Errorf("the answer file does not ask for %d automatic sign-ins (%s).\n"+
+			"The agent may restart the machine %d time(s), and each restart needs one to come back.",
+			want, need, agent.MaxRestarts)
 	}
 }

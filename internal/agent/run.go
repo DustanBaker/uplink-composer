@@ -17,6 +17,7 @@ type Agent struct {
 	Manifest *Manifest
 	J        *Journal
 	State    *State
+	UI       *screen
 
 	// rebootWanted is set by a step that Windows told to restart the
 	// machine, with the reason in the operator's words. It is acted on
@@ -56,6 +57,14 @@ func Apply(dir string) error {
 	}
 	a.J.Info("", "first-boot agent starting for recipe %s on %s (%s)", m.Recipe, machine, runtime.GOOS)
 
+	// What the person at the machine sees. A nil screen -- no window, or not
+	// Windows -- costs nothing: every call on it does nothing.
+	a.UI = openScreen(machine)
+	if a.UI == nil {
+		a.J.Info("", "no status window on this machine; the log is the only record")
+	}
+	defer a.UI.Close()
+
 	// Before anything else, arrange to be started again. Everything below
 	// can be interrupted -- a restart Windows asks for, a machine that
 	// crashes under a driver, somebody closing the lid -- and the state
@@ -70,6 +79,8 @@ func Apply(dir string) error {
 			a.J.Info(step, "already done on an earlier boot, skipping")
 			continue
 		}
+		before := len(a.J.Failures())
+		a.UI.Doing(step, "")
 		switch step {
 		case stepDrivers:
 			a.driversStep()
@@ -81,6 +92,7 @@ func Apply(dir string) error {
 			a.J.Info(step, "no such step in this agent, skipping")
 			continue
 		}
+		a.UI.Finished(step, len(a.J.Failures())-before)
 		a.State.Finish(step)
 		// A restart is taken between steps, with the finished step
 		// recorded, so the machine comes back and carries on at the next
@@ -101,6 +113,7 @@ func Apply(dir string) error {
 	// of machines can be read from the doorway. It runs last, because it
 	// reports on everything above.
 	if m.VerifyScript != "" {
+		a.UI.Doing("checking", "reading back what this machine actually has")
 		script := filepath.Join(dir, m.VerifyScript)
 		if _, err := os.Stat(script); err == nil {
 			r := run(15*time.Minute, "powershell", "-NoProfile", "-NonInteractive",
@@ -110,12 +123,46 @@ func Apply(dir string) error {
 		} else {
 			a.J.Fail("", "the post-install check %s is not on the machine", m.VerifyScript)
 		}
+		a.UI.Finished("checking", 0)
 	}
 
-	// Finished for good: stop asking to be started again.
-	a.clearResume()
+	// Finished for good: stop asking to be started again, and hand the
+	// machine over without the automatic sign-in provisioning needed.
+	a.finishUp()
 	a.J.Info("", "first-boot agent done")
+
+	// The last thing on the screen is what this machine got, and it stays
+	// there until somebody says they have seen it. Nothing is waiting on
+	// this: the work is over.
+	a.UI.Summary(summaryHeading(a.J.Failures()), summaryLines(a.J.Failures(), time.Since(start)))
+	a.UI.WaitDismiss()
 	return nil
+}
+
+// summaryHeading is the first thing read from across a room.
+func summaryHeading(failures []string) string {
+	if len(failures) == 0 {
+		return "This machine is ready"
+	}
+	return "Finished, with " + itoa(len(failures)) + " problem(s)"
+}
+
+// summaryLines say what went wrong, plainly, and never more than fits.
+func summaryLines(failures []string, took time.Duration) []string {
+	if len(failures) == 0 {
+		return []string{"Everything the build asked for is installed.",
+			"Set up in " + shortDur(took) + "."}
+	}
+	const most = 8
+	out := make([]string, 0, most+2)
+	for i, f := range failures {
+		if i == most {
+			out = append(out, "and "+itoa(len(failures)-most)+" more, in firstboot.log")
+			break
+		}
+		out = append(out, f)
+	}
+	return append(out, "Everything else is installed. The full record is in firstboot.log.")
 }
 
 // Main is the agent's entry point, kept here so the command is three lines

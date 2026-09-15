@@ -159,8 +159,17 @@
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
                publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       {{if eq .Vars.account_mode "local"}}
-      <!-- Local-account mode: no OOBE questions, a local admin, one auto-logon
-           so the first-boot script runs hands-off. -->
+      <!-- Local-account mode: no OOBE questions, a local admin, and enough
+           automatic sign-ins for the first boot plus the restarts the agent is
+           allowed to ask for (see maxReboots in internal/agent). One is not
+           enough: Windows asks for a restart after a driver sweep, and a
+           machine whose only automatic sign-in was spent on the first boot
+           comes back to a login prompt and stops there, half provisioned.
+
+           The count is not left to expire on its own. The agent clears
+           AutoAdminLogon, AutoLogonCount and the stored password as its last
+           act, so a machine that finishes early never signs itself in again
+           and the password does not outlive the build. -->
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
         <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
@@ -180,7 +189,7 @@
       </UserAccounts>
       <AutoLogon>
         <Enabled>true</Enabled>
-        <LogonCount>1</LogonCount>
+        <LogonCount>3</LogonCount>
         <Username>{{xml .Vars.admin_user}}</Username>
         <Password><Value>{{xml .Vars.admin_password}}</Value><PlainText>true</PlainText></Password>
       </AutoLogon>

@@ -88,15 +88,18 @@ func (a *Agent) appsStep() {
 			a.J.Fail(stepApps, "winget never appeared, no programs installed (a Windows 10 image may need App Installer from the Store first)")
 		} else {
 			a.J.Info(stepApps, "winget at %s", wg)
+			a.UI.Detail("waiting for the network")
 			if !a.waitOnline() {
 				a.J.Info(stepApps, "no network yet; installs will be attempted anyway and can be re-run")
 			}
-			for _, id := range ap.Winget {
+			for i, id := range ap.Winget {
+				a.UI.Detail(id + " (" + itoa(i+1) + " of " + itoa(len(ap.Winget)) + ")")
 				a.installPackage(wg, id, ap.Scope)
 			}
 		}
 	}
 	for _, in := range ap.Installers {
+		a.UI.Detail(in.File)
 		a.runInstaller(in)
 	}
 }

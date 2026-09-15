@@ -63,8 +63,10 @@ func (a *Agent) debloatStep() {
 	}
 	a.J.Info(stepDebloat, "removing consumer apps and promotions (preset %s)", d.Preset)
 	if len(d.Apps) > 0 {
+		a.UI.Detail("removing " + itoa(len(d.Apps)) + " preinstalled apps")
 		a.removeAppx(d.Apps)
 	}
+	a.UI.Detail("applying settings")
 	set, refused := 0, 0
 	for _, p := range policiesFor(d.Preset) {
 		if err := a.setPolicy(p); err != nil {
