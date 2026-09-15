@@ -431,7 +431,12 @@ func (w *win32Window) paint() {
 	pSelectObject.Call(hdc, uintptr(w.small))
 	pSetTextColor.Call(hdc, colDim)
 	hint := rect{left, rc.bottom - 40, rc.right - left, rc.bottom - 10}
-	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("Press Esc to hide this window. The work carries on either way."))),
+	hintText := "Press Esc to hide this window. The work carries on either way."
+	if finished {
+		// There is no work left to carry on with.
+		hintText = "Press Finish, or Esc, to close this."
+	}
+	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(hintText))),
 		^uintptr(0), uintptr(unsafe.Pointer(&hint)), dtLeft|dtNoPrefix)
 }
 

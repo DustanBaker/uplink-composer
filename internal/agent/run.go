@@ -153,9 +153,20 @@ func Apply(dir string) error {
 	// The last thing on the screen is what this machine got, and it stays
 	// there until somebody says they have seen it. Nothing is waiting on
 	// this: the work is over.
-	a.UI.Summary(summaryHeading(a.J.Failures()), summaryLines(a.J.Failures(), time.Since(start)))
+	a.UI.Summary(summaryHeading(a.J.Failures()), summaryLines(a.J.Failures(), buildTook(a.State, start)))
 	a.UI.WaitDismiss()
 	return nil
+}
+
+// buildTook is how long the machine has been being set up, across restarts.
+// This run's own clock starts at the last boot: watched in the VM, a machine
+// crashed part way through and finished fifty minutes after it began, and the
+// finish screen said "Set up in 10 minutes".
+func buildTook(st *State, thisRun time.Time) time.Duration {
+	if began, err := time.Parse(time.RFC3339, st.Started); err == nil && began.Before(thisRun) {
+		return time.Since(began)
+	}
+	return time.Since(thisRun)
 }
 
 // summaryHeading is the first thing read from across a room.

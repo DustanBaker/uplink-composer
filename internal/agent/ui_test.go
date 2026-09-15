@@ -250,3 +250,17 @@ func TestAResumedRunStillListsWhatWasDoneBefore(t *testing.T) {
 		t.Errorf("the checklist after a restart is %v; the drivers done before it are missing", names)
 	}
 }
+
+// A build that restarted is timed from when it began, not from the last boot.
+func TestTheFinishScreenTimesTheWholeBuild(t *testing.T) {
+	st := &State{Started: time.Now().Add(-50 * time.Minute).Format(time.RFC3339)}
+	thisBoot := time.Now().Add(-10 * time.Minute)
+	// The start is recorded to the second, so allow that much either way.
+	if got := buildTook(st, thisBoot); got < 49*time.Minute+59*time.Second || got > 50*time.Minute+2*time.Second {
+		t.Errorf("a build begun fifty minutes ago and restarted ten minutes ago took %s", got)
+	}
+	// A state with no start recorded falls back to this run.
+	if got := buildTook(&State{}, thisBoot); got < 10*time.Minute || got > 10*time.Minute+2*time.Second {
+		t.Errorf("with no recorded start: %s", got)
+	}
+}
