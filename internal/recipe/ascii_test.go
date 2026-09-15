@@ -2,6 +2,7 @@ package recipe
 
 import (
 	"fmt"
+	"github.com/uplinkresearch/dsky/internal/testpwsh"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,13 +86,9 @@ func TestGeneratedScriptsAreASCII(t *testing.T) {
 // Every generated PowerShell script must parse. Checked with PowerShell's own
 // parser when pwsh is installed (CI's Windows and the dev box have it).
 func TestGeneratedPowerShellParses(t *testing.T) {
-	pwsh, err := exec.LookPath("pwsh")
-	if err != nil {
-		t.Skip("PowerShell (pwsh) is not installed here")
-	}
-	// A mise shim with no version set is on PATH but cannot run.
-	if out, err := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", "exit 0").CombinedOutput(); err != nil {
-		t.Skipf("pwsh does not run here: %v %s", err, out)
+	pwsh := testpwsh.Find()
+	if pwsh == "" {
+		t.Skip("no PowerShell that runs here")
 	}
 	dir := t.TempDir()
 	for name, content := range generatedScripts(t) {

@@ -1,6 +1,7 @@
 package catalog_test
 
 import (
+	"github.com/uplinkresearch/dsky/internal/testpwsh"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,9 +17,9 @@ import (
 // be skipped on it — or run on the wrong one. This runs the real script, with
 // -CheckOnly, over the same cases the Go matcher is tested with.
 func TestModelInstallerScriptAgreesWithGo(t *testing.T) {
-	pwsh, err := exec.LookPath("pwsh")
-	if err != nil {
-		t.Skip("PowerShell (pwsh) is not installed here")
+	pwsh := testpwsh.Find()
+	if pwsh == "" {
+		t.Skip("no PowerShell that runs here")
 	}
 	script := filepath.Join(t.TempDir(), recipe.ModelInstallerScriptName)
 	if err := os.WriteFile(script, []byte(recipe.ModelInstallerScriptFile()), 0o644); err != nil {

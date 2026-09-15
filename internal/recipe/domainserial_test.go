@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"github.com/uplinkresearch/dsky/internal/testpwsh"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,14 +42,9 @@ func TestDomainSpecBySerialValidation(t *testing.T) {
 // TestDomainSerialScript runs the Setup script under PowerShell with a fake
 // serial number and a fake djoin, which is everything but Windows itself.
 func TestDomainSerialScript(t *testing.T) {
-	pwsh, err := exec.LookPath("pwsh")
-	if err != nil {
-		t.Skip("PowerShell (pwsh) is not installed here")
-	}
-	// A mise shim with no version selected sits on PATH and cannot run; this
-	// test is about the script, not about the developer's tool setup.
-	if out, err := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", "exit 0").CombinedOutput(); err != nil {
-		t.Skipf("pwsh does not run here: %v %s", err, out)
+	pwsh := testpwsh.Find()
+	if pwsh == "" {
+		t.Skip("no PowerShell that runs here")
 	}
 	run := func(t *testing.T, serial string) (log, calls string, dirGone bool) {
 		t.Helper()
