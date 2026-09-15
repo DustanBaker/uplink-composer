@@ -32,13 +32,31 @@ func runReal(ctx context.Context, name string, args ...string) result {
 	if err != nil {
 		var ee *exec.ExitError
 		if errorsAs(err, &ee) {
-			r.Code = ee.ExitCode()
+			r.Code = signedExit(ee.ExitCode())
 		} else {
 			r.Err = err
 			r.Code = -1
 		}
 	}
 	return r
+}
+
+// signedExit reads a Windows exit code the way the program that set it meant
+// it. Windows hands back an unsigned 32-bit value, and Go passes it through,
+// so winget's 0x8A150056 arrives as 2316632150 rather than -1978335146.
+// Everything that documents these codes -- winget, Microsoft, PowerShell's
+// own $LASTEXITCODE -- writes them signed.
+//
+// Watched in the VM: the agent compared the documented signed value against
+// the unsigned one it was given, never recognised "this installer refuses to
+// run as an administrator", and so never tried the standard-user install
+// that exists for exactly that case. Spotify failed three identical attempts
+// and was reported, correctly but unhelpfully, as uninstallable.
+func signedExit(code int) int {
+	if code > 0x7FFFFFFF {
+		return code - 0x100000000
+	}
+	return code
 }
 
 // run executes a program with a deadline.

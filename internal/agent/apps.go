@@ -16,7 +16,7 @@ const userInstallDeadline = 12 * time.Minute
 // winget exit codes the agent reasons about. They arrive as signed 32-bit
 // values; the rest are recorded as they come.
 const (
-	wingetAlreadyInstalled = -1978335189 // 0x8A150011: nothing applicable to do
+	wingetAlreadyInstalled = -1978335189 // 0x8A15002B: nothing applicable to do
 	wingetNoInstaller      = -1978335216 // 0x8A150010: no installer for that scope
 	wingetProhibitsElev    = -1978335146 // 0x8A150056: installer refuses to run elevated
 )

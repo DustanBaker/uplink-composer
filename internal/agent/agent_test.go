@@ -343,3 +343,21 @@ func TestExtractArgumentsCarryNoShellQuotes(t *testing.T) {
 		}
 	}
 }
+
+// Windows hands back exit codes unsigned; every document that describes them
+// writes them signed. Reading them raw is why a package that refuses an
+// administrator was never recognised as one.
+func TestWindowsExitCodesAreReadAsSigned(t *testing.T) {
+	for raw, want := range map[int]int{
+		2316632150: wingetProhibitsElev,    // 0x8A150056
+		2316632080: wingetNoInstaller,      // 0x8A150010
+		2316632107: wingetAlreadyInstalled, // 0x8A15002B
+		0:          0,
+		1:          1,
+		3010:       3010,
+	} {
+		if got := signedExit(raw); got != want {
+			t.Errorf("exit code %d read as %d, want %d", raw, got, want)
+		}
+	}
+}
