@@ -11,6 +11,7 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,16 +94,29 @@ func ExtractISO(ctx context.Context, helpersDir, isoPath, destDir string) error 
 	// Off Windows, DSKY reads the ISO itself (internal/udf), so building
 	// Windows media needs no 7-Zip. The platform tools stay as a fallback for
 	// an image the reader refuses, such as a UDF 2.50 disc.
-	var ownErr error
-	if runtime.GOOS != "windows" {
-		if ownErr = udf.ExtractFile(abs, destDir, nil); ownErr == nil {
-			return nil
-		}
+	// DSKY reads the ISO itself on every platform, so building Windows media
+	// needs nothing installed. The platform tools stay as a fallback for an
+	// image the reader refuses, such as a UDF 2.50 disc.
+	//
+	// Windows used to skip this and go straight to Mount-DiskImage, which
+	// then refused the file: the library stores a blob under its hash with no
+	// extension, and Windows chooses a disk-image provider by extension. It
+	// failed with "a virtual disk support provider for the specified file was
+	// not found" before reading a byte.
+	ownErr := udf.ExtractFile(abs, destDir, nil)
+	if ownErr == nil {
+		return nil
 	}
 	switch runtime.GOOS {
 	case "windows":
 		// Mount-DiskImage reads UDF natively; robocopy exit codes 0-7 mean
 		// success. The finally block guarantees dismount.
+		mountPath, done, err := mountableISO(abs, filepath.Dir(destDir))
+		if err != nil {
+			return fmt.Errorf("reading %s: %w (mounting it instead: %v)", filepath.Base(abs), ownErr, err)
+		}
+		defer done()
+		abs = mountPath
 		script := fmt.Sprintf(`$ErrorActionPreference='Stop'
 $iso = %q
 $dest = %q
@@ -138,6 +152,44 @@ try {
 		}
 		return run(ctx, sevenZip, "x", "-y", "-o"+destDir, abs)
 	}
+}
+
+// mountableISO gives Windows a path it will mount. Mount-DiskImage picks its
+// provider from the file extension, and the library stores every blob under
+// its hash with no extension at all, so the file has to be presented under a
+// name ending in .iso. A hard link costs nothing and needs no second copy of
+// a ten-gigabyte image; a copy is the fallback when the work directory is on
+// another volume.
+func mountableISO(isoPath, workDir string) (path string, done func(), err error) {
+	if strings.EqualFold(filepath.Ext(isoPath), ".iso") {
+		return isoPath, func() {}, nil
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return "", nil, err
+	}
+	linked := filepath.Join(workDir, "dsky-mount-"+filepath.Base(isoPath)+".iso")
+	os.Remove(linked)
+	if err := os.Link(isoPath, linked); err != nil {
+		in, oerr := os.Open(isoPath)
+		if oerr != nil {
+			return "", nil, oerr
+		}
+		defer in.Close()
+		out, cerr := os.Create(linked)
+		if cerr != nil {
+			return "", nil, cerr
+		}
+		if _, cerr = io.Copy(out, in); cerr != nil {
+			out.Close()
+			os.Remove(linked)
+			return "", nil, cerr
+		}
+		if cerr = out.Close(); cerr != nil {
+			os.Remove(linked)
+			return "", nil, cerr
+		}
+	}
+	return linked, func() { os.Remove(linked) }, nil
 }
 
 // SplitWIM splits wimPath into ≤chunkMB .swm parts written next to swmPath
@@ -199,11 +251,11 @@ func Check(helpersDir string) []Status {
 	switch runtime.GOOS {
 	case "windows":
 		out = append(out,
-			Status{Name: "Mount-DiskImage", Purpose: "ISO (UDF) extraction", Path: "powershell (built in)", Builtin: true, Required: true},
+			Status{Name: "Mount-DiskImage", Purpose: "fallback ISO extraction (DSKY reads ISOs itself)", Path: "powershell (built in)", Builtin: true},
 			Status{Name: "DISM", Purpose: "WIM splitting for FAT32", Path: lookPathOr("dism", ""), Builtin: true, Required: true, Hint: "part of Windows"},
 		)
 	case "darwin":
-		st := Status{Name: "hdiutil", Purpose: "ISO (UDF) extraction", Builtin: true, Required: true}
+		st := Status{Name: "hdiutil", Purpose: "fallback ISO extraction (DSKY reads ISOs itself)", Builtin: true}
 		st.Path = lookPathOr("hdiutil", "")
 		out = append(out, st)
 		w := Status{Name: "wimlib-imagex", Purpose: "fallback WIM splitting (DSKY splits WIMs itself)", Hint: InstallCommand([]string{"wimlib"})}
