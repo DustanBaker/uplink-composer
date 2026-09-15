@@ -13,7 +13,9 @@ package agentbin
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io"
 )
@@ -54,3 +56,20 @@ func Binary(arch Arch) ([]byte, error) {
 
 // Name is the agent's filename on the media.
 const Name = "dsky-agent.exe"
+
+// Digest identifies the embedded agent, for the build's cache key.
+//
+// The key that decides whether a build can be reused was made from the
+// recipe, its templates, the image and DSKY's version -- and not from the
+// agent, which is the program that does the work on the imaged machine. A
+// DSKY rebuilt with a fixed agent therefore handed back the previous build
+// from the cache: the same media, with the same old agent, and nothing to
+// say so. It cost a full install to notice.
+func Digest(arch Arch) string {
+	b, err := files.ReadFile("bin/dsky-agent-" + string(arch) + ".exe.gz")
+	if err != nil || len(b) == 0 {
+		return "none"
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}

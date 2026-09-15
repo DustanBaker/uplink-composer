@@ -16,6 +16,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/uplinkresearch/dsky/internal/agentbin"
 	"github.com/uplinkresearch/dsky/internal/buildinfo"
 	"github.com/uplinkresearch/dsky/internal/library"
 	"github.com/uplinkresearch/dsky/internal/recipe"
@@ -221,6 +222,13 @@ func inputsKey(req Request, sourceHashes ...string) (string, error) {
 		fmt.Fprintf(h, "%s=%s\x00", k, vars[k])
 	}
 	h.Write([]byte(buildinfo.Version))
+	// The agent is staged onto the media and does the work at first boot, so
+	// a different agent is a different build -- whatever the version says.
+	// Development builds all carry one version string, so without this a
+	// fixed agent came back from the cache as the media that had the broken
+	// one.
+	h.Write([]byte(agentbin.Digest(agentbin.AMD64)))
+	h.Write([]byte(agentbin.Digest(agentbin.ARM64)))
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
