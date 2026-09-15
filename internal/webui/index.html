@@ -2110,28 +2110,97 @@ function secs(s) {
 }
 
 // ── Mission patter ────────────────────────────────────────────────────────
-// A line of Apollo mission-control talk under each running job, changing every
-// few seconds and following what the job is actually doing: fuelling while it
-// downloads, stacking the stages while it builds, launch while it writes,
-// telemetry while it verifies, splashdown when it lands. It never replaces the
-// real stage, percentage or speed, and a job that fails gets none — an error
-// is read plainly.
+// A line of Apollo mission-control talk under each running job, following what
+// the job is actually doing: fuelling while it downloads, stacking the stages
+// while it builds, launch while it writes, telemetry while it verifies,
+// splashdown when it lands. It never replaces the real stage, percentage or
+// speed, and a job that fails gets none — an error is read plainly.
+//
+// Each phase is a script, not a carousel. The numbers are the real mission
+// clock, in seconds, that each call-out happened on: max Q at T+83, inboard
+// cutoff at T+2:15, staging at T+2:41, orbit at T+11:42. A stage that knows
+// how far along it is plays its script against that — so "through max Q"
+// arrives an eighth of the way through writing a stick, because max Q is an
+// eighth of the way to orbit, and a fast stick and a slow one both hear the
+// same words at the same point of the job rather than the fast one being cut
+// off at the tower. A stage with no percentage to report plays against the
+// wall clock instead, at `pace` seconds for the whole script, and holds on the
+// last line if the work outlasts it.
 const PATTER = {
-  prelaunch: ["CapCom: go/no-go poll in progress", "Flight director polling the room",
-    "All stations, report status", "T-minus and counting", "Range is green"],
-  authority: ["Awaiting launch authority", "Flight director: hold for go"],
-  fuel: ["Propellant loading in progress", "LOX tanks topping off", "Fuel flow nominal",
-    "Ground support: tanks pressurizing", "Hydrogen vent is steady"],
-  assembly: ["Stacking the stages in the VAB", "Payload integration underway",
-    "Guidance platform aligning", "Crawler en route to Pad 39A", "Service structure retracting"],
-  launch: ["CapCom: you are go for launch", "Roll program initiated", "Tower cleared",
-    "Throttle up", "Max Q", "Staging… ignition", "Trajectory nominal"],
-  verify: ["Telemetry lock acquired", "Flight dynamics confirming trajectory",
-    "Guidance checks nominal", "Houston, reading you loud and clear"],
-  uplink: ["Uplink in progress", "Receiving new flight software", "Ground station has signal",
-    "Loading the new program into the guidance computer"],
-  flightplan: ["Filing the flight plan with Mission Control", "Flight dynamics reviewing the plan"],
-  standby: ["Standing by", "All systems nominal"],
+  prelaunch: { span: 900, pace: 240, lines: [
+    [0, "T-minus fifteen minutes and counting"],
+    [300, "Go/no-go poll for launch"],
+    [600, "All stations are go"],
+    [840, "T-minus sixty seconds"],
+    [883, "Guidance is internal"],
+    [891, "Ignition sequence start"],
+    [899, "All engines running"]] },
+  authority: { span: 600, pace: 300, lines: [
+    [0, "Holding for launch authority"],
+    [120, "Flight director: hold in the count"],
+    [360, "Awaiting go from the range"]] },
+  // Saturn V cryogenic loading ran about four and a half hours, in this order.
+  fuel: { span: 16500, pace: 600, lines: [
+    [0, "Propellant loading has begun"],
+    [300, "First stage LOX chilldown"],
+    [1200, "First stage LOX slow fill"],
+    [2400, "First stage LOX fast fill"],
+    [4500, "First stage LOX replenish"],
+    [6000, "Second stage LOX fast fill"],
+    [8400, "Second stage hydrogen fast fill"],
+    [10800, "Third stage LOX load"],
+    [12600, "Third stage hydrogen load"],
+    [14400, "All stages replenishing"],
+    [15600, "Tanks topping off"],
+    [16200, "Propellant load complete"]] },
+  // Stacking order in the VAB, then the eleven-hour crawl to Pad 39A.
+  assembly: { span: 3600, pace: 420, lines: [
+    [0, "First stage on the mobile launcher"],
+    [300, "Second stage mated"],
+    [900, "Third stage mated"],
+    [1500, "Instrument unit installed"],
+    [2100, "Spacecraft stacked"],
+    [2700, "Crawler moving to the pad"],
+    [3300, "Vehicle is on the pad"]] },
+  // Apollo 11's ascent, call-out by call-out, T-0 to orbital insertion.
+  launch: { span: 720, pace: 702, lines: [
+    [0, "Liftoff. The clock is running."],
+    [12, "Tower cleared"],
+    [13, "Roll program"],
+    [32, "Roll complete, the vehicle is pitching"],
+    [83, "Through max Q"],
+    [135, "Inboard engine cutoff"],
+    [161, "Staging — second stage ignition"],
+    [192, "Interstage jettisoned"],
+    [198, "Escape tower jettisoned"],
+    // Houston called the minute marks through the long second-stage burn.
+    [240, "You are go at four minutes"],
+    [300, "You are go at five minutes"],
+    [360, "You are go at six minutes"],
+    [420, "You are go at seven minutes"],
+    [460, "Second stage center engine cutoff"],
+    [480, "You are go at eight minutes"],
+    [548, "Second stage cutoff, third stage ignition"],
+    [600, "You are go at ten minutes"],
+    [702, "Orbital insertion. Trajectory nominal."]] },
+  verify: { span: 660, pace: 600, lines: [
+    [0, "Telemetry lock acquired"],
+    [120, "Flight dynamics has a solution"],
+    [300, "Comparing against the flight plan"],
+    [480, "Guidance reports the orbit is good"],
+    [600, "Houston, reading you loud and clear"]] },
+  uplink: { span: 300, pace: 240, lines: [
+    [0, "Ground station has signal"],
+    [60, "Uplink in progress"],
+    [150, "Loading the new program into the guidance computer"],
+    [240, "Verifying the load"]] },
+  flightplan: { span: 120, pace: 90, lines: [
+    [0, "Filing the flight plan"],
+    [45, "Flight dynamics reviewing it"],
+    [90, "Flight plan accepted"]] },
+  standby: { span: 300, pace: 300, lines: [
+    [0, "Standing by"],
+    [120, "All systems nominal"]] },
 };
 const LANDED = {
   install: "Splashdown. Recovery team on station.",
@@ -2162,24 +2231,50 @@ function patterPhase(ev) {
   return "standby";
 }
 
+// patterLine is the last call-out whose moment has arrived.
+function patterLine(script, clock) {
+  let said = script.lines[0][1];
+  for (const [at, text] of script.lines) {
+    if (clock < at) break;
+    said = text;
+  }
+  return said;
+}
+
+// patterClock places the job on the mission clock: by how far through the
+// stage it is when the stage can say, and by how long it has been running when
+// it cannot.
+function patterClock(j, now) {
+  const s = PATTER[j.phase] || PATTER.standby;
+  if (j.frac >= 0) return s.span * j.frac;
+  return s.span * Math.min(1, (now - j.phaseT0) / (s.pace * 1000));
+}
+
+function drawPatter(j) {
+  const s = PATTER[j.phase] || PATTER.standby;
+  const said = patterLine(s, patterClock(j, Date.now()));
+  if (said !== j.flair.textContent) j.flair.textContent = said;
+}
+
 function setPatter(j, ev) {
   if (ev.final) {
     clearInterval(j.patterTimer);
+    j.patterTimer = null;
     j.flair.hidden = !!ev.error;
     if (!ev.error) j.flair.textContent = LANDED[ev.kind] || "All systems nominal";
     return;
   }
   const phase = patterPhase(ev);
-  if (phase === j.phase) return;
-  j.phase = phase;
-  const lines = PATTER[phase];
-  let n = Math.floor(Math.random() * lines.length);
-  j.flair.textContent = lines[n];
-  clearInterval(j.patterTimer);
-  j.patterTimer = setInterval(() => {
-    n = (n + 1) % lines.length;
-    j.flair.textContent = lines[n];
-  }, 4000);
+  if (phase !== j.phase) {
+    j.phase = phase;
+    j.phaseT0 = Date.now();
+  }
+  // -1 means this stage reports no percentage, so the script runs on the clock.
+  j.frac = ev.total > 0 ? Math.min(1, ev.done / ev.total) : -1;
+  drawPatter(j);
+  // Progress events arrive in bursts while bytes move and not at all while a
+  // stage thinks, so the script also ticks on its own.
+  if (!j.patterTimer) j.patterTimer = setInterval(() => drawPatter(j), 1000);
 }
 
 // renderActivity shows the strip only while it has something in it, and says
