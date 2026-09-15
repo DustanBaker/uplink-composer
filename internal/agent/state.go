@@ -15,6 +15,9 @@ type State struct {
 	path    string
 	Started string          `json:"started"`
 	Done    map[string]bool `json:"done"`
+	// Reboots counts restarts this agent asked for, so a step that asks
+	// every time cannot put the machine in a loop.
+	Reboots int `json:"reboots,omitempty"`
 }
 
 // LoadState reads the state beside the agent, or starts a fresh one.
@@ -25,6 +28,7 @@ func LoadState(dir string) *State {
 		if json.Unmarshal(b, &prev) == nil && prev.Done != nil {
 			s.Done = prev.Done
 			s.Started = prev.Started
+			s.Reboots = prev.Reboots
 		}
 	}
 	if s.Started == "" {
@@ -40,6 +44,14 @@ func (s *State) Finished(step string) bool { return s.Done[step] }
 // that happens may be a reboot.
 func (s *State) Finish(step string) {
 	s.Done[step] = true
+	s.save()
+}
+
+// CountReboot records that the agent is about to restart the machine. It is
+// saved before the restart is asked for, because the next thing that happens
+// is the machine going down.
+func (s *State) CountReboot() {
+	s.Reboots++
 	s.save()
 }
 

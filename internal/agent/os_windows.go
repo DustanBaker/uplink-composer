@@ -14,6 +14,55 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+// ensureResume registers the task that starts the agent again at the next
+// sign-in. It is called at the start of every run, so an interruption at any
+// point is covered, and it is safe to call repeatedly.
+//
+// The trigger is a sign-in rather than a boot because the work needs a user:
+// winget arrives as a per-user package, and the installers that refuse an
+// administrator are run in the signed-in user's session. It runs as the user
+// who is signed in now -- the account the answer file created -- with the
+// highest token they have, which is what the first-boot run already had.
+//
+// Registering during the first sign-in does not start a second copy: a
+// sign-in trigger fires on sign-ins after the task exists, and this session's
+// happened before it.
+func (a *Agent) ensureResume() error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	user := os.Getenv("USERDOMAIN") + `\` + os.Getenv("USERNAME")
+	xmlPath := filepath.Join(os.TempDir(), "dsky-resume-task.xml")
+	if err := os.WriteFile(xmlPath, utf16LE(resumeTaskXML(user, self, a.Dir)), 0o644); err != nil {
+		return err
+	}
+	defer os.Remove(xmlPath)
+	if r := run(2*time.Minute, "schtasks", "/create", "/tn", resumeTask, "/xml", xmlPath, "/f"); !r.ok() {
+		return fmt.Errorf("schtasks: %s", trimOut(r.Out))
+	}
+	return nil
+}
+
+// clearResume takes the task away once there is nothing left to carry on
+// with. A machine that has finished should not be running anything of ours at
+// every sign-in for the rest of its life.
+func (a *Agent) clearResume() {
+	if r := run(2*time.Minute, "schtasks", "/delete", "/tn", resumeTask, "/f"); !r.ok() {
+		a.J.Info("", "could not remove the %s task: %s", resumeTask, trimOut(r.Out))
+	}
+}
+
+// restart asks Windows to go down, with enough warning that somebody standing
+// over the machine can stop it.
+func (a *Agent) restart(reason string) error {
+	r := run(2*time.Minute, "shutdown", "/r", "/t", itoa(restartDelaySeconds), "/c", "DSKY: "+reason)
+	if !r.ok() {
+		return fmt.Errorf("shutdown: %s", trimOut(r.Out))
+	}
+	return nil
+}
+
 // machineModel reads what the machine says about itself, for driver packs
 // that are only for one model. The BIOS keys are what the model gate script
 // used and are there before any vendor software is installed.

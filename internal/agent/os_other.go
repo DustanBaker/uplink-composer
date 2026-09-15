@@ -9,6 +9,15 @@ import "errors"
 
 func (a *Agent) machineModel() (vendor, model string) { return "", "" }
 
+// ensureResume, clearResume and restart carry the run across a restart on
+// Windows. Here they do nothing and report success, so the run's shape can be
+// tested without a Windows machine.
+func (a *Agent) ensureResume() error { return nil }
+
+func (a *Agent) clearResume() {}
+
+func (a *Agent) restart(reason string) error { return nil }
+
 func (a *Agent) runAsSignedInUser(exe string, args []string) (int, error) {
 	return 0, errors.New("standard-user installs are a Windows feature")
 }

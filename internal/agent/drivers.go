@@ -10,6 +10,17 @@ import (
 
 const stepDrivers = "drivers"
 
+// pnputilRebootNeeded is what pnputil returns when the drivers are in but
+// Windows cannot finish with them until the machine restarts. It prints
+// "System reboot is needed to complete install operations!" alongside it.
+//
+// This is not advice. On an HP EliteBook x360 that had just taken 282 driver
+// packages -- storage, Bluetooth, NFC, touch -- the agent read this, carried
+// straight on into removing consumer apps, and the machine bugchecked four
+// minutes later, ending provisioning with no programs installed. Windows asked
+// for a restart; it gets one.
+const pnputilRebootNeeded = 259
+
 // countINF reports how many driver files are under dir. This, not an exit
 // code, is how the agent decides whether unpacking worked: an HP EliteBook
 // pack handed the switch style its own catalog listed printed its usage text,
@@ -128,6 +139,9 @@ func (a *Agent) sweep(driversDir string) {
 	r := run(60*time.Minute, "pnputil", "/add-driver", filepath.Join(driversDir, "*.inf"), "/subdirs", "/install")
 	a.J.Raw(r.Out)
 	added := strings.Count(r.Out, "Driver package added successfully")
+	if r.Code == pnputilRebootNeeded || strings.Contains(r.Out, "System reboot is needed") {
+		a.rebootWanted = "Windows needs a restart to finish installing the drivers"
+	}
 	switch {
 	case added > 0:
 		a.J.Info(stepDrivers, "pnputil added %d driver package(s), exit %d", added, r.Code)

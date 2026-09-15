@@ -17,6 +17,11 @@ type Agent struct {
 	Manifest *Manifest
 	J        *Journal
 	State    *State
+
+	// rebootWanted is set by a step that Windows told to restart the
+	// machine, with the reason in the operator's words. It is acted on
+	// between steps, never in the middle of one.
+	rebootWanted string
 }
 
 // Apply does everything the manifest asks for, in the recipe's order, and
@@ -30,6 +35,14 @@ func Apply(dir string) error {
 	}
 	j, err := OpenJournal(dir)
 	if err != nil {
+		// Windows says "Access is denied." and leaves the operator to work
+		// out whose. C:\Windows\Setup\Scripts is writable only by an
+		// administrator, and the agent needs to write there before it can
+		// say anything at all -- including this.
+		if os.IsPermission(err) {
+			return fmt.Errorf("%s cannot be written to: run this from a PowerShell or Command Prompt "+
+				"started with Run as administrator", dir)
+		}
 		return err
 	}
 	defer j.Close()
@@ -42,6 +55,15 @@ func Apply(dir string) error {
 		machine = "unknown machine"
 	}
 	a.J.Info("", "first-boot agent starting for recipe %s on %s (%s)", m.Recipe, machine, runtime.GOOS)
+
+	// Before anything else, arrange to be started again. Everything below
+	// can be interrupted -- a restart Windows asks for, a machine that
+	// crashes under a driver, somebody closing the lid -- and the state
+	// file that lets this run carry on is worth nothing if nothing ever
+	// runs the agent a second time.
+	if err := ensureResumeFn(a); err != nil {
+		a.J.FailDetail("", "this machine will not carry on by itself if it restarts before the end", err.Error())
+	}
 
 	for _, step := range m.Steps {
 		if a.State.Finished(step) {
@@ -60,6 +82,12 @@ func Apply(dir string) error {
 			continue
 		}
 		a.State.Finish(step)
+		// A restart is taken between steps, with the finished step
+		// recorded, so the machine comes back and carries on at the next
+		// one rather than repeating this one.
+		if a.rebootWanted != "" && a.restartAndResume() {
+			return nil
+		}
 	}
 
 	if failures := a.J.Failures(); len(failures) > 0 {
@@ -84,6 +112,8 @@ func Apply(dir string) error {
 		}
 	}
 
+	// Finished for good: stop asking to be started again.
+	a.clearResume()
 	a.J.Info("", "first-boot agent done")
 	return nil
 }
