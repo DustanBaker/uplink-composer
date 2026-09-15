@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/uplinkresearch/dsky/internal/agent"
+	"github.com/uplinkresearch/dsky/internal/agentbin"
 	"github.com/uplinkresearch/dsky/internal/driverresolve"
 	"github.com/uplinkresearch/dsky/internal/drivers/catalog"
 	"github.com/uplinkresearch/dsky/internal/fsimg"
@@ -121,10 +124,31 @@ windows:
 		t.Fatal(err)
 	}
 	scripts := "/sources/$OEM$/$$/Setup/Scripts"
-	for _, want := range []string{scripts + "/" + src.Filename, scripts + "/" + recipe.ModelInstallerScriptName} {
-		if _, ok := sizes[want]; !ok {
-			t.Errorf("missing from image: %s", want)
+	if _, ok := sizes[scripts+"/"+src.Filename]; !ok {
+		t.Errorf("missing from image: %s", scripts+"/"+src.Filename)
+	}
+
+	// However first boot is carried out, the vendor bundle must be gated to
+	// the model it is for: one stick serves a bench of different machines,
+	// and a bundle run on the wrong one installs another model's drivers.
+	if _, staged := sizes[scripts+"/"+agentbin.Name]; staged {
+		var m agent.Manifest
+		if err := json.Unmarshal([]byte(readImageFile(t, art.Path, scripts+"/"+agent.ManifestName)), &m); err != nil {
+			t.Fatal(err)
 		}
+		if len(m.Drivers.Exes) != 1 {
+			t.Fatalf("manifest lists %d vendor installer(s), want 1", len(m.Drivers.Exes))
+		}
+		got := m.Drivers.Exes[0]
+		if got.File != src.Filename || got.OnlyVendor != "framework" || got.OnlyModel != model {
+			t.Errorf("the bundle is not gated to its model: %+v", got)
+		}
+		return
+	}
+
+	// The generated scripts: the bundle runs through the gate script.
+	if _, ok := sizes[scripts+"/"+recipe.ModelInstallerScriptName]; !ok {
+		t.Errorf("missing from image: %s", scripts+"/"+recipe.ModelInstallerScriptName)
 	}
 	// Reads from the image come back padded to a whole cluster, so the size
 	// comes from the directory entry and the bytes are compared up to it.

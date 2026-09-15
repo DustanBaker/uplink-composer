@@ -16,6 +16,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27"
+      - name: Build the first-boot agent
+        # Embedded into DSKY, so the tests see the media DSKY really makes.
+        # Without this the placeholders stay empty and compose falls back to
+        # the generated scripts, which is also a supported state but not the
+        # one that ships.
+        shell: bash
+        run: ./build-agent.sh ci
       - name: Build (host OS)
         run: go build ./...
       - name: Vet

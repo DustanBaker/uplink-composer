@@ -301,17 +301,27 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		refFiles[ref] = file.name
 		return file.name, nil
 	}
+	// First boot: the agent where it covers the recipe, the generated scripts
+	// otherwise. The agent is a compiled program with one manifest, which is
+	// why it exists: the scripts were assembled per build and so could only
+	// be tested after they had already been written onto somebody's stick.
+	useAgent, why := agentCovers(r)
 	var firstboot string
-	switch w.Firstboot.Mode {
-	case "generate":
-		firstboot, err = recipe.GenerateFirstboot(r, drivers, resolveRef)
-	case "template":
-		firstboot, err = recipe.RenderTemplate(
-			filepath.Join(ws.Dir, filepath.FromSlash(w.Firstboot.Template)),
-			recipe.Context{Org: ws.Org(), Vars: vars, Recipe: r})
-	}
-	if err != nil {
-		return nil, err
+	if useAgent {
+		firstboot = agentFirstboot
+	} else {
+		switch w.Firstboot.Mode {
+		case "generate":
+			firstboot, err = recipe.GenerateFirstboot(r, drivers, resolveRef)
+		case "template":
+			firstboot, err = recipe.RenderTemplate(
+				filepath.Join(ws.Dir, filepath.FromSlash(w.Firstboot.Template)),
+				recipe.Context{Org: ws.Org(), Vars: vars, Recipe: r})
+		}
+		if err != nil {
+			return nil, err
+		}
+		req.progress("first boot uses the generated scripts: "+why, 0, -1)
 	}
 	fbPath := filepath.Join(buildTmp, "firstboot.cmd")
 	if err := os.WriteFile(fbPath, []byte(firstboot), 0o644); err != nil {
@@ -319,23 +329,25 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 	}
 	stage.AddFile(fbPath, path.Join(scriptsImg, "firstboot.cmd"))
 
-	// Debloat pass (invoked from firstboot; also available to template-mode
-	// scripts that call it themselves).
-	if w.Debloat.Enabled() {
-		dbPath := filepath.Join(buildTmp, "debloat.ps1")
-		if err := writePS(dbPath, recipe.GenerateDebloatPS(r)); err != nil {
-			return nil, err
+	if !useAgent {
+		// Debloat pass (invoked from firstboot; also available to
+		// template-mode scripts that call it themselves).
+		if w.Debloat.Enabled() {
+			dbPath := filepath.Join(buildTmp, "debloat.ps1")
+			if err := writePS(dbPath, recipe.GenerateDebloatPS(r)); err != nil {
+				return nil, err
+			}
+			stage.AddFile(dbPath, path.Join(scriptsImg, "debloat.ps1"))
 		}
-		stage.AddFile(dbPath, path.Join(scriptsImg, "debloat.ps1"))
-	}
 
-	// Program installs (winget at first boot; nothing large staged here).
-	if w.Apps.Enabled() {
-		apPath := filepath.Join(buildTmp, "apps.ps1")
-		if err := writePS(apPath, recipe.GenerateAppsPS(r)); err != nil {
-			return nil, err
+		// Program installs (winget at first boot; nothing large staged here).
+		if w.Apps.Enabled() {
+			apPath := filepath.Join(buildTmp, "apps.ps1")
+			if err := writePS(apPath, recipe.GenerateAppsPS(r)); err != nil {
+				return nil, err
+			}
+			stage.AddFile(apPath, path.Join(scriptsImg, "apps.ps1"))
 		}
-		stage.AddFile(apPath, path.Join(scriptsImg, "apps.ps1"))
 	}
 
 	// The operator's success artwork, staged under the name the generated
@@ -373,6 +385,21 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		return nil, err
 	}
 	stage.AddFile(vfPath, path.Join(scriptsImg, "verify.ps1"))
+
+	// The agent's instructions, and the agent itself. Staged last so it
+	// describes everything above it.
+	if useAgent {
+		verifyScript := ""
+		if w.StatusScreen.Enabled() {
+			// The check paints the lock screen, so it only runs by itself
+			// where the recipe asked for that; otherwise it stays on the
+			// machine to be run by hand.
+			verifyScript = "verify.ps1"
+		}
+		if err := stageAgent(stage, buildTmp, buildManifest(r, drivers, agentInstallers(w, refFiles), verifyScript)); err != nil {
+			return nil, err
+		}
+	}
 
 	// ── Size and build ───────────────────────────────────────────────────
 	contentBytes, entries, err := stage.Stats()

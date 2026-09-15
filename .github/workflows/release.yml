@@ -19,6 +19,9 @@ jobs:
           set -eu
           mkdir -p dist
           VERSION="${GITHUB_REF_NAME}"
+          # The first-boot agent is compiled first and embedded into every
+          # DSKY, which then stages it onto Windows media from any host.
+          ./build-agent.sh "${VERSION}"
           LDFLAGS="-s -w -X github.com/uplinkresearch/dsky/internal/buildinfo.Version=${VERSION}"
           for target in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
             GOOS="${target%/*}"; GOARCH="${target#*/}"

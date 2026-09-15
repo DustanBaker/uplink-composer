@@ -1,0 +1,208 @@
+package agent
+
+import (
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const stepApps = "apps"
+
+// winget exit codes the agent reasons about. They arrive as signed 32-bit
+// values; the rest are recorded as they come.
+const (
+	wingetAlreadyInstalled = -1978335189 // 0x8A150011: nothing applicable to do
+	wingetNoInstaller      = -1978335216 // 0x8A150010: no installer for that scope
+	wingetProhibitsElev    = -1978335146 // 0x8A150056: installer refuses to run elevated
+)
+
+// findWinget waits for App Installer. winget arrives as a per-user MSIX that
+// can still be registering at first sign-in, so it is waited for rather than
+// assumed.
+func (a *Agent) findWinget() string {
+	candidates := []string{}
+	if local := os.Getenv("LOCALAPPDATA"); local != "" {
+		candidates = append(candidates, filepath.Join(local, `Microsoft\WindowsApps\winget.exe`))
+	}
+	deadline := time.Now().Add(5 * time.Minute)
+	announced := false
+	for {
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				return c
+			}
+		}
+		if p, err := lookPath("winget.exe"); err == nil {
+			return p
+		}
+		if time.Now().After(deadline) {
+			return ""
+		}
+		if !announced {
+			a.J.Info(stepApps, "waiting for winget (App Installer) to become available")
+			announced = true
+		}
+		time.Sleep(10 * time.Second)
+	}
+}
+
+// waitOnline waits for the machine to reach the network, because the packages
+// come from the vendors. A machine that is simply not online yet should not
+// be recorded as a pile of failures.
+func (a *Agent) waitOnline() bool {
+	client := &http.Client{Timeout: 10 * time.Second}
+	deadline := time.Now().Add(5 * time.Minute)
+	announced := false
+	for {
+		resp, err := client.Get("http://www.msftconnecttest.com/connecttest.txt")
+		if err == nil {
+			resp.Body.Close()
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		if !announced {
+			a.J.Info(stepApps, "waiting for the network")
+			announced = true
+		}
+		time.Sleep(10 * time.Second)
+	}
+}
+
+// appsStep installs every requested program, then the operator's own
+// installers. One package failing never stops the others.
+func (a *Agent) appsStep() {
+	ap := a.Manifest.Apps
+	if ap == nil {
+		return
+	}
+	if len(ap.Winget) > 0 {
+		wg := a.findWinget()
+		if wg == "" {
+			a.J.Fail(stepApps, "winget never appeared, no programs installed (a Windows 10 image may need App Installer from the Store first)")
+		} else {
+			a.J.Info(stepApps, "winget at %s", wg)
+			if !a.waitOnline() {
+				a.J.Info(stepApps, "no network yet; installs will be attempted anyway and can be re-run")
+			}
+			for _, id := range ap.Winget {
+				a.installPackage(wg, id, ap.Scope)
+			}
+		}
+	}
+	for _, in := range ap.Installers {
+		a.runInstaller(in)
+	}
+}
+
+// installPackage installs one winget package, handling the two ways Windows
+// refuses: a package with no machine-wide installer, and a package whose
+// installer refuses to run elevated at all.
+func (a *Agent) installPackage(wg, id, scope string) {
+	base := []string{"install", "--id", id, "--exact", "--silent",
+		"--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"}
+
+	attempts := [][]string{}
+	if scope != "user" {
+		attempts = append(attempts, append(append([]string{}, base...), "--scope", "machine"))
+	}
+	attempts = append(attempts, base, base)
+
+	for i, args := range attempts {
+		if i > 0 {
+			time.Sleep(15 * time.Second)
+		}
+		a.J.Info(stepApps, "installing %s (attempt %d)", id, i+1)
+		r := run(30*time.Minute, wg, args...)
+		a.J.Raw(r.Out)
+		switch r.Code {
+		case 0:
+			a.J.Info(stepApps, "installed %s", id)
+			return
+		case wingetAlreadyInstalled:
+			a.J.Info(stepApps, "%s is already present", id)
+			return
+		case wingetProhibitsElev:
+			// The agent runs elevated because pnputil requires it, and these
+			// installers refuse an administrator outright. Run it as the
+			// signed-in user with a standard token instead, which is the
+			// context they expect.
+			a.J.Info(stepApps, "%s refuses an elevated install; running it as the signed-in user", id)
+			code, err := a.runAsSignedInUser(wg, base)
+			switch {
+			case err != nil:
+				a.J.FailDetail(stepApps, id+" could not be installed as the signed-in user", err.Error())
+			case code == 0 || code == wingetAlreadyInstalled:
+				a.J.Info(stepApps, "installed %s as the signed-in user", id)
+			default:
+				a.J.Fail(stepApps, "%s as the signed-in user exited %d", id, code)
+			}
+			return
+		case wingetNoInstaller:
+			a.J.Info(stepApps, "%s has no installer for that scope, trying the next", id)
+		default:
+			a.J.Info(stepApps, "%s attempt %d exited %d", id, i+1, r.Code)
+		}
+		if r.Err != nil {
+			a.J.FailDetail(stepApps, id+" did not finish", r.Err.Error())
+			return
+		}
+	}
+	a.J.Fail(stepApps, "could not install %s", id)
+}
+
+// runInstaller runs one of the operator's own installers from the stick.
+// These need no network, so they are worth having even on a machine that
+// never reached the internet.
+func (a *Agent) runInstaller(in Installer) {
+	src := filepath.Join(a.Dir, in.File)
+	if _, err := os.Stat(src); err != nil {
+		a.J.Fail(stepApps, "%s is not on the stick", in.File)
+		return
+	}
+	var r result
+	if in.MSI {
+		args := append([]string{"/i", src}, in.Args...)
+		if len(in.Args) == 0 {
+			args = append(args, "/qn", "/norestart")
+		}
+		r = run(60*time.Minute, "msiexec", args...)
+	} else {
+		r = run(60*time.Minute, src, in.Args...)
+	}
+	a.J.Raw(r.Out)
+	switch {
+	case r.Err != nil:
+		a.J.FailDetail(stepApps, in.File+" did not finish", r.Err.Error())
+	case r.Code == 0 || r.Code == 3010: // 3010: installed, wants a restart
+		a.J.Info(stepApps, "installed %s (exit %d)", in.File, r.Code)
+	default:
+		a.J.FailDetail(stepApps, in.File+" exited "+itoa(r.Code), trimOut(r.Out))
+	}
+}
+
+// itoa avoids pulling strconv in for one call site's sake.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	if neg {
+		return "-" + string(b)
+	}
+	return string(b)
+}
+
+// quoteArgs renders an argument list for a log line.
+func quoteArgs(args []string) string { return strings.Join(args, " ") }

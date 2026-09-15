@@ -1,0 +1,212 @@
+package agent
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// fakeRun records what the agent would run and lets a test decide what
+// happens, so the logic that judges a driver pack can be tested without a
+// Windows machine and without a gigabyte of vendor installer.
+type fakeRun struct {
+	calls []string
+	do    func(name string, args []string) (result, error)
+}
+
+func (f *fakeRun) install(t *testing.T) {
+	t.Helper()
+	prev := runner
+	runner = func(_ context.Context, name string, args ...string) result {
+		f.calls = append(f.calls, name+" "+strings.Join(args, " "))
+		if f.do == nil {
+			return result{}
+		}
+		r, _ := f.do(name, args)
+		return r
+	}
+	t.Cleanup(func() { runner = prev })
+}
+
+func newAgent(t *testing.T, m *Manifest) (*Agent, string) {
+	t.Helper()
+	dir := t.TempDir()
+	j, err := OpenJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { j.Close() })
+	return &Agent{Dir: dir, Manifest: m, J: j, State: LoadState(dir)}, dir
+}
+
+func logText(t *testing.T, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, LogName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// A pack that unpacks nothing with the switches its catalog lists is retried
+// with the other style, and the log says what really happened. This is the
+// HP EliteBook failure: the pack printed its usage text, wrote no files and
+// exited 0, and the script it replaced recorded that as success.
+func TestExtractRetriesWhenNoDriverFilesAppear(t *testing.T) {
+	m := &Manifest{Version: ManifestVersion, Recipe: "hp", Steps: []string{"drivers"},
+		Drivers: Drivers{Sweep: true, Extracts: []Extract{{
+			File: "sp142792.exe", Dir: "hp-pack",
+			Args:    []string{"-pdf", "-e", "-s", `-f"{dir}"`},
+			AltArgs: []string{"/s", "/e", "/f", `"{dir}"`},
+		}}}}
+	a, dir := newAgent(t, m)
+	os.WriteFile(filepath.Join(dir, "sp142792.exe"), []byte("pack"), 0o755)
+
+	f := &fakeRun{}
+	f.do = func(name string, args []string) (result, error) {
+		// The old switches "succeed" and write nothing, as the real pack did.
+		if strings.Contains(strings.Join(args, " "), "-pdf") {
+			return result{Code: 0, Out: "Usage: /s /e /f <target-path>"}, nil
+		}
+		if strings.HasSuffix(name, "sp142792.exe") {
+			dest := filepath.Join(dir, "Drivers", "hp-pack", "net")
+			os.MkdirAll(dest, 0o755)
+			os.WriteFile(filepath.Join(dest, "e1d.inf"), []byte("inf"), 0o644)
+			return result{Code: 0}, nil
+		}
+		if name == "pnputil" {
+			return result{Code: 0, Out: "Driver package added successfully.\n"}, nil
+		}
+		return result{}, nil
+	}
+	f.install(t)
+	a.driversStep()
+
+	log := logText(t, dir)
+	if !strings.Contains(log, "no driver files appeared, retrying") {
+		t.Errorf("no retry recorded:\n%s", log)
+	}
+	if strings.Contains(log, "FAILED") {
+		t.Errorf("the retry worked but something was logged as failed:\n%s", log)
+	}
+	if !strings.Contains(log, "1 driver file(s) present") {
+		t.Errorf("the log does not say what was unpacked:\n%s", log)
+	}
+	var swept bool
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "pnputil") {
+			swept = true
+		}
+	}
+	if !swept {
+		t.Error("pnputil was never run after a successful unpack")
+	}
+}
+
+// A pack that unpacks nothing either way is reported as a failure, in plain
+// words, rather than as a success with an exit code attached.
+func TestExtractFailureIsReportedHonestly(t *testing.T) {
+	m := &Manifest{Version: ManifestVersion, Recipe: "hp", Steps: []string{"drivers"},
+		Drivers: Drivers{Sweep: true, Extracts: []Extract{{
+			File: "pack.exe", Dir: "d", Args: []string{"-x"}, AltArgs: []string{"/x"},
+		}}}}
+	a, dir := newAgent(t, m)
+	os.WriteFile(filepath.Join(dir, "pack.exe"), []byte("pack"), 0o755)
+	f := &fakeRun{do: func(string, []string) (result, error) { return result{Code: 0}, nil }}
+	f.install(t)
+	a.driversStep()
+
+	log := logText(t, dir)
+	if !strings.Contains(log, "FAILED") || !strings.Contains(log, "unpacked no driver files") {
+		t.Errorf("a pack that did nothing was not reported as failed:\n%s", log)
+	}
+	// pnputil on an empty folder exits 87 and reads like a real error.
+	if !strings.Contains(log, "no driver files to install") {
+		t.Errorf("pnputil should have been skipped:\n%s", log)
+	}
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "pnputil") {
+			t.Error("pnputil was run with nothing to install")
+		}
+	}
+	if fails := a.J.Failures(); len(fails) != 1 {
+		t.Errorf("failures recorded: %v", fails)
+	}
+}
+
+// A driver pack for another model is skipped, so one stick can serve a bench
+// of different machines.
+func TestVendorInstallerRunsOnlyOnItsModel(t *testing.T) {
+	if !modelMatches("HP", "EliteBook x360 1040 G8", "HP Inc.", "HP EliteBook x360 1040 G8 Notebook PC") {
+		t.Error("the model this pack is for was not recognised")
+	}
+	if modelMatches("Dell", "OptiPlex 3070", "HP Inc.", "HP EliteBook x360 1040 G8") {
+		t.Error("a pack for another vendor matched")
+	}
+	if modelMatches("HP", "EliteBook 840 G9", "HP Inc.", "HP EliteBook x360 1040 G8") {
+		t.Error("a pack for another model matched")
+	}
+}
+
+// Steps already finished are not repeated when the agent runs again, so a
+// machine that reboots part way through carries on.
+func TestFinishedStepsAreSkippedOnASecondRun(t *testing.T) {
+	dir := t.TempDir()
+	s := LoadState(dir)
+	s.Finish("drivers")
+	again := LoadState(dir)
+	if !again.Finished("drivers") {
+		t.Error("a finished step was forgotten")
+	}
+	if again.Finished("apps") {
+		t.Error("a step that never ran was recorded as finished")
+	}
+}
+
+// The manifest the build writes is the manifest the agent reads.
+func TestManifestRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, ManifestName)
+	in := &Manifest{Recipe: "front-desk", Steps: []string{"drivers", "apps"},
+		Apps:    &Apps{Winget: []string{"Google.Chrome"}, Scope: "machine"},
+		Debloat: &Debloat{Preset: "standard", Apps: []string{"Microsoft.BingNews"}}}
+	if err := in.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	out, err := LoadManifest(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Recipe != in.Recipe || len(out.Steps) != 2 || out.Apps.Winget[0] != "Google.Chrome" ||
+		out.Debloat.Preset != "standard" {
+		t.Errorf("came back as %+v", out)
+	}
+	// A manifest from a newer DSKY must be refused rather than half-read.
+	os.WriteFile(p, []byte(`{"version":999,"recipe":"x","steps":[]}`), 0o644)
+	if _, err := LoadManifest(p); err == nil {
+		t.Error("a manifest from a newer DSKY was accepted")
+	}
+}
+
+// Every line of both logs is written by the agent from what it observed.
+func TestJournalRecordsFailuresForTheSummary(t *testing.T) {
+	dir := t.TempDir()
+	j, err := OpenJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j.Info("apps", "installed %s", "Chrome")
+	j.Fail("apps", "could not install %s", "Spotify")
+	j.Close()
+
+	text := logText(t, dir)
+	if !strings.Contains(text, "apps: installed Chrome") || !strings.Contains(text, "apps: FAILED could not install Spotify") {
+		t.Errorf("human log reads:\n%s", text)
+	}
+	events, _ := os.ReadFile(filepath.Join(dir, EventsName))
+	if !strings.Contains(string(events), `"level":"FAILED"`) {
+		t.Errorf("machine log reads:\n%s", events)
+	}
+}
