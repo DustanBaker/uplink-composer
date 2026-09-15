@@ -74,6 +74,12 @@ type window interface {
 	close()
 }
 
+// openScreenFn is how the run opens its window, as a variable so the package's
+// tests never put a real one up. On Windows they did: Apply opened a
+// full-screen window on the CI runner and then waited, forever, for somebody
+// to press Finish.
+var openScreenFn = openScreen
+
 // openScreen puts the window up. It returns nil when there can be no window --
 // another operating system, a session with no desktop, or a window that would
 // not create -- and every method below does nothing on a nil screen.

@@ -92,7 +92,7 @@ func TestNothingToSweepIsSilent(t *testing.T) {
 	if removed != 0 || len(stuck) != 0 {
 		t.Fatalf("removed %d, stuck %v", removed, stuck)
 	}
-	a.tidyDesktop() // no desktops on this platform; must not panic or log noise
+	a.tidyDesktop() // no desktops in tests (see TestMain); must not panic or log noise
 }
 
 // Edge is not allowed to put its icon back the next time it updates itself.

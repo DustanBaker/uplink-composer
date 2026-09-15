@@ -55,11 +55,16 @@ func removeShortcuts(dirs []string) (removed int, stuck []string) {
 	return removed, stuck
 }
 
+// desktopDirsFn finds the desktops to sweep, as a variable so the package's
+// tests sweep their own temporary folders. The real one, run by `go test` on a
+// Windows machine, would delete that developer's own shortcuts.
+var desktopDirsFn = desktopDirs
+
 // tidyDesktop is run after the programs go in, and again at the end of the
 // whole run: an install that finishes in the signed-in user's session can put
 // an icon there after the step that started it has been recorded as done.
 func (a *Agent) tidyDesktop() {
-	dirs := desktopDirs()
+	dirs := desktopDirsFn()
 	if len(dirs) == 0 {
 		return
 	}

@@ -59,7 +59,7 @@ func Apply(dir string) error {
 
 	// What the person at the machine sees. A nil screen -- no window, or not
 	// Windows -- costs nothing: every call on it does nothing.
-	a.UI = openScreen(machine)
+	a.UI = openScreenFn(machine)
 	if a.UI == nil {
 		a.J.Info("", "no status window on this machine; the log is the only record")
 	}
