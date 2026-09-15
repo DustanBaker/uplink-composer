@@ -194,3 +194,7 @@ func agentInstallers(w *recipe.WindowsSpec, refFiles map[string]string) []agent.
 	}
 	return out
 }
+
+// AgentMedia reports whether media built from this recipe carries the agent,
+// so the tool can name the right check for the machine.
+func AgentMedia(r *recipe.Recipe) (bool, string) { return agentCovers(r) }

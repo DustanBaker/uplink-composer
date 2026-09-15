@@ -305,7 +305,13 @@ func cmdBuild(ctx context.Context, env *Env, args []string) error {
 	// leaving them to find a file they did not know was written.
 	if r, rerr := ws.Recipe(fs.Arg(0)); rerr == nil && r.Windows != nil {
 		fmt.Println("\nAfter imaging a machine, check it matches this build:")
-		fmt.Println(`  powershell -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\verify.ps1`)
+		// The agent checks itself where it was staged; the PowerShell check
+		// is what older media carries, and is still on the stick either way.
+		if covered, _ := compose.AgentMedia(r); covered {
+			fmt.Println(`  C:\Windows\Setup\Scripts\dsky-agent.exe verify`)
+		} else {
+			fmt.Println(`  powershell -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\verify.ps1`)
+		}
 	}
 	return nil
 }
