@@ -322,3 +322,24 @@ func TestApplyRunsEveryStepInOrder(t *testing.T) {
 		t.Error("the log does not say the steps were skipped")
 	}
 }
+
+// Vendor switches are written for a command line, where the shell removes
+// the quotes around a path. The agent starts the program itself, so it must
+// remove them: a path with quotes still in it is a different path, and the
+// extractor says so by printing its usage.
+func TestExtractArgumentsCarryNoShellQuotes(t *testing.T) {
+	got := expandArgs([]string{"/s", "/e", "/f", `"{dir}"`}, `C:\Windows\Setup\Scripts\Drivers\hp`)
+	want := `C:\Windows\Setup\Scripts\Drivers\hp`
+	if got[3] != want {
+		t.Errorf("the destination came out as %q, want %q", got[3], want)
+	}
+	old := expandArgs([]string{"-pdf", "-e", "-s", `-f"{dir}"`}, `C:\d`)
+	if old[3] != `-fC:\d` {
+		t.Errorf("the older style came out as %q", old[3])
+	}
+	for _, a := range append(got, old...) {
+		if strings.Contains(a, `"`) {
+			t.Errorf("%q still carries a quote", a)
+		}
+	}
+}

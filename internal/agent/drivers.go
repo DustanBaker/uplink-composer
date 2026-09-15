@@ -28,11 +28,20 @@ func countINF(dir string) int {
 	return n
 }
 
-// expandArgs substitutes the destination directory into a vendor's switches.
+// expandArgs substitutes the destination directory into a vendor's switches
+// and drops the quotes around it.
+//
+// The switches are written for a command line, where "{dir}" keeps a path
+// with spaces in one piece and the shell removes the quotes before the
+// program sees them. The agent starts the program itself and passes each
+// argument whole, so a path needs no quoting -- and quotes left in are part
+// of the path as far as the extractor is concerned. An HP pack handed
+// /s /e /f "C:\..." with the quotes intact printed its usage text and
+// unpacked nothing, exactly as it had when handed the wrong switches.
 func expandArgs(args []string, dir string) []string {
 	out := make([]string, len(args))
 	for i, a := range args {
-		out[i] = strings.ReplaceAll(a, "{dir}", dir)
+		out[i] = strings.ReplaceAll(strings.ReplaceAll(a, "{dir}", dir), `"`, "")
 	}
 	return out
 }
