@@ -121,10 +121,18 @@ func TestAppsInstallsPerUserPackagesUnelevated(t *testing.T) {
 		"$code = Install-AsUser $id $base",
 		"installed $id as the signed-in user",
 		"Unregister-ScheduledTask",
+		// The install writes its own exit code and that is what is read;
+		// the task's own LastTaskResult reported success for a Spotify
+		// install that never happened.
+		`'Set-Content -Path "__RES__" -Value $LASTEXITCODE'`,
+		"it never reported a result",
 	} {
 		if !strings.Contains(apps, want) {
 			t.Errorf("apps.ps1 is missing %q", want)
 		}
+	}
+	if strings.Contains(apps, "LastTaskResult") {
+		t.Error("apps.ps1 still believes Task Scheduler's own result")
 	}
 	// do/while across a newline parses in pwsh 7 but the machine runs
 	// Windows PowerShell 5.1, whose parser is older.
