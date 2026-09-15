@@ -126,6 +126,11 @@ func Apply(dir string) error {
 		a.UI.Finished("checking", 0)
 	}
 
+	// Last of all, once nothing else can put one there: no desktop
+	// shortcuts. An install that ran in the signed-in user's session can
+	// leave an icon behind after its step was recorded as done.
+	a.tidyDesktop()
+
 	// Finished for good: stop asking to be started again, and hand the
 	// machine over without the automatic sign-in provisioning needed.
 	a.finishUp()

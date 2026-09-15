@@ -1,0 +1,109 @@
+package agent
+
+import (
+	"os"
+	"path/filepath"
+	"sort"
+	"testing"
+)
+
+// Shortcuts go; everything else on the desktop stays. Somebody's own file
+// saved to the desktop is not ours to delete, and a machine that eats a
+// document is a much worse machine than one with a Chrome icon on it.
+func TestOnlyShortcutsAreSweptOff(t *testing.T) {
+	dir := t.TempDir()
+	keep := []string{"Budget.xlsx", "notes.txt", "photo.png", "shortcuts.txt"}
+	gone := []string{"Google Chrome.lnk", "Zoom.LNK", "Acrobat Reader.url", "Teams.website"}
+	for _, n := range append(append([]string{}, keep...), gone...) {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A folder called something.lnk is still a folder.
+	if err := os.Mkdir(filepath.Join(dir, "Projects.lnk"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, stuck := removeShortcuts([]string{dir})
+	if removed != len(gone) {
+		t.Errorf("removed %d shortcut(s), want %d", removed, len(gone))
+	}
+	if len(stuck) != 0 {
+		t.Errorf("could not remove: %v", stuck)
+	}
+
+	left, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range left {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	want := append(append([]string{}, keep...), "Projects.lnk")
+	sort.Strings(want)
+	if len(names) != len(want) {
+		t.Fatalf("left on the desktop: %v, want %v", names, want)
+	}
+	for i := range names {
+		if names[i] != want[i] {
+			t.Errorf("left on the desktop: %v, want %v", names, want)
+			break
+		}
+	}
+}
+
+// Every desktop on the machine, including ones that are not there.
+func TestSweepsEveryDesktopItIsGiven(t *testing.T) {
+	root := t.TempDir()
+	public := filepath.Join(root, "Public", "Desktop")
+	user := filepath.Join(root, "user", "Desktop")
+	def := filepath.Join(root, "Default", "Desktop")
+	for _, d := range []string{public, user, def} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "App.lnk"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	missing := filepath.Join(root, "nobody", "Desktop")
+
+	removed, stuck := removeShortcuts([]string{public, user, def, missing})
+	if removed != 3 {
+		t.Errorf("removed %d, want one from each of the three desktops", removed)
+	}
+	if len(stuck) != 0 {
+		t.Errorf("could not remove: %v", stuck)
+	}
+	// The Default profile matters most: a shortcut left there is copied to
+	// the desktop of every account made later.
+	if _, err := os.Stat(filepath.Join(def, "App.lnk")); !os.IsNotExist(err) {
+		t.Error("the Default profile's desktop was not swept")
+	}
+}
+
+// A machine with nothing on its desktops says nothing about it.
+func TestNothingToSweepIsSilent(t *testing.T) {
+	dir := t.TempDir()
+	a, _ := newAgent(t, &Manifest{Version: ManifestVersion})
+	removed, stuck := removeShortcuts([]string{dir})
+	if removed != 0 || len(stuck) != 0 {
+		t.Fatalf("removed %d, stuck %v", removed, stuck)
+	}
+	a.tidyDesktop() // no desktops on this platform; must not panic or log noise
+}
+
+// Edge is not allowed to put its icon back the next time it updates itself.
+func TestEdgeIsToldNotToPutItsIconBack(t *testing.T) {
+	var found bool
+	for _, p := range policiesFor("standard") {
+		if p.Name == "CreateDesktopShortcut" && p.DWord == 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("nothing stops Edge recreating its desktop shortcut at its next update")
+	}
+}

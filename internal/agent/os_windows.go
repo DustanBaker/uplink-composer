@@ -381,3 +381,39 @@ foreach ($name in $names) {
 }
 Write-Output "APPX DONE"
 `
+
+// desktopDirs is every desktop on the machine: the one all users see, each
+// account's own, any that OneDrive has taken over, and the Default profile --
+// the one that matters most, because a shortcut left there is copied onto the
+// desktop of every account made afterwards.
+func desktopDirs() []string {
+	var dirs []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		for _, have := range dirs {
+			if strings.EqualFold(have, p) {
+				return
+			}
+		}
+		dirs = append(dirs, p)
+	}
+	if p := os.Getenv("PUBLIC"); p != "" {
+		add(filepath.Join(p, "Desktop"))
+	}
+	if p := os.Getenv("USERPROFILE"); p != "" {
+		add(filepath.Join(p, "Desktop"))
+		add(filepath.Join(p, "OneDrive", "Desktop"))
+		// Every other profile on the machine, Default included.
+		users := filepath.Dir(p)
+		if entries, err := os.ReadDir(users); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					add(filepath.Join(users, e.Name(), "Desktop"))
+				}
+			}
+		}
+	}
+	return dirs
+}

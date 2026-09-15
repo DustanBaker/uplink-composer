@@ -102,6 +102,8 @@ func (a *Agent) appsStep() {
 		a.UI.Detail(in.File)
 		a.runInstaller(in)
 	}
+	// Every installer above may have dropped an icon on the desktop.
+	a.tidyDesktop()
 }
 
 // installPackage installs one winget package, handling the two ways Windows

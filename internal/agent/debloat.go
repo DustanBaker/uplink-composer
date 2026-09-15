@@ -28,6 +28,10 @@ func policiesFor(preset string) []policy {
 		{Path: `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot`, Name: "TurnOffWindowsCopilot", DWord: 1},
 		{Path: `HKCU\Software\Policies\Microsoft\Windows\WindowsCopilot`, Name: "TurnOffWindowsCopilot", DWord: 1},
 		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowCopilotButton", DWord: 0},
+		// Edge puts a desktop icon back whenever it updates itself, which
+		// would undo the sweep on a machine that has been running a while.
+		{Path: `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate`, Name: "CreateDesktopShortcut", DWord: 0},
+		{Path: `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate`, Name: "RemoveDesktopShortcutDefault", DWord: 1},
 		// Widgets and news.
 		{Path: `HKLM\SOFTWARE\Policies\Microsoft\Dsh`, Name: "AllowNewsAndInterests", DWord: 0},
 		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarDa", DWord: 0},

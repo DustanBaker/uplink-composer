@@ -31,3 +31,6 @@ func (a *Agent) setPolicy(p policy) error {
 func (a *Agent) removeAppx(prefixes []string) {
 	a.J.Info(stepDebloat, "not running on Windows, nothing to remove")
 }
+
+// desktopDirs finds nothing to tidy anywhere but Windows.
+func desktopDirs() []string { return nil }

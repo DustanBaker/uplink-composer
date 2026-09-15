@@ -86,6 +86,29 @@ func Verify(dir string) ([]Check, error) {
 		add("consumer apps removed", strings.Contains(log, "consumer app(s)"),
 			firstLineContaining(log, "consumer app(s)"))
 	}
+
+	// The desktop, read now rather than from the log: shortcuts are what
+	// installers do behind the agent's back, so this is worth checking
+	// against the machine as it stands, whenever somebody asks.
+	if dirs := desktopDirs(); len(dirs) > 0 {
+		var left []string
+		for _, d := range dirs {
+			entries, err := os.ReadDir(d)
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				if !e.IsDir() && shortcutExt(e.Name()) {
+					left = append(left, e.Name())
+				}
+			}
+		}
+		note := "no shortcuts on any desktop"
+		if len(left) > 0 {
+			note = strings.Join(left, ", ")
+		}
+		add("desktop is clear", len(left) == 0, note)
+	}
 	return out, nil
 }
 
