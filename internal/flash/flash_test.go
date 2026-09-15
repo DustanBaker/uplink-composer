@@ -57,9 +57,28 @@ func TestWipeTailWritesAlignedPiecesInsideTheDevice(t *testing.T) {
 		t.Errorf("wrote the whole tail in %d request(s); drivers differ on how much they take at once", len(tt.writes))
 	}
 
-	// A device that refuses a large request still gets its tail wiped.
-	small := &tailTarget{size: size, failLargerThan: 1 << 20}
+	// A device that refuses large requests is retried in smaller pieces
+	// rather than given up on: USB storage drivers cap how much they take at
+	// once, and the cap is not something the device advertises.
+	small := &tailTarget{size: size, failLargerThan: 64 << 10}
 	if err := wipeTail(small, size); err != nil {
-		t.Errorf("a device refusing requests over 1 MiB: %v", err)
+		t.Errorf("a device refusing requests over 64 KiB: %v", err)
+	}
+	var wiped int64
+	for _, w := range small.writes {
+		if w.n > 64<<10 {
+			t.Errorf("retried with %d bytes, larger than the device accepts", w.n)
+		}
+		wiped += int64(w.n)
+	}
+	if wiped != tailWipe {
+		t.Errorf("the retry wiped %d bytes, want %d", wiped, tailWipe)
+	}
+
+	// A device that refuses every size reports the failure, so the caller can
+	// say so and carry on rather than pretending it worked.
+	none := &tailTarget{size: size, failLargerThan: 1}
+	if err := wipeTail(none, size); err == nil {
+		t.Error("a device that refused every write reported success")
 	}
 }

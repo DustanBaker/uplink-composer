@@ -44,14 +44,30 @@ const tailWipe = 2 << 20
 // drivers differ in how large a single request they will take. A megabyte at
 // a time is comfortable for all of them and still only two writes.
 func wipeTail(t Target, devSize int64) error {
-	zeros := make([]byte, 1<<20)
-	for off := devSize - tailWipe; off < devSize; off += int64(len(zeros)) {
-		n := int64(len(zeros))
-		if rest := devSize - off; rest < n {
+	// A megabyte at a time, and on refusal the same ground again in
+	// sector-sized pieces: USB storage drivers cap how much they take in one
+	// request, and the cap is not something the device advertises.
+	for _, piece := range []int64{1 << 20, 64 << 10, SectorSize} {
+		err := wipeRange(t, devSize-tailWipe, devSize, piece)
+		if err == nil {
+			return nil
+		}
+		if piece == SectorSize {
+			return err
+		}
+	}
+	return nil
+}
+
+func wipeRange(t Target, from, to, piece int64) error {
+	zeros := make([]byte, piece)
+	for off := from; off < to; off += piece {
+		n := piece
+		if rest := to - off; rest < n {
 			n = rest
 		}
 		if _, err := t.WriteAt(zeros[:n], off); err != nil {
-			return fmt.Errorf("%d bytes at offset %d of %d: %w", n, off, devSize, err)
+			return fmt.Errorf("%d bytes at offset %d of %d: %w", n, off, to, err)
 		}
 	}
 	return nil
@@ -163,8 +179,15 @@ func Flash(ctx context.Context, art *compose.Artifact, dev device.Device, progre
 	// the layout makes Windows re-read the disk, and a write issued into
 	// that moment is refused. Nothing needs the table gone first: the wipe
 	// only zeroes bytes.
+	// Best effort, and deliberately not fatal. The wipe removes a stale
+	// partition table from the stick's previous life, which is a kindness to
+	// the firmware that boots it next -- the image about to be written
+	// provides the table that matters. A Windows machine refuses these
+	// writes (unexplained as yet; the device reports the size being written
+	// to, and the offsets are sector-aligned), and refusing to write the
+	// stick at all over a defensive cleanup is the wrong trade.
 	if err := wipeTail(t, devSize); err != nil {
-		return fmt.Errorf("flash: wiping stale partition data at end of device: %w", err)
+		progress("could not clear the end of the stick, continuing: "+err.Error(), 0, -1)
 	}
 
 	clearForWrite(t)
