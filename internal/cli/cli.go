@@ -93,6 +93,7 @@ Other
   uninstall [--purge]       remove the installed program (--purge also deletes
                             the downloaded-image library; workspaces are never touched)
   doctor                    check this host's tooling and configuration
+  disk-probe <disk> <size>  ask Windows which writes a stick accepts (diagnosis)
   version                   print version
 
 Global flags (before or after the command):
@@ -211,6 +212,8 @@ func Main(args []string) int {
 		err = cmdGo(ctx, env, cmdArgs)
 	case "init":
 		err = cmdInit(cmdArgs)
+	case "disk-probe":
+		err = cmdDiskProbe(cmdArgs)
 	case "doctor":
 		err = cmdDoctor(ctx, env)
 	case "update":

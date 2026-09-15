@@ -5,13 +5,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/uplinkresearch/dsky/internal/agentbin"
 	"github.com/uplinkresearch/dsky/internal/compose"
 	"github.com/uplinkresearch/dsky/internal/device"
+	"github.com/uplinkresearch/dsky/internal/flash"
 	"github.com/uplinkresearch/dsky/internal/helpers"
 	"github.com/uplinkresearch/dsky/internal/library"
 	"github.com/uplinkresearch/dsky/internal/manifest"
@@ -362,4 +365,26 @@ func cmdGC(env *Env) error {
 	}
 	fmt.Printf("freed %d MiB\n", freed>>20)
 	return nil
+}
+
+// cmdDiskProbe reports which writes Windows accepts on a raw disk. It exists
+// because a stick refused every write DSKY made to it, with an error that
+// named no cause, and the answer can only be found on the machine holding
+// that stick.
+//
+// It writes only inside the last two megabytes, which DSKY overwrites anyway
+// before it writes an image, and only once the exact size has been given, so
+// it cannot be aimed at the wrong disk.
+func cmdDiskProbe(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf(`usage: dsky disk-probe \\.\PhysicalDriveN <exact size in bytes>
+
+The size is the one DSKY printed in its error. Run it from an elevated
+prompt, with the stick plugged in, on a stick you are about to write anyway.`)
+	}
+	size, err := strconv.ParseInt(args[1], 10, 64)
+	if err != nil {
+		return fmt.Errorf("the size must be a number of bytes: %w", err)
+	}
+	return flash.Probe(args[0], size, os.Stdout)
 }
