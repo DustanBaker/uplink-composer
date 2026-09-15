@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// userInstallTimeoutMinutes caps one standard-user install.
+const userInstallTimeoutMinutes = 20
+
 // AppsScope is the effective winget install scope for a spec.
 func AppsScope(a *AppsSpec) string {
 	if a != nil && a.Scope != "" {
@@ -67,6 +70,41 @@ func GenerateAppsPS(r *Recipe) string {
 	w(`  return $false`)
 	w(`}`)
 	w(``)
+	// Per-user installers (Spotify, Discord, and friends) refuse to run from
+	// an elevated process: winget returns 0x8A150056. First boot is elevated
+	// because drivers need it, so those packages go through a scheduled task
+	// that runs as the signed-in user with a standard-user token, which is
+	// the context their installers expect.
+	w(`function Install-AsUser([string]$id, [string[]]$wgArgs) {`)
+	w(`  $task = 'DSKY-user-install'`)
+	w(`  $helper = Join-Path $PSScriptRoot 'dsky-user-install.ps1'`)
+	w(`  $lit = ($wgArgs | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ','`)
+	w(`  Set-Content -Path $helper -Encoding UTF8 -Value @(`)
+	w(`    ("& '" + ($wg -replace "'", "''") + "' @(" + $lit + ") *>> '" + ($log -replace "'", "''") + "'"),`)
+	w(`    'exit $LASTEXITCODE')`)
+	w(`  try {`)
+	w(`    $arg = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $helper + '"'`)
+	w(`    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg`)
+	w(`    $me = $env:USERDOMAIN + '\' + $env:USERNAME`)
+	w(`    $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited`)
+	w(`    Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Force -ErrorAction Stop | Out-Null`)
+	w(`    Start-ScheduledTask -TaskName $task -ErrorAction Stop`)
+	w(`  } catch {`)
+	w(`    Note "FAILED $id could not be started as the signed-in user: $_"`)
+	w(`    return 1`)
+	w(`  }`)
+	w(`  # Long enough for a big installer, short enough that one stuck package`)
+	w(`  # cannot hold the whole first boot open.`)
+	w(`  $deadline = (Get-Date).AddMinutes(%d)`, userInstallTimeoutMinutes)
+	w(`  while ((Get-ScheduledTask -TaskName $task).State -eq 'Running' -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }`)
+	w(`  $code = (Get-ScheduledTaskInfo -TaskName $task).LastTaskResult`)
+	w(`  # Task results are unsigned; winget's codes are negative.`)
+	w(`  if ($code -gt 2147483647) { $code = $code - 4294967296 }`)
+	w(`  Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue`)
+	w(`  Remove-Item $helper -Force -ErrorAction SilentlyContinue`)
+	w(`  return $code`)
+	w(`}`)
+	w(``)
 	w(`$wg = Find-Winget`)
 	w(`if (-not $wg) {`)
 	w(`  Note "FAILED winget never appeared - no programs installed."`)
@@ -106,6 +144,14 @@ func GenerateAppsPS(r *Recipe) string {
 	w(`    # -1978335189 = already installed / no applicable upgrade.`)
 	w(`    if ($code -eq -1978335189) { $ok = $true; Note "$id already present"; break }`)
 	w(`    Note "$id attempt $($t + 1) exited $code"`)
+	w(`    # 0x8A150056: the package's installer refuses an elevated context.`)
+	w(`    if ($code -eq -1978335146) {`)
+	w(`      Note "$id needs a standard-user install; running it as $env:USERNAME"`)
+	w(`      $code = Install-AsUser $id $base`)
+	w(`      if ($code -eq 0 -or $code -eq -1978335189) { $ok = $true; Note "installed $id as the signed-in user"; break }`)
+	w(`      Note "$id as the signed-in user exited $code"`)
+	w(`      break`)
+	w(`    }`)
 	w(`  }`)
 	w(`  if (-not $ok) { $failed += $id }`)
 	w(`}`)

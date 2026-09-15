@@ -111,6 +111,33 @@ func TestGeneratedPowerShellParses(t *testing.T) {
 	}
 }
 
+// A package whose installer refuses an elevated context (winget 0x8A150056,
+// Spotify and Discord among them) is retried as the signed-in user through a
+// scheduled task with a standard-user token. First boot itself stays elevated
+// because drivers need it.
+func TestAppsInstallsPerUserPackagesUnelevated(t *testing.T) {
+	apps := generatedScripts(t)["apps.ps1"]
+	for _, want := range []string{
+		"function Install-AsUser",
+		"-LogonType Interactive -RunLevel Limited",
+		"if ($code -eq -1978335146) {",
+		"$code = Install-AsUser $id $base",
+		"installed $id as the signed-in user",
+		"Unregister-ScheduledTask",
+	} {
+		if !strings.Contains(apps, want) {
+			t.Errorf("apps.ps1 is missing %q", want)
+		}
+	}
+	// do/while across a newline parses in pwsh 7 but the machine runs
+	// Windows PowerShell 5.1, whose parser is older.
+	for _, ln := range strings.Split(apps, "\n") {
+		if strings.TrimSpace(ln) == "do { Start-Sleep -Seconds 5 }" {
+			t.Error("do/while split across lines")
+		}
+	}
+}
+
 // The firstboot driver steps must judge extraction by whether .inf files
 // appeared and retry with the other HP switch generation — the EliteBook
 // pack printed usage and exited 0 when handed the old switches — and must
