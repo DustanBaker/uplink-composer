@@ -1,10 +1,18 @@
 package oscatalog
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/uplinkresearch/dsky/internal/driverresolve"
+	"github.com/uplinkresearch/dsky/internal/library"
 	"github.com/uplinkresearch/dsky/internal/recipe"
+	"github.com/uplinkresearch/dsky/internal/workspace"
 )
 
 // A recipe saved for a machine somebody named must come back with that machine
@@ -47,5 +55,56 @@ func TestTheSameModelIsNotStagedTwice(t *testing.T) {
 	got := dedupeSpecs(append([]recipe.HardwareSpec{}, hw...))
 	if len(got) != 3 {
 		t.Errorf("deduped to %d entries, want 3: %+v", len(got), got)
+	}
+}
+
+// Saving a recipe must not fetch a vendor's driver pack. Naming an HP
+// EliteBook meant waiting on 1.2 GB before the recipe file existed -- and if
+// that download was interrupted, or the dialog was closed, there was no recipe
+// at all. The manifest carries the URL and the SHA-256; the bytes are fetched
+// when a stick is built.
+func TestSavingARecipeFetchesNothing(t *testing.T) {
+	var fetched []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetched = append(fetched, r.URL.Path)
+		w.Write([]byte("pack bytes"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	lib, err := library.Open(filepath.Join(dir, "lib"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wsDir := filepath.Join(dir, "ws")
+	if err := os.MkdirAll(filepath.Join(wsDir, "manifests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, "workspace.yaml"), []byte("version: 1\norg:\n  name: Test\n  id: test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A manifest for the model, as a previous save would have left it: the
+	// pack is described but its bytes are not in the library.
+	man := "id: hp-pack\nkind: driver-pack\nformat: zip\nurl: " + srv.URL + "/hp.zip\n" +
+		"sha256: 0000000000000000000000000000000000000000000000000000000000000000\n" +
+		"filename: hp.zip\nhardware:\n  vendor: hp\n  model: \"EliteBook x360 1040 G8\"\n  os: win11\n"
+	if err := os.WriteFile(filepath.Join(wsDir, "manifests", "hp-pack.yaml"), []byte(man), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := workspace.Load(wsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hw := []recipe.HardwareSpec{{Vendor: "hp", Model: "EliteBook x360 1040 G8", OS: "win11"}}
+	res, err := driverresolve.Plan(context.Background(), ws, lib, hw, true, nil)
+	if err != nil {
+		t.Fatalf("planning refused: %v", err)
+	}
+	if len(fetched) != 0 {
+		t.Errorf("saving fetched %v; it should fetch nothing", fetched)
+	}
+	if len(res.Specs) != 1 || res.Specs[0].Model != "EliteBook x360 1040 G8" {
+		t.Errorf("the model did not survive planning: %+v", res.Specs)
 	}
 }

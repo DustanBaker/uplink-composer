@@ -699,6 +699,12 @@ func hardwareYAML(hw []recipe.HardwareSpec) string {
 // somebody named is not. A named model whose pack cannot be resolved stops
 // the save with the vendor's own words, rather than writing a recipe that has
 // silently forgotten the machine it was saved for.
+//
+// It plans rather than fetches: the manifests it writes carry each pack's URL
+// and SHA-256, and the bytes are fetched when a stick is built. Saving a
+// recipe used to download the vendor's whole pack first, so naming an HP
+// EliteBook meant waiting on 1.2 GB before the recipe file existed -- and
+// losing the recipe entirely if that download was interrupted.
 func resolveDrivers(ctx context.Context, lib *library.Library, wsDir string, opts Options, progress func(stage string, done, total int64)) ([]recipe.HardwareSpec, error) {
 	if len(opts.Hardware) == 0 && len(opts.Models) == 0 && len(opts.Kept) == 0 {
 		return nil, nil
@@ -709,7 +715,7 @@ func resolveDrivers(ctx context.Context, lib *library.Library, wsDir string, opt
 	}
 	hw := append([]recipe.HardwareSpec{}, opts.Kept...)
 	if len(opts.Hardware) > 0 {
-		res, err := driverresolve.Resolve(ctx, ws, lib, opts.Hardware, false, progress)
+		res, err := driverresolve.Plan(ctx, ws, lib, opts.Hardware, false, progress)
 		if err != nil {
 			return nil, err
 		}
@@ -721,7 +727,7 @@ func resolveDrivers(ctx context.Context, lib *library.Library, wsDir string, opt
 		hw = append(hw, res.Specs...)
 	}
 	if len(opts.Models) > 0 {
-		res, err := driverresolve.Resolve(ctx, ws, lib, opts.Models, true, progress)
+		res, err := driverresolve.Plan(ctx, ws, lib, opts.Models, true, progress)
 		if err != nil {
 			return nil, err
 		}

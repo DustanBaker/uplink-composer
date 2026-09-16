@@ -222,6 +222,23 @@ func AddPack(ctx context.Context, ws *workspace.Workspace, lib *library.Library,
 // returned Specs and listed in Missing, because compose requires every
 // hardware entry it is given to resolve to a pack.
 func Resolve(ctx context.Context, ws *workspace.Workspace, lib *library.Library, hw []recipe.HardwareSpec, strict bool, progress Progress) (*Resolved, error) {
+	return resolve(ctx, ws, lib, hw, strict, true, progress)
+}
+
+// Plan works out which packs a set of hardware needs and writes their
+// manifests, without fetching a byte of them.
+//
+// Saving a recipe used this through Resolve and so downloaded the vendor's
+// whole pack -- 1.2 GB for an HP EliteBook -- before the recipe file was
+// written. A recipe is a text file describing intent; it should cost nothing
+// to write one, and it should not be lost because a download was interrupted.
+// The manifest that Plan writes carries the URL and the SHA-256, so the bytes
+// can be fetched when a stick is actually built.
+func Plan(ctx context.Context, ws *workspace.Workspace, lib *library.Library, hw []recipe.HardwareSpec, strict bool, progress Progress) (*Resolved, error) {
+	return resolve(ctx, ws, lib, hw, strict, false, progress)
+}
+
+func resolve(ctx context.Context, ws *workspace.Workspace, lib *library.Library, hw []recipe.HardwareSpec, strict, pull bool, progress Progress) (*Resolved, error) {
 	out := &Resolved{}
 	if len(hw) == 0 {
 		return out, nil
@@ -239,6 +256,9 @@ func Resolve(ctx context.Context, ws *workspace.Workspace, lib *library.Library,
 		return nil
 	}
 	ensurePulled := func(s *manifest.Source) error {
+		if !pull {
+			return nil // planning: the manifest is enough
+		}
 		if _, err := lib.Resolve(s.ID); err == nil {
 			return nil
 		}
@@ -255,7 +275,7 @@ func Resolve(ctx context.Context, ws *workspace.Workspace, lib *library.Library,
 		got := recipe.HardwareSpec{OS: osName}
 
 		if h.Vendor != "" {
-			switch id, err := resolveModel(ctx, ws, lib, cache, h, osName, have, ensurePulled, progress); {
+			switch id, err := resolveModel(ctx, ws, lib, cache, h, osName, have, ensurePulled, pull, progress); {
 			case err != nil && strict:
 				return nil, err
 			case err != nil:
@@ -268,7 +288,7 @@ func Resolve(ctx context.Context, ws *workspace.Workspace, lib *library.Library,
 			}
 		}
 		for _, hwid := range h.HWIDs {
-			switch id, err := resolveHWID(ctx, ws, lib, cache, hwid, osName, have, ensurePulled, progress); {
+			switch id, err := resolveHWID(ctx, ws, lib, cache, hwid, osName, have, ensurePulled, pull, progress); {
 			case err != nil && strict:
 				return nil, err
 			case err != nil:
@@ -297,7 +317,7 @@ type pullFunc func(s *manifest.Source) error
 
 // resolveModel covers one vendor+model entry, returning the id of the pack now
 // staged for it.
-func resolveModel(ctx context.Context, ws *workspace.Workspace, lib *library.Library, cache *catalog.Cache, h recipe.HardwareSpec, osName string, have findFunc, ensurePulled pullFunc, progress Progress) (string, error) {
+func resolveModel(ctx context.Context, ws *workspace.Workspace, lib *library.Library, cache *catalog.Cache, h recipe.HardwareSpec, osName string, have findFunc, ensurePulled pullFunc, pull bool, progress Progress) (string, error) {
 	if s := have(h.Vendor, h.Model, ""); s != nil {
 		return s.ID, ensurePulled(s)
 	}
@@ -314,11 +334,11 @@ func resolveModel(ctx context.Context, ws *workspace.Workspace, lib *library.Lib
 		return "", fmt.Errorf("no %s driver pack for %q (%s) — check the model with `dsky drivers search %s %q`", h.Vendor, h.Model, osName, h.Vendor, h.Model)
 	}
 	ref := manifest.HardwareRef{Vendor: h.Vendor, Model: h.Model, OS: osName}
-	return AddPack(ctx, ws, lib, feed, catalog.Exact(packs, h.Model), ref, true, progress)
+	return AddPack(ctx, ws, lib, feed, catalog.Exact(packs, h.Model), ref, pull, progress)
 }
 
 // resolveHWID covers one hardware ID through the Microsoft Update Catalog.
-func resolveHWID(ctx context.Context, ws *workspace.Workspace, lib *library.Library, cache *catalog.Cache, hwid, osName string, have findFunc, ensurePulled pullFunc, progress Progress) (string, error) {
+func resolveHWID(ctx context.Context, ws *workspace.Workspace, lib *library.Library, cache *catalog.Cache, hwid, osName string, have findFunc, ensurePulled pullFunc, pull bool, progress Progress) (string, error) {
 	if s := have("", "", hwid); s != nil {
 		return s.ID, ensurePulled(s)
 	}
@@ -335,5 +355,5 @@ func resolveHWID(ctx context.Context, ws *workspace.Workspace, lib *library.Libr
 		return "", fmt.Errorf("the Microsoft Update Catalog has no %s driver", osName)
 	}
 	ref := manifest.HardwareRef{HWID: hwid, OS: osName}
-	return AddPack(ctx, ws, lib, feed, packs[0], ref, true, progress)
+	return AddPack(ctx, ws, lib, feed, packs[0], ref, pull, progress)
 }

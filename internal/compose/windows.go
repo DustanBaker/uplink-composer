@@ -125,7 +125,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 			return nil, fmt.Errorf("compose: unattend vars: %w", err)
 		}
 		if err := domainVars(uvars, ws.Dir, w.Domain, vars, func(ref string) (string, error) {
-			f, err := materializeFile(req, ref)
+			f, err := materializeFile(ctx, req, ref)
 			return f.host, err
 		}); err != nil {
 			return nil, fmt.Errorf("compose: %w", err)
@@ -206,7 +206,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 			}
 			drivers.HasSweepable = true
 		case recipe.InstallExpandSweep:
-			file, err := materializeFile(req, pack.Ref)
+			file, err := materializeFile(ctx, req, pack.Ref)
 			if err != nil {
 				return nil, err
 			}
@@ -218,7 +218,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 			}{File: file.name, Dir: pack.Name()})
 			drivers.HasSweepable = true
 		case recipe.InstallExtractSweep:
-			file, err := materializeFile(req, pack.Ref)
+			file, err := materializeFile(ctx, req, pack.Ref)
 			if err != nil {
 				return nil, err
 			}
@@ -234,7 +234,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 			}{File: file.name, Dir: pack.Name(), Args: pack.Extract})
 			drivers.HasSweepable = true
 		case recipe.InstallExe:
-			file, err := materializeFile(req, pack.Ref)
+			file, err := materializeFile(ctx, req, pack.Ref)
 			if err != nil {
 				return nil, err
 			}
@@ -273,7 +273,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 	// Payload.
 	for _, item := range w.Payload {
 		if item.Ref != "" {
-			file, err := materializeFile(req, item.Ref)
+			file, err := materializeFile(ctx, req, item.Ref)
 			if err != nil {
 				return nil, err
 			}
@@ -293,7 +293,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		if name, ok := refFiles[ref]; ok {
 			return name, nil
 		}
-		file, err := materializeFile(req, ref)
+		file, err := materializeFile(ctx, req, ref)
 		if err != nil {
 			return "", fmt.Errorf("compose: firstboot step references %q: %w", ref, err)
 		}
@@ -356,7 +356,7 @@ func buildWindows(ctx context.Context, req Request) (*Artifact, error) {
 		src, ref := s.SuccessImage()
 		switch {
 		case ref != "":
-			file, err := materializeFile(req, ref)
+			file, err := materializeFile(ctx, req, ref)
 			if err != nil {
 				return nil, fmt.Errorf("compose: windows.status_screen.success_ref: %w", err)
 			}
@@ -533,8 +533,36 @@ type materialized struct {
 	name string // filename to stage as
 }
 
+// ensureRef makes sure a source's bytes are in the library, fetching them if
+// they are not.
+//
+// A recipe records which driver packs it needs; the bytes are fetched when a
+// stick is built. Saving a recipe used to download them instead, so naming a
+// machine meant waiting on a gigabyte before the recipe file existed. A build
+// is the moment the bytes are actually needed, and the moment somebody is
+// already waiting on a progress bar.
+func ensureRef(ctx context.Context, req Request, ref string) error {
+	if _, err := req.Library.Resolve(ref); err == nil {
+		return nil
+	}
+	src, err := req.Workspace.Source(ref)
+	if err != nil {
+		return fmt.Errorf("compose: %s is not in the library and no manifest says where to get it: %w", ref, err)
+	}
+	req.progress("downloading "+ref, 0, -1)
+	if _, err := req.Library.Pull(ctx, src, true, nil, func(done, total int64) {
+		req.progress("downloading "+ref, done, total)
+	}); err != nil {
+		return fmt.Errorf("compose: could not fetch %s: %w", ref, err)
+	}
+	return nil
+}
+
 // materializeFile resolves a source ref to its library blob.
-func materializeFile(req Request, ref string) (materialized, error) {
+func materializeFile(ctx context.Context, req Request, ref string) (materialized, error) {
+	if err := ensureRef(ctx, req, ref); err != nil {
+		return materialized{}, err
+	}
 	entry, err := req.Library.Resolve(ref)
 	if err != nil {
 		return materialized{}, err
@@ -551,6 +579,9 @@ func materializeDir(ctx context.Context, req Request, buildTmp string, pack reci
 			return "", fmt.Errorf("compose: driver pack path %s is not a directory", pack.Path)
 		}
 		return dir, nil
+	}
+	if err := ensureRef(ctx, req, pack.Ref); err != nil {
+		return "", err
 	}
 	entry, err := req.Library.Resolve(pack.Ref)
 	if err != nil {
