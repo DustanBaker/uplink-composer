@@ -877,7 +877,10 @@ func (s *Server) installOptions(ctx context.Context, req installRequest) (oscata
 		}
 	}
 	// Named models are additive with detection: pnputil installs only what
-	// matches, so one stick can carry packs for several machines.
+	// matches, so one stick can carry packs for several machines. They are
+	// kept apart from what was detected because they are treated differently
+	// when a pack cannot be found -- see oscatalog.Options.
+	var models []recipe.HardwareSpec
 	for _, spec := range strings.Split(req.DriversFor, ",") {
 		if strings.TrimSpace(spec) == "" {
 			continue
@@ -889,7 +892,7 @@ func (s *Server) installOptions(ctx context.Context, req installRequest) (oscata
 		if err != nil {
 			return e, oscatalog.Options{}, err
 		}
-		hw = append(hw, h)
+		models = append(models, h)
 	}
 	if err := oscatalog.CheckPrograms(e, req.Apps); err != nil {
 		return e, oscatalog.Options{}, err
@@ -918,7 +921,7 @@ func (s *Server) installOptions(ctx context.Context, req installRequest) (oscata
 	return e, oscatalog.Options{
 		Edition: req.Edition, AccountMode: req.AccountMode,
 		Debloat: req.Debloat, BypassRequirement: req.BypassRequirement,
-		Hardware: hw, Apps: req.Apps, DomainBlob: blob, DomainBlobsDir: blobsDir,
+		Hardware: hw, Models: models, Apps: req.Apps, DomainBlob: blob, DomainBlobsDir: blobsDir,
 	}, nil
 }
 

@@ -105,9 +105,25 @@ type Options struct {
 	Debloat           string // windows: off | standard | aggressive
 	BypassRequirement bool   // windows: skip TPM/SecureBoot/RAM checks
 	// Hardware asks for driver packs to be found and staged for these
-	// machines (windows only) — normally what hwdetect found on this box,
-	// via driverresolve.SpecsFor. Entries no catalog covers are dropped.
+	// machines (windows only) — what hwdetect found on this box, via
+	// driverresolve.SpecsFor. Entries no catalog covers are dropped: a
+	// detected GPU the vendors do not carry a pack for (common; Windows
+	// Update covers most) must not fail a build.
 	Hardware []recipe.HardwareSpec
+	// Kept are the driver packs a recipe being edited already had. They were
+	// resolved when it was saved and their manifests are in the workspace, so
+	// they are written through as they are: re-resolving them fetched the
+	// vendor pack again on a machine that no longer had it -- a gigabyte to
+	// rename a recipe -- and dropped the machine from the recipe entirely if
+	// the vendor's feed could not be reached at that moment.
+	Kept []recipe.HardwareSpec
+	// Models are machines somebody named themselves, for imaging computers
+	// they are not sitting at. These are never dropped. Dropping one was
+	// silent -- a recipe saved with "HP EliteBook x360 1040 G8" picked in the
+	// dialog came back with no drivers in it at all and no error anywhere,
+	// because a pack that could not be resolved right then was quietly left
+	// out along with the machine that asked for it.
+	Models []recipe.HardwareSpec
 	// Apps are appcatalog picker ids to install at first boot (windows only,
 	// via winget). Resolved to package ids by the caller.
 	Apps []string
@@ -321,21 +337,11 @@ func SaveRecipe(ctx context.Context, lib *library.Library, wsDir, id, name strin
 		}
 	}
 	var hw []recipe.HardwareSpec
-	if e.Family == Windows && len(opts.Hardware) > 0 {
-		ws, err := workspace.Load(wsDir)
-		if err != nil {
+	if e.Family == Windows {
+		var err error
+		if hw, err = resolveDrivers(ctx, lib, wsDir, opts, progress); err != nil {
 			return "", err
 		}
-		res, err := driverresolve.Resolve(ctx, ws, lib, opts.Hardware, false, progress)
-		if err != nil {
-			return "", err
-		}
-		if progress != nil {
-			for _, m := range res.Missing {
-				progress("no driver pack found for "+m, 0, -1)
-			}
-		}
-		hw = res.Specs
 	}
 	meta := recipeMeta{ID: id, Name: name, Template: savedTemplate}
 	if e.Family == Linux && len(opts.Apps) > 0 {
@@ -395,19 +401,17 @@ func BuildQuick(ctx context.Context, lib *library.Library, e Entry, opts Options
 	// Driver auto-resolve rewrites the recipe, because compose requires every
 	// windows.hardware entry to match a staged pack: a detected GPU the
 	// catalogs don't carry (common — Windows Update covers most) must not
-	// fail the build, so only what resolved goes in.
-	if e.Family == Windows && len(opts.Hardware) > 0 {
-		res, err := driverresolve.Resolve(ctx, ws, lib, opts.Hardware, false, progress)
+	// fail the build, so only what resolved goes in. A machine named by hand
+	// is not in that bargain: if its pack cannot be found, the build stops
+	// and says so, rather than writing a stick with no drivers for exactly
+	// the computer it was made for.
+	if e.Family == Windows && (len(opts.Hardware) > 0 || len(opts.Models) > 0) {
+		specs, err := resolveDrivers(ctx, lib, wsDir, opts, progress)
 		if err != nil {
 			return nil, err
 		}
-		if progress != nil {
-			for _, m := range res.Missing {
-				progress("no driver pack found for "+m, 0, -1)
-			}
-		}
-		if len(res.Specs) > 0 {
-			if err := writeQuickRecipe(wsDir, e, opts, res.Specs); err != nil {
+		if len(specs) > 0 {
+			if err := writeQuickRecipe(wsDir, e, opts, specs); err != nil {
 				return nil, err
 			}
 			if ws, err = workspace.Load(wsDir); err != nil {
@@ -688,6 +692,58 @@ func hardwareYAML(hw []recipe.HardwareSpec) string {
 		}
 	}
 	return b.String()
+}
+
+// resolveDrivers finds the packs a build needs, treating the two kinds of
+// request differently: hardware DSKY detected is best-effort, and a machine
+// somebody named is not. A named model whose pack cannot be resolved stops
+// the save with the vendor's own words, rather than writing a recipe that has
+// silently forgotten the machine it was saved for.
+func resolveDrivers(ctx context.Context, lib *library.Library, wsDir string, opts Options, progress func(stage string, done, total int64)) ([]recipe.HardwareSpec, error) {
+	if len(opts.Hardware) == 0 && len(opts.Models) == 0 && len(opts.Kept) == 0 {
+		return nil, nil
+	}
+	ws, err := workspace.Load(wsDir)
+	if err != nil {
+		return nil, err
+	}
+	hw := append([]recipe.HardwareSpec{}, opts.Kept...)
+	if len(opts.Hardware) > 0 {
+		res, err := driverresolve.Resolve(ctx, ws, lib, opts.Hardware, false, progress)
+		if err != nil {
+			return nil, err
+		}
+		if progress != nil {
+			for _, m := range res.Missing {
+				progress("no driver pack found for "+m, 0, -1)
+			}
+		}
+		hw = append(hw, res.Specs...)
+	}
+	if len(opts.Models) > 0 {
+		res, err := driverresolve.Resolve(ctx, ws, lib, opts.Models, true, progress)
+		if err != nil {
+			return nil, err
+		}
+		hw = append(hw, res.Specs...)
+	}
+	return dedupeSpecs(hw), nil
+}
+
+// dedupeSpecs drops repeats, so keeping a recipe's drivers and picking the
+// same model again in the dialog does not stage it twice.
+func dedupeSpecs(hw []recipe.HardwareSpec) []recipe.HardwareSpec {
+	seen := map[string]bool{}
+	out := hw[:0]
+	for _, h := range hw {
+		key := strings.ToLower(h.Vendor + "|" + h.Model + "|" + h.OS + "|" + strings.Join(h.HWIDs, ","))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, h)
+	}
+	return out
 }
 
 // recipeMeta is what differs between a Quick Install recipe, which is named

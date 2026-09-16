@@ -216,7 +216,9 @@ func (s *Server) handleRecipeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.KeepDrivers {
-		opts.Hardware = append(append([]recipe.HardwareSpec{}, old.Hardware...), opts.Hardware...)
+		// Written through as they are, not resolved again: they are already
+		// in the recipe, with their manifests in the workspace.
+		opts.Kept = old.Hardware
 	}
 	if s.Reg.BusyExcept("") {
 		httpErr(w, 409, "something is running — save the recipe when the activity has finished")
