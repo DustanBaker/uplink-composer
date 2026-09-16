@@ -264,3 +264,23 @@ func TestTheFinishScreenTimesTheWholeBuild(t *testing.T) {
 		t.Errorf("with no recorded start: %s", got)
 	}
 }
+
+// The machine says its name once. Seen on the real HP: "HP HP EliteBook x360
+// 1040 G8 Notebook PC", because HP's firmware reports the maker as "HP" and
+// the model already begins with it.
+func TestTheMachineNameIsNotDoubled(t *testing.T) {
+	for _, c := range []struct{ vendor, model, want string }{
+		{"HP", "HP EliteBook x360 1040 G8 Notebook PC", "HP EliteBook x360 1040 G8 Notebook PC"},
+		{"Dell Inc.", "OptiPlex 3070", "Dell Inc. OptiPlex 3070"},
+		{"LENOVO", "20XW troubleshooting", "LENOVO 20XW troubleshooting"},
+		{"Framework", "Framework Laptop 13", "Framework Laptop 13"},
+		{"QEMU", "Standard PC (Q35 + ICH9, 2009)", "QEMU Standard PC (Q35 + ICH9, 2009)"},
+		{"HP", "", "HP"},
+		{"", "EliteBook", "EliteBook"},
+		{"", "", "unknown machine"},
+	} {
+		if got := machineName(c.vendor, c.model); got != c.want {
+			t.Errorf("machineName(%q, %q) = %q, want %q", c.vendor, c.model, got, c.want)
+		}
+	}
+}

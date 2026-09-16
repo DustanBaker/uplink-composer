@@ -50,11 +50,7 @@ func Apply(dir string) error {
 
 	a := &Agent{Dir: dir, Manifest: m, J: j, State: LoadState(dir)}
 	start := time.Now()
-	vendor, model := a.machineModel()
-	machine := strings.TrimSpace(vendor + " " + model)
-	if machine == "" {
-		machine = "unknown machine"
-	}
+	machine := machineName(a.machineModel())
 	a.J.Info("", "first-boot agent starting for recipe %s on %s (%s)", m.Recipe, machine, runtime.GOOS)
 
 	// What the person at the machine sees. A nil screen -- no window, or not
@@ -193,6 +189,32 @@ func summaryLines(failures []string, took time.Duration) []string {
 		out = append(out, f)
 	}
 	return append(out, "Everything else is installed. The full record is in firstboot.log.")
+}
+
+// machineName is what the machine calls itself, said once.
+//
+// Vendors are inconsistent about whether the model already carries the maker's
+// name. HP's firmware reports the manufacturer as "HP" and the model as "HP
+// EliteBook x360 1040 G8 Notebook PC", so joining them put "HP HP EliteBook
+// x360 1040 G8 Notebook PC" on the screen in front of whoever is setting the
+// machine up. Dell reports "Dell Inc." and "OptiPlex 3070", which needs both.
+func machineName(vendor, model string) string {
+	vendor, model = strings.TrimSpace(vendor), strings.TrimSpace(model)
+	switch {
+	case model == "":
+		if vendor == "" {
+			return "unknown machine"
+		}
+		return vendor
+	case vendor == "":
+		return model
+	}
+	// "HP" against "HP EliteBook ...": the model already says who made it.
+	first, _, _ := strings.Cut(model, " ")
+	if strings.EqualFold(first, vendor) || strings.EqualFold(first, strings.TrimSuffix(vendor, ".")) {
+		return model
+	}
+	return vendor + " " + model
 }
 
 // Main is the agent's entry point, kept here so the command is three lines
