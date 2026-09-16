@@ -30,6 +30,13 @@ type Agent struct {
 // a step that fails is logged and the rest still run, because a machine with
 // drivers and no Spotify is worth more than a machine with neither.
 func Apply(dir string) error {
+	// The window first, before anything is read from disk: at first sign-in
+	// the desktop is already up by the time Windows runs the agent, and every
+	// moment after that is somebody looking at a machine that appears to be
+	// finished.
+	ui := openScreenFn(machineName(machineModel()))
+	defer ui.Close()
+
 	m, err := LoadManifest(filepath.Join(dir, ManifestName))
 	if err != nil {
 		return err
@@ -50,16 +57,15 @@ func Apply(dir string) error {
 
 	a := &Agent{Dir: dir, Manifest: m, J: j, State: LoadState(dir)}
 	start := time.Now()
-	machine := machineName(a.machineModel())
+	machine := machineName(machineModel())
 	a.J.Info("", "first-boot agent starting for recipe %s on %s (%s)", m.Recipe, machine, runtime.GOOS)
 
 	// What the person at the machine sees. A nil screen -- no window, or not
 	// Windows -- costs nothing: every call on it does nothing.
-	a.UI = openScreenFn(machine)
+	a.UI = ui
 	if a.UI == nil {
 		a.J.Info("", "no status window on this machine; the log is the only record")
 	}
-	defer a.UI.Close()
 
 	// The display stays on and the machine stays awake while there is work
 	// to do. It is let go before the finish screen: a finished machine left

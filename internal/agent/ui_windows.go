@@ -47,7 +47,10 @@ var (
 	pLoadCursorW      = user32.NewProc("LoadCursorW")
 	pSetForegroundWin = user32.NewProc("SetForegroundWindow")
 	pGetClientRect    = user32.NewProc("GetClientRect")
+	pGetForegroundWin = user32.NewProc("GetForegroundWindow")
+	pIsWindowVisible  = user32.NewProc("IsWindowVisible")
 	pMoveWindow       = user32.NewProc("MoveWindow")
+	pSetWindowPos     = user32.NewProc("SetWindowPos")
 
 	pCreateFontW      = gdi32.NewProc("CreateFontW")
 	pCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
@@ -86,6 +89,10 @@ const (
 	transparent   = 1
 	idcArrow      = 32512
 	firstButtonID = 1000
+	hwndTopmost   = ^uintptr(0) // (HWND)-1
+	swpNoSize     = 0x0001
+	swpNoMove     = 0x0002
+	swpNoActivate = 0x0010
 )
 
 type rect struct{ left, top, right, bottom int32 }
@@ -269,6 +276,7 @@ func wndProc(hwnd windows.HWND, message uint32, wParam, lParam uintptr) uintptr 
 	case wmApp, wmTimer:
 		if w != nil {
 			w.syncButtons()
+			w.keepInFront()
 		}
 		pInvalidateRect.Call(uintptr(hwnd), 0, 1)
 		return 0
@@ -303,6 +311,29 @@ func wndProc(hwnd windows.HWND, message uint32, wParam, lParam uintptr) uintptr 
 	}
 	r, _, _ := pDefWindowProcW.Call(uintptr(hwnd), uintptr(message), wParam, lParam)
 	return r
+}
+
+// keepInFront puts the window back in front when something else has taken
+// over, once a second.
+//
+// Watched on an EliteBook: the Start menu was open across the status window
+// for the whole build, because Windows opens it at first sign-in and the shell
+// draws above even a topmost window. Taking the foreground is what closes it --
+// Start closes the moment it loses focus -- so that is what this does.
+//
+// Not when the window is hidden. Esc hides it, and somebody who has hidden the
+// window has said they want the machine to themselves; fighting them for the
+// foreground every second would be the rudest thing this program could do.
+func (w *win32Window) keepInFront() {
+	if visible, _, _ := pIsWindowVisible.Call(uintptr(w.hwnd)); visible == 0 {
+		return
+	}
+	fg, _, _ := pGetForegroundWin.Call()
+	if windows.HWND(fg) == w.hwnd {
+		return
+	}
+	pSetWindowPos.Call(uintptr(w.hwnd), hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
+	pSetForegroundWin.Call(uintptr(w.hwnd))
 }
 
 // syncButtons makes the real buttons match what the screen is asking for.

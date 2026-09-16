@@ -414,3 +414,26 @@ func TestARestartKeepsWhatItNeedsToComeBack(t *testing.T) {
 			cleared, disarmed)
 	}
 }
+
+// The resume task starts the agent as soon as there is a session to draw on.
+// A minute's delay meant a minute of somebody watching an ordinary desktop
+// after a restart, wondering whether provisioning was still happening.
+func TestTheResumeTaskDoesNotDawdle(t *testing.T) {
+	x := resumeTaskXML(`WIN\user`, `C:\x\dsky-agent.exe`, `C:\x`)
+	var task struct {
+		Triggers struct {
+			Logon struct {
+				Delay string `xml:"Delay"`
+			} `xml:"LogonTrigger"`
+		} `xml:"Triggers"`
+	}
+	if err := parseTask(x, &task); err != nil {
+		t.Fatal(err)
+	}
+	switch task.Triggers.Logon.Delay {
+	case "PT1M", "PT2M", "PT5M":
+		t.Errorf("the agent waits %s after signing in before it says anything", task.Triggers.Logon.Delay)
+	case "":
+		t.Error("no delay at all: the session may not be ready to draw on")
+	}
+}

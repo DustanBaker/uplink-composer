@@ -106,7 +106,7 @@ func (a *Agent) restart(reason string) error {
 // machineModel reads what the machine says about itself, for driver packs
 // that are only for one model. The BIOS keys are what the model gate script
 // used and are there before any vendor software is installed.
-func (a *Agent) machineModel() (vendor, model string) {
+func machineModel() (vendor, model string) {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `HARDWARE\DESCRIPTION\System\BIOS`, registry.QUERY_VALUE)
 	if err != nil {
 		return "", ""

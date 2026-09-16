@@ -58,7 +58,11 @@ func resumeTaskXML(user, exe, dir string) string {
     <LogonTrigger>
       <Enabled>true</Enabled>
       <UserId>` + esc(user) + `</UserId>
-      <Delay>PT1M</Delay>
+      <!-- Long enough for the session to exist, short enough that the desktop
+           does not sit there looking finished. A minute here was a minute of
+           somebody watching an ordinary desktop after a restart, wondering
+           whether anything was still happening. -->
+      <Delay>PT10S</Delay>
     </LogonTrigger>
   </Triggers>
   <Principals>

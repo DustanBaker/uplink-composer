@@ -164,7 +164,7 @@ func (a *Agent) vendorInstaller(exe Exe) {
 		return
 	}
 	if exe.OnlyModel != "" {
-		vendor, model := a.machineModel()
+		vendor, model := machineModel()
 		if !modelMatches(exe.OnlyVendor, exe.OnlyModel, vendor, model) {
 			a.J.Info(stepDrivers, "%s is for %s %s; this machine is %s %s, skipping",
 				exe.File, exe.OnlyVendor, exe.OnlyModel, vendor, model)

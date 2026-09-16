@@ -7,7 +7,7 @@ import "errors"
 // The agent only ever runs on Windows. These stubs exist so the package
 // builds and its logic can be tested on the machine DSKY is developed on.
 
-func (a *Agent) machineModel() (vendor, model string) { return "", "" }
+func machineModel() (vendor, model string) { return "", "" }
 
 // ensureResume, clearResume and restart carry the run across a restart on
 // Windows. Here they do nothing and report success, so the run's shape can be
